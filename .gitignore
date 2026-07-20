@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Retired Unity project — kept locally, not published
+archive/
+
+# Local tool settings
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store
