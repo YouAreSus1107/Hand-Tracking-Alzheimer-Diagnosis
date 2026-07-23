@@ -1,5 +1,5 @@
 """
-Hand tracking utilities shared by hand_tracking.py and iiv_test.py.
+Hand tracking utilities shared by hand_tracking.py and finger_tapping.py.
 
 Provides:
   HAND_CONNECTIONS          -- MediaPipe landmark connectivity list
@@ -31,12 +31,13 @@ class OneEuroFilter:
     At rest (low velocity) the cutoff is low → heavy smoothing → jitter suppressed.
     During fast motion (high velocity) the cutoff rises → less lag → tap edges preserved.
 
-    Tuned defaults for 30 fps finger-tap detection:
-      min_cutoff = 1.7 Hz  — smoothing at rest; increase if position still oscillates
-      beta       = 0.4     — how fast cutoff rises with speed; increase to reduce tap lag
+    Tuned defaults for 30 fps finger-tap detection (light smoothing — preserves
+    fast-tap minima and any real jitter/tremor the screening should capture):
+      min_cutoff = 6.0 Hz  — smoothing at rest; increase if position still oscillates
+      beta       = 1.5     — how fast cutoff rises with speed; increase to reduce tap lag
       d_cutoff   = 1.0 Hz  — derivative (velocity) filter cutoff, fixed
     """
-    def __init__(self, min_cutoff: float = 1.7, beta: float = 0.4, d_cutoff: float = 1.0):
+    def __init__(self, min_cutoff: float = 6.0, beta: float = 1.5, d_cutoff: float = 1.0):
         self.min_cutoff = min_cutoff
         self.beta = beta
         self.d_cutoff = d_cutoff
@@ -76,8 +77,8 @@ class OneEuroFilter:
 def make_landmark_filters() -> tuple[list[OneEuroFilter], list[OneEuroFilter]]:
     """Return (filters_x, filters_y) — one OneEuroFilter per landmark per axis."""
     return (
-        [OneEuroFilter(min_cutoff=1.7, beta=0.4) for _ in range(21)],
-        [OneEuroFilter(min_cutoff=1.7, beta=0.4) for _ in range(21)],
+        [OneEuroFilter() for _ in range(21)],
+        [OneEuroFilter() for _ in range(21)],
     )
 
 
