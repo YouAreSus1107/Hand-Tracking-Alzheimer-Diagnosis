@@ -28,6 +28,48 @@ _UINT32 = 0xFFFFFFFF
 _MAX_SANE_GAP = 1_000_000
 
 
+#: Sensor kinds the host knows how to interpret. ``fsr`` goes through the
+#: published FSR402 force curve (:mod:`core.glove.force`); ``flex`` through the
+#: calibrated bend estimate (:mod:`core.glove.flex`). Anything else is carried
+#: through as raw counts and resistance only — better to show less than to
+#: apply the wrong curve and print a confident, wrong number.
+KIND_FSR = "fsr"
+KIND_FLEX = "flex"
+KIND_UNKNOWN = "unknown"
+
+
+def kind_from_name(name: str) -> str:
+    """Guess a channel's sensor kind from its name.
+
+    The fallback for firmware older than the banner's ``chan=`` field. The
+    naming convention predates that field and is stable: ``f0..f4`` are flex,
+    ``p0..p5`` are pressure (GLOVE_FIRMWARE_PLAN.md §4.1).
+    """
+    if not name:
+        return KIND_UNKNOWN
+    head = name[0].lower()
+    if head == "f":
+        return KIND_FLEX
+    if head == "p":
+        return KIND_FSR
+    return KIND_UNKNOWN
+
+
+@dataclass(frozen=True)
+class ChannelMeta:
+    """What the host needs to interpret one channel's raw counts.
+
+    ``r_fixed`` is per-channel because the FSR and the flex strip sit on
+    different low-side resistors — a divider is most sensitive near the
+    sensor's own resistance, and those two parts live in very different bands.
+    Sharing one value would silently mis-scale one of them.
+    """
+
+    name: str
+    kind: str = KIND_UNKNOWN
+    r_fixed: int = 10000
+
+
 @dataclass(frozen=True)
 class GloveBanner:
     """Parsed ``#GLOVE ...`` boot banner.
@@ -35,6 +77,12 @@ class GloveBanner:
     ``cols`` is the authoritative column layout — consumers should read channel
     names from here rather than hardcoding them, so adding sensors to the
     firmware's CHANNELS[] table needs no host-side change.
+
+    ``chan`` carries the per-channel kind and resistor. It is an *additive*
+    field: firmware 0.2.0 and earlier omit it, so :attr:`channel_meta` falls
+    back to the global ``r_fixed`` plus :func:`kind_from_name`. That keeps old
+    recordings and un-reflashed boards working, which is why ``proto`` did not
+    need a bump when the field was added.
     """
 
     fw: str = ""
@@ -48,11 +96,37 @@ class GloveBanner:
     imu: str = "none"
     emg: int = 0
     cols: tuple[str, ...] = ()
+    chan: tuple[ChannelMeta, ...] = ()
 
     @property
     def channels(self) -> tuple[str, ...]:
         """Sensor column names — everything after the seq/t_us housekeeping."""
         return self.cols[2:] if len(self.cols) > 2 else ()
+
+    @property
+    def channel_meta(self) -> tuple[ChannelMeta, ...]:
+        """Per-channel kind and resistor, one entry per name in :attr:`channels`.
+
+        Prefers the banner's ``chan=`` field, matched by name. Any channel it
+        does not cover — older firmware, or a name mismatch — falls back to the
+        global ``r_fixed`` and a kind guessed from the name, so this always
+        returns exactly one entry per channel and callers never index off the
+        end.
+        """
+        by_name = {c.name: c for c in self.chan}
+        return tuple(
+            by_name.get(name, ChannelMeta(name=name,
+                                          kind=kind_from_name(name),
+                                          r_fixed=self.r_fixed))
+            for name in self.channels
+        )
+
+    def meta_for(self, index: int) -> ChannelMeta | None:
+        """Channel details by column index, or None if out of range."""
+        metas = self.channel_meta
+        if 0 <= index < len(metas):
+            return metas[index]
+        return None
 
     @property
     def supported(self) -> bool:
@@ -79,6 +153,36 @@ def _to_int(text: str, default: int = 0) -> int:
         return default
 
 
+def _parse_chan(text: str, default_r: int) -> tuple[ChannelMeta, ...]:
+    """Parse the banner's ``chan=name:kind:r_fixed,...`` field.
+
+    Total, like everything else here: a malformed entry is skipped rather than
+    raising, and a short entry keeps the defaults for the parts it omits. A
+    channel that drops out this way still gets covered by
+    :attr:`GloveBanner.channel_meta`'s fallback, so a garbled field degrades to
+    the old naming-convention behaviour rather than losing the channel.
+    """
+    out: list[ChannelMeta] = []
+    for entry in text.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        name = parts[0].strip()
+        if not name:
+            continue
+        kind = parts[1].strip().lower() if len(parts) > 1 and parts[1].strip() else kind_from_name(name)
+        if kind not in (KIND_FSR, KIND_FLEX):
+            kind = KIND_UNKNOWN
+        r_fixed = _to_int(parts[2], default_r) if len(parts) > 2 else default_r
+        # A non-positive resistor would divide by zero downstream and is never
+        # a real wiring choice — treat it as "not stated".
+        if r_fixed <= 0:
+            r_fixed = default_r
+        out.append(ChannelMeta(name=name, kind=kind, r_fixed=r_fixed))
+    return tuple(out)
+
+
 def parse_banner(line: str) -> GloveBanner | None:
     """Parse a ``#GLOVE k=v k=v ...`` banner. Returns None if it isn't one."""
     if not line:
@@ -95,6 +199,7 @@ def parse_banner(line: str) -> GloveBanner | None:
         kv[key] = value
 
     cols = tuple(c for c in kv.get("cols", "").split(",") if c)
+    default_r = _to_int(kv.get("r_fixed", "10000"), 10000)
     return GloveBanner(
         fw=kv.get("fw", ""),
         proto=_to_int(kv.get("proto", "0")),
@@ -103,10 +208,11 @@ def parse_banner(line: str) -> GloveBanner | None:
         adc_bits=_to_int(kv.get("adc_bits", "10"), 10) or 10,
         adc_ref_mv=_to_int(kv.get("adc_ref_mv", "3300"), 3300),
         vdiv_mv=_to_int(kv.get("vdiv_mv", "3300"), 3300),
-        r_fixed=_to_int(kv.get("r_fixed", "10000"), 10000),
+        r_fixed=default_r,
         imu=kv.get("imu", "none"),
         emg=_to_int(kv.get("emg", "0")),
         cols=cols,
+        chan=_parse_chan(kv.get("chan", ""), default_r),
     )
 
 

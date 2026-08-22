@@ -29,7 +29,7 @@ const dev = {
   env: null, status: null,
   channels: [], series: [], span: [],   // per channel: values[], {min,max}
   lastSeq: -1, paused: false,
-  window_s: 5, yAuto: false, unit: "force",
+  window_s: 5, yAuto: false, unit: "force", smooth: false,
   console: [], autoscroll: true,
   selected: new Set(),
   port: null,          // user's chosen port, survives re-renders
@@ -50,9 +50,13 @@ function devMv(adc, b){
   const ref = b ? b.adc_ref_mv : 3300, bits = b ? b.adc_bits : 10;
   return Math.floor((adc * ref) / ((1 << bits) - 1));
 }
-function devOhm(adc, b){
+// rFixed is passed in rather than read off the banner's global, because each
+// channel has its own low-side resistor (see devRFixed). Falls back to the
+// global when a caller has no channel in hand.
+function devOhm(adc, b, rFixed){
   const mv = devMv(adc, b);
-  const vdiv = b ? b.vdiv_mv : 3300, rf = b ? b.r_fixed : 10000;
+  const vdiv = b ? b.vdiv_mv : 3300;
+  const rf = (rFixed && rFixed > 0) ? rFixed : (b ? b.r_fixed : 10000);
   if(mv <= 0) return null;
   if(mv >= vdiv) return 0;
   return Math.floor((rf * (vdiv - mv)) / mv);
@@ -113,6 +117,103 @@ function devForceBadge(range){
   const [cls, text] = map[range] || map.rated;
   return `<span class="dev-badge ${cls}">${text}</span>`;
 }
+/* ── bend estimation ──────────────────────────────────────────────────
+   Same contract as force above: the span comes from the SERVER
+   (dev.status.flex_model / core/glove/flex.py), never a copy kept here.
+   Deliberately thinner than the force path — there is no published curve for
+   a bend sensor, so this is a position within a recorded span, not an angle. */
+
+function devFlexModel(){
+  return (dev.status && dev.status.flex_model) || null;
+}
+// Linear in resistance, mirroring flex.bend_fraction(). Clamped at both ends:
+// past the recorded span the sensor has left the range it was calibrated over
+// and extrapolating would invent travel nobody measured.
+function devBend(ohm){
+  const m = devFlexModel();
+  if(!m || !m.usable || ohm === null || ohm === undefined || ohm <= 0) return null;
+  const {flat_ohm:flat, bent_ohm:bent} = m;
+  if(bent === flat) return null;
+  return Math.max(0, Math.min(1, (ohm - flat) / (bent - flat))) * 100;
+}
+function devBendRange(ohm){
+  const m = devFlexModel();
+  if(!m || !m.usable || ohm === null || ohm === undefined || ohm <= 0) return "open";
+  const lo = Math.min(m.flat_ohm, m.bent_ohm), hi = Math.max(m.flat_ohm, m.bent_ohm);
+  const flatIsLow = m.flat_ohm <= m.bent_ohm;
+  if(ohm < lo) return flatIsLow ? "below" : "above";
+  if(ohm > hi) return flatIsLow ? "above" : "below";
+  return "in";
+}
+function devBendText(pct){
+  if(pct === null || pct === undefined) return "—";
+  return pct.toFixed(0) + "% bend";
+}
+// The uncalibrated span must never look like a measurement.
+function devBendBadge(range){
+  const m = devFlexModel();
+  const map = {
+    open:  ["dev-badge-dim",  "no signal"],
+    below: ["dev-badge-warn", "flatter than recorded — re-record span"],
+    above: ["dev-badge-warn", "bent past recorded — re-record span"],
+    in:    m && m.calibrated
+             ? ["dev-badge-ok",   "calibrated span"]
+             : ["dev-badge-warn", "provisional span — not calibrated"],
+  };
+  const [cls, text] = map[range] || map.open;
+  return `<span class="dev-badge ${cls}">${text}</span>`;
+}
+
+/* Which channels get which curve. The kind comes from the firmware's banner
+   (chan=name:kind:rFixed); the f./p. name check is the fallback for boards
+   still running firmware that predates that field. Getting this wrong is the
+   bug this whole branch exists to prevent: the FSR402 force curve applied to
+   a bending finger prints a confident newton figure that means nothing. */
+function devKind(i){
+  const b = dev.status && dev.status.banner;
+  if(b && b.chan && b.chan[i] && b.chan[i].kind) return b.chan[i].kind;
+  const n = dev.channels[i] || "";
+  if(n[0] === "f") return "flex";
+  if(n[0] === "p") return "fsr";
+  return "unknown";
+}
+// Per-channel resistor, for the same reason: the FSR and the flex strip sit on
+// different low-side resistors and sharing one mis-scales whichever lost.
+function devRFixed(i){
+  const b = dev.status && dev.status.banner;
+  if(b && b.chan && b.chan[i] && b.chan[i].r_fixed > 0) return b.chan[i].r_fixed;
+  return b ? b.r_fixed : 10000;
+}
+
+/* Median-of-N, for the DISPLAY ONLY.
+
+   At the top of the FSR's range the force curve is steep enough that one ADC
+   count is worth about a newton, so ordinary count noise reads as large force
+   swings. A median rejects those single-sample spikes without smearing real
+   edges the way a moving average would.
+
+   This must never touch recorded data. Jitter is signal — tremor and
+   micro-instability are precisely what this suite measures (plan §2, and the
+   same rule spiral_test.py enforces on the raw fingertip). Recording happens
+   server-side from raw frames and does not pass through here. */
+const DEV_SMOOTH_N = 5;
+function devMedian(values){
+  const v = values.filter(x => x !== null && x !== undefined);
+  if(!v.length) return null;
+  const s = v.slice().sort((a,b)=>a-b);
+  return s[Math.floor(s.length/2)];
+}
+function devSmoothSeries(data){
+  if(!dev.smooth || data.length < DEV_SMOOTH_N) return data;
+  const out = new Array(data.length);
+  for(let i=0;i<data.length;i++){
+    if(data[i] === null){ out[i] = null; continue; }   // keep breaks in the line
+    const lo = Math.max(0, i - (DEV_SMOOTH_N - 1));
+    out[i] = devMedian(data.slice(lo, i + 1));
+  }
+  return out;
+}
+
 function devPill(state, label, value){
   // Style guide 2.4: never encode meaning in colour alone — icon + word always.
   const map = {ok:["st-yes", I.check], bad:["st-no", I.x], warn:["st-partial", I.minus]};
@@ -159,6 +260,7 @@ function devBuild(){
   document.getElementById("dev-scope-tools").innerHTML =
     `<label class="dev-sel">Unit
        <select data-dev="unit"><option value="force" selected>Force (N)</option>
+       <option value="bend">Bend (%)</option>
        <option value="adc">Raw ADC</option><option value="ohm">Resistance (&#937;)</option>
        <option value="us">Conductance (&#181;S)</option></select></label>
      <label class="dev-sel">Window
@@ -166,7 +268,9 @@ function devBuild(){
        <option value="5" selected>5 s</option><option value="10">10 s</option></select></label>
      <label class="dev-sel">Y axis
        <select data-dev="yaxis"><option value="fixed" selected>Fixed</option>
-       <option value="auto">Auto</option></select></label>` +
+       <option value="auto">Auto</option></select></label>
+     <label class="dev-check" title="Median of ${DEV_SMOOTH_N} samples. Display only — recordings stay raw.">
+       <input type="checkbox" data-dev="smooth"> Smooth (display only)</label>` +
     devBtn("pause", "Pause");
 
   document.getElementById("dev-console-tools").innerHTML =
@@ -232,6 +336,7 @@ function devChange(e){
   if(el.dataset.dev === "window") dev.window_s = +el.value;
   if(el.dataset.dev === "yaxis") dev.yAuto = el.value === "auto";
   if(el.dataset.dev === "unit") dev.unit = el.value;
+  if(el.dataset.dev === "smooth") dev.smooth = el.checked;
   if(el.dataset.dev === "autoscroll") dev.autoscroll = el.checked;
   if(el.dataset.dev === "port") dev.port = el.value;
   if(el.dataset.dev === "chan"){
@@ -443,6 +548,7 @@ function devRenderChannelTiles(){
       <div class="dev-chan-head">
         <label class="dev-check"><input type="checkbox" data-dev="chan" data-i="${i}"
           ${dev.selected.has(i)?"checked":""}> <i class="dev-swatch" style="background:${DEV_SERIES[i % DEV_MAX_SERIES]}"></i>${name}</label>
+        <span class="dev-chan-kind">${devKind(i)}</span>
       </div>
       <div class="dev-chan-val" id="dev-force-${i}">&#8212;</div>
       <div class="dev-chan-sub" id="dev-gram-${i}">&#8212;</div>
@@ -457,27 +563,62 @@ function devRenderChannelValues(){
   for(let i=0;i<dev.channels.length;i++){
     const buf = dev.series[i];
     if(!buf || !buf.length) continue;
-    const v = buf[buf.length-1];
-    const ohm = devOhm(v, b);
-    const n = devForce(ohm);
+    const kind = devKind(i);
+    const rf = devRFixed(i);
+    // Smoothing applies to the headline number as well as the trace, so the
+    // tile and the plot never disagree about what is on screen.
+    const v = dev.smooth
+      ? devMedian(buf.slice(-DEV_SMOOTH_N))
+      : buf[buf.length-1];
+    const ohm = devOhm(v, b, rf);
     const us = ohm ? 1e6/ohm : null;
 
     const set = (id, text) => { const el = document.getElementById(id+i); if(el) el.textContent = text; };
-    set("dev-force-", devForceText(n));
-    set("dev-gram-", devGramsText(n) || "—");
     const bd = document.getElementById("dev-badge-"+i);
-    if(bd) bd.innerHTML = devForceBadge(devForceRange(n));
+
+    // Branch by sensor kind. The FSR402 force curve is meaningless for a bend
+    // sensor — applying it anyway would print confident newtons for a bending
+    // finger, which is exactly the kind of dressed-up guess this project
+    // refuses to show.
+    if(kind === "flex"){
+      const pct = devBend(ohm);
+      set("dev-force-", devBendText(pct));
+      set("dev-gram-", devOhmText(ohm));
+      if(bd) bd.innerHTML = devBendBadge(devBendRange(ohm));
+    } else if(kind === "fsr"){
+      const n = devForce(ohm);
+      set("dev-force-", devForceText(n));
+      set("dev-gram-", devGramsText(n) || "—");
+      if(bd) bd.innerHTML = devForceBadge(devForceRange(n));
+    } else {
+      // Unknown kind: stop at what was actually measured rather than guess.
+      set("dev-force-", devOhmText(ohm));
+      set("dev-gram-", "—");
+      if(bd) bd.innerHTML = `<span class="dev-badge dev-badge-dim">unknown sensor — raw only</span>`;
+    }
     set("dev-raw-", `${v} adc · ${devOhmText(ohm)} · ${us === null ? "—" : us.toFixed(0)+" µS"}`);
 
-    // Peak force latches from the max ADC already tracked for the span — the
-    // number that matters for a grip or a tap.
+    // Peak latches from the extreme ADC already tracked for the span — the
+    // number that matters for a grip, a tap, or a full finger curl. Peak is
+    // always taken from RAW counts, never the smoothed value: smoothing is a
+    // display aid and must not quietly lower a recorded maximum.
     const s = dev.span[i];
     const sp = document.getElementById("dev-span-"+i);
     if(sp){
       if(s.max === null || s.min === null) sp.textContent = "peak —";
       else {
-        const peak = devForce(devOhm(s.max, b));
-        sp.textContent = `peak ${devForceText(peak)}  ·  adc span ${s.min}–${s.max}`
+        // Which end of the ADC span is the "peak" depends on the sensor. Both
+        // sit on the high side of their divider, so resistance rising pulls
+        // the reading DOWN. Pressing an FSR lowers its resistance, so hardest
+        // press = highest count; bending a flex strip raises its resistance,
+        // so most bend = LOWEST count. Taking s.max for both would report a
+        // flex sensor's peak as the moment it was straightest.
+        const peakAdc = kind === "flex" ? s.min : s.max;
+        const peakOhm = devOhm(peakAdc, b, rf);
+        const peak = kind === "flex"
+          ? devBendText(devBend(peakOhm))
+          : devForceText(devForce(peakOhm));
+        sp.textContent = `peak ${peak}  ·  adc span ${s.min}–${s.max}`
           + ` of ${b ? (1<<b.adc_bits)-1 : 1023}`;
       }
     }
@@ -532,22 +673,33 @@ function devDraw(){
   // Map raw ADC into the selected unit. One unit for the whole plot — a second
   // y-scale would make two series silently incomparable.
   const fm = devForceModel();
-  const conv = {
-    adc:   v => v,
-    ohm:   v => devOhm(v, b),
-    us:    v => { const r = devOhm(v, b); return r ? 1e6/r : null; },
-    force: v => devForce(devOhm(v, b)),
-  }[dev.unit] || (v => v);
+  const convFor = (i) => {
+    const rf = devRFixed(i);
+    return {
+      adc:   v => v,
+      ohm:   v => devOhm(v, b, rf),
+      us:    v => { const r = devOhm(v, b, rf); return r ? 1e6/r : null; },
+      force: v => devForce(devOhm(v, b, rf)),
+      bend:  v => devBend(devOhm(v, b, rf)),
+    }[dev.unit] || (v => v);
+  };
   const fixedRange = {
     adc:   [0, adcMax],
     force: [0, fm ? fm.rated_max_n : 20],   // default to the part's rated band
+    bend:  [0, 100],
     ohm:   [0, (b ? b.r_fixed : 10000) * 3],
     us:    [0, 2000],
   }[dev.unit] || [0, adcMax];
-  const label = {adc:"", ohm:" Ω", us:" µS", force:" N"}[dev.unit] || "";
+  const label = {adc:"", ohm:" Ω", us:" µS", force:" N", bend:" %"}[dev.unit] || "";
 
-  const traces = sel.map(i => (dev.series[i] || []).slice(-n)
-                                .map(conv).map(x => (x === null ? null : x)));
+  // Newtons and bend-percent cannot share a y-axis without being misleading,
+  // so a kind-specific unit draws only the channels it applies to. The
+  // kind-neutral units (adc/ohm/us) still draw everything.
+  const unitKind = {force:"fsr", bend:"flex"}[dev.unit] || null;
+  const drawable = sel.filter(i => !unitKind || devKind(i) === unitKind);
+
+  const traces = drawable.map(i => devSmoothSeries(
+    (dev.series[i] || []).slice(-n).map(convFor(i))));
 
   let [lo, hi] = fixedRange;
   if(dev.yAuto){
@@ -583,9 +735,20 @@ function devDraw(){
   g.fillText(`-${dev.window_s}s`, pad.l+14, pad.t+ph+5);
   g.fillText("now", pad.l+pw-14, pad.t+ph+5);
 
-  // 2px lines, one per selected channel, in fixed palette order.
+  // 2px lines, one per drawable channel, in fixed palette order.
+  //
+  // Clip to the plot rectangle. The fixed force range stops at the part's
+  // rated 20 N, but nothing clamps the values, so a hard press maps above the
+  // top gridline and used to draw over the axis labels and out to the canvas
+  // edge — which read as the trace flattening out at 20 N when it was really
+  // running off the chart. Clipping makes "off the top" look like off the top.
+  // Switch the Y axis to Auto to see where it actually went.
+  g.save();
+  g.beginPath();
+  g.rect(pad.l, pad.t, pw, ph);
+  g.clip();
   g.lineWidth = 2; g.lineJoin = "round"; g.lineCap = "round";
-  sel.forEach((i, s) => {
+  drawable.forEach((i, s) => {
     const data = traces[s];
     if(!data || data.length < 2) return;
     g.strokeStyle = DEV_SERIES[i % DEV_MAX_SERIES];
@@ -603,6 +766,17 @@ function devDraw(){
     }
     g.stroke();
   });
+  g.restore();   // release the plot-rectangle clip
+
+  // Say so when a unit hides channels, rather than letting a line silently
+  // vanish and look like a dead sensor.
+  const hidden = sel.length - drawable.length;
+  if(hidden > 0){
+    g.fillStyle = "#64748B"; g.font = "11px 'JetBrains Mono', monospace";
+    g.textAlign = "left"; g.textBaseline = "top";
+    g.fillText(`${hidden} channel${hidden>1?"s":""} hidden — not a ${unitKind === "flex" ? "bend" : "force"} sensor`,
+               pad.l + 6, pad.t + 6);
+  }
 }
 
 function devLoop(){

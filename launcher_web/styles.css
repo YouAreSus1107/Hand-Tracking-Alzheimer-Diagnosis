@@ -643,7 +643,14 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .dev-chan-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
 .dev-chan{background:var(--surface);border:1px solid var(--border);
           border-radius:var(--radius);padding:14px}
-.dev-chan-head{margin-bottom:8px}
+.dev-chan-head{margin-bottom:8px;display:flex;align-items:center;
+               justify-content:space-between;gap:8px}
+/* Which curve this channel's reading came from. Small, but it must be visible:
+   a force number and a bend number look alike and mean nothing alike. */
+.dev-chan-kind{font-family:'JetBrains Mono',monospace;font-size:10px;
+               letter-spacing:.06em;text-transform:uppercase;
+               color:var(--text-disabled);border:1px solid var(--border);
+               border-radius:4px;padding:1px 6px;flex:none}
 .dev-swatch{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none}
 .dev-chan-val{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;
               color:var(--text);font-variant-numeric:tabular-nums;line-height:1.1}

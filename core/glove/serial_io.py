@@ -18,10 +18,12 @@ import time
 from collections import deque
 from datetime import datetime
 
+from .flex import bend_percent, bend_range, default_span, flex_model
 from .force import (conductance_us, force_model, force_newtons, force_range,
                     grams_force)
-from .protocol import (PROTO_SUPPORTED, FrameAccumulator, GloveFrame,
-                       adc_to_mv, sensor_ohms)
+from .protocol import (KIND_FLEX, KIND_FSR, PROTO_SUPPORTED, ChannelMeta,
+                       FrameAccumulator, GloveFrame, adc_to_mv, kind_from_name,
+                       sensor_ohms)
 
 serial = None       # type: ignore[assignment]
 _list_ports = None  # type: ignore[assignment]
@@ -294,6 +296,9 @@ class GloveReader:
                 # exactly one place (core/glove/force.py) and dev.js merely
                 # interpolates the points it is given.
                 "force_model": force_model(),
+                # Same contract for bend: the span lives on the server so the
+                # page never carries its own copy of a calibration.
+                "flex_model": flex_model(default_span()),
                 "banner": {
                     "fw": banner.fw,
                     "proto": banner.proto,
@@ -307,34 +312,97 @@ class GloveReader:
                     "emg": banner.emg,
                     "cols": list(banner.cols),
                     "channels": list(banner.channels),
+                    # Always one entry per channel, in column order — the page
+                    # indexes it alongside the frame values, so a short list
+                    # would silently shift every readout.
+                    "chan": [{"name": m.name, "kind": m.kind,
+                              "r_fixed": m.r_fixed}
+                             for m in banner.channel_meta],
                     "supported": banner.supported,
                 } if banner else None,
             }
 
-    def derived(self, adc: int) -> dict:
+    def derived(self, adc: int, channel: int | str | None = None) -> dict:
         """The full chain for one ADC reading, using the banner's constants.
 
-        counts → millivolts → sensor resistance → conductance → approximate
-        force. ``range`` says whether that force is inside the part's rated
-        band, so callers can badge it instead of implying false precision.
+        counts → millivolts → sensor resistance, then a branch by sensor kind:
+
+        * **force** channels continue → conductance → approximate newtons, with
+          ``range`` saying whether that force is inside the part's rated band.
+        * **flex** channels continue → bend percent against the recorded span,
+          with ``range`` saying whether the reading is clamped at either end.
+
+        The branch is the point. The FSR402 force curve is meaningless for a
+        bend sensor, and applying it anyway would print a confident newton
+        figure for a bending finger. Channels whose kind is unknown stop at
+        resistance rather than guessing.
+
+        ``channel`` is the column index (or name); omit it only when the kind
+        genuinely does not matter, since the default assumes a force channel
+        for backwards compatibility with single-FSR callers.
         """
         with self._lock:
             b = self._acc.banner
         ref = b.adc_ref_mv if b else 3300
         vdiv = b.vdiv_mv if b else 3300
-        rfix = b.r_fixed if b else 10000
         bits = b.adc_bits if b else 10
+        meta = self._meta_for(b, channel)
 
-        ohm = sensor_ohms(adc, ref, vdiv, rfix, bits)
-        newtons = force_newtons(ohm)
-        return {
+        ohm = sensor_ohms(adc, ref, vdiv, meta.r_fixed, bits)
+        out = {
+            "channel": meta.name,
+            "kind": meta.kind,
+            "r_fixed": meta.r_fixed,
             "mv": adc_to_mv(adc, ref, bits),
             "ohm": ohm,
             "us": conductance_us(ohm),
-            "newtons": newtons,
-            "gramsf": grams_force(newtons),
-            "range": force_range(newtons),
+            "newtons": None,
+            "gramsf": None,
+            "bend_pct": None,
+            "range": "open",
         }
+        if meta.kind == KIND_FLEX:
+            span = self._flex_span(meta.name)
+            out["bend_pct"] = bend_percent(ohm, span)
+            out["range"] = bend_range(ohm, span)
+        elif meta.kind == KIND_FSR:
+            newtons = force_newtons(ohm)
+            out["newtons"] = newtons
+            out["gramsf"] = grams_force(newtons)
+            out["range"] = force_range(newtons)
+        return out
+
+    def _meta_for(self, banner, channel: int | str | None) -> ChannelMeta:
+        """Channel details for an index or name, with a safe fallback.
+
+        Never returns None: an unrecognised channel degrades to the banner's
+        global resistor and a kind guessed from the name, which is the same
+        path firmware predating the ``chan=`` field takes.
+        """
+        default_r = banner.r_fixed if banner else 10000
+        if banner is not None:
+            metas = banner.channel_meta
+            if isinstance(channel, int) and 0 <= channel < len(metas):
+                return metas[channel]
+            if isinstance(channel, str):
+                for m in metas:
+                    if m.name == channel:
+                        return m
+        name = channel if isinstance(channel, str) else ""
+        # No channel named at all: assume force, matching the original
+        # single-FSR behaviour of this method.
+        kind = kind_from_name(name) if name else KIND_FSR
+        return ChannelMeta(name=name, kind=kind, r_fixed=default_r)
+
+    def _flex_span(self, name: str):
+        """Recorded bend span for a flex channel.
+
+        Currently always the provisional default — per-user calibration is
+        gate 9 (``calibrate.py``). Isolated here so that landing calibration
+        means changing this one method, and so every flex reading today is
+        correctly reported as uncalibrated.
+        """
+        return default_span()
 
     # ── CSV recording ─────────────────────────────────────────────────────
 

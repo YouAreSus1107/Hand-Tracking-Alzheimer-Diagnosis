@@ -1,12 +1,13 @@
 # Sensor-Glove Firmware & Toolchain Plan (Arduino side)
 
-_Last updated: 2026-07-26. **Status: firmware live, host stack landed, force
-readout working.** `firmware/glove/glove.ino` **v0.2.0** streams **12-bit**
-samples from an **Arduino Nano 33 BLE (confirmed, COM10)** at a measured
-**99.978 Hz with zero dropped frames**. `core/glove/` parses, records, and
-converts to approximate force via the published FSR402 curve (§5b); the
-launcher's **Developer page** shows newtons, grams-force, conductance and peak
-force. **Gates 0, 1, 7 and 8 passed**; gate 3 awaits a recorded press span._
+_Last updated: 2026-08-22. **Status: firmware live, host stack landed, force
+and bend readouts working.** `firmware/glove/glove.ino` **v0.3.0** streams
+**12-bit** samples from an **Arduino Nano 33 BLE (confirmed, COM10)** at a
+measured **99.978 Hz with zero dropped frames**. Two channels are fitted: an
+**FSR402 on A0** and a **flex strip on A1**, each on its own low-side resistor
+(§4.2a). `core/glove/` parses, records, and converts to approximate force via
+the published FSR402 curve (§5b) or to normalised bend against a recorded span
+(§5c). **Gates 0, 1, 7 and 8 passed**; gates 2 and 3 await recorded spans._
 _Integration context in [`ROADMAP.md`](ROADMAP.md) §2–§3._
 
 This document covers the two things the design notes leave implicit:
@@ -157,6 +158,9 @@ lands hardest at the top of the range (5–20 N spans just 108 counts at 10-bit)
 `OVERSAMPLE` rose 4 → 8 at the same time, since two extra bits are only worth
 having if they sit above the ADC's noise floor. Measured on hardware afterwards:
 **99.978 Hz, 0 dropped frames** — the extra reads fit the 10 ms budget.
+It rose again **8 → 16 in fw 0.3.0** to calm the high-force jitter described in
+§5b-i. Still comfortable at two channels; **re-check the measured rate at gate
+6 and expect to bring it back down** once 11 channels share the frame period.
 
 `ADC_BITS`/`ADC_MAX` are single constants for exactly this reason: before the
 change, `1023` was hardcoded in `adcToMillivolts()`, seeded `g_min[]` in
@@ -205,6 +209,36 @@ glove** instead of guessing, verifies the firmware and host agree on the column
 layout before a single sample is trusted, and records which IMU variant the
 board actually has (§1.3). Refuse to parse frames until a compatible `proto` is
 seen.
+
+### 4.2a Per-channel detail — the `chan=` field
+
+Added in fw 0.3.0, when the flex sensor joined the FSR:
+
+```
+chan=p0:fsr:10000,f0:flex:47000
+```
+
+Each entry is `name:kind:rFixed`. Two things were global and could not stay
+that way once two *different* sensor types shared the board:
+
+- **`rFixed`.** A divider is most sensitive where the fixed resistor is near
+  the sensor's own resistance. An FSR402 in its rated band sits around
+  1–30 kΩ; a flex strip runs roughly 10 kΩ flat to ~110 kΩ bent. One shared
+  value mis-scales whichever sensor did not own it, and the error is invisible
+  — it produces plausible resistances that are simply wrong.
+- **`kind`.** The host applies the published FSR402 force curve (§5b) to force
+  channels. That curve is meaningless for a bend sensor. Without a declared
+  kind the dev page prints a confident newton figure for a bending finger,
+  which is exactly the dressed-up guess this project keeps refusing to show.
+
+**The field is additive and `proto` stays 1.** `cols` and the frame layout are
+unchanged, and the banner parser ignores keys it does not recognise. A host
+reading a pre-0.3.0 board falls back to the global `r_fixed` and infers kind
+from the naming convention (`f…` flex, `p…` pressure), so old boards and old
+recordings keep working. `core/glove/protocol.py` guarantees **one metadata
+entry per channel in column order** whatever the banner said — a short or
+garbled `chan=` degrades to the fallback rather than shifting every readout by
+one column.
 
 ### 4.3 Why ASCII, and why baud rate is irrelevant
 
@@ -264,8 +298,14 @@ core/glove/
                 #       proto-version check; seq-gap / drop accounting;
                 #       adc_to_mv / sensor_ohms mirroring the firmware's
                 #       integer math; FrameAccumulator for stream health
+  force.py      # DONE. PURE: resistance -> newtons via the published FSR402
+                #       curve; rated-band classification (5b)
+  flex.py       # DONE. PURE: resistance -> normalised bend against a recorded
+                #       span; no invented curve (5c)
   serial_io.py  # DONE. pyserial port open, VID-based auto-detect, background
-                #       reader thread, bounded ring buffer, CSV recording
+                #       reader thread, bounded ring buffer, CSV recording;
+                #       derived() routes each channel to force.py or flex.py
+                #       by the kind declared in the banner (4.2a)
   calibrate.py  # TODO: PURE raw ADC → degrees / newtons; per-user profile
                 #       load/save (the design notes Step 9)
   bridge.py     # TODO (optional): republish onto localhost UDP, mirroring
@@ -338,6 +378,80 @@ Per-sensor calibration is deferred, not designed out: every function derives
 from `FSR402_CURVE`, so `calibrate.py` can replace that table with measured
 points and nothing else changes.
 
+### 5b-i. Why the force trace jitters at hard presses
+
+Observed at gate 3 and worth writing down, because it looks like a bug and is
+not one. Near the top of the range the sensor's resistance is a few hundred
+ohms, and the log-log curve is steep there: **one ADC count is worth roughly a
+newton**. Ordinary count noise therefore reads as large force swings. Three
+things address it, in order of how much they help:
+
+1. **Stay in the rated band.** Past 20 N the number is an upper bound, not a
+   measurement (§5b), so chasing its stability is chasing a figure that does
+   not mean anything. This instrument is for fine motor work.
+2. **`OVERSAMPLE` 8 → 16** (fw 0.3.0). Averaging *within* one timestep is the
+   one noise reduction §2 permits, because it cannot touch inter-sample
+   dynamics. Affordable at two channels; **must come back down when the mux
+   lands** — 11 channels × 16 reads will not fit the 10 ms frame period.
+3. **A display-only median** on the dev page (median of 5, off by default).
+   Rejects single-sample spikes without smearing real edges. It never touches
+   recorded data — recording happens server-side from raw frames — because
+   jitter is signal.
+
+**Not done: lowering the 10 kΩ resistor.** Already weighed and rejected in §5b.
+
+A related display bug was fixed at the same time: the scope's fixed force axis
+stops at the rated 20 N, but nothing clamped the values, so a hard press drew
+above the top gridline and off the canvas — which read as the trace flattening
+out at 20 N when it was really running off the chart. The trace is now clipped
+to the plot rectangle; switch the Y axis to Auto to see where it actually went.
+
+---
+
+## 5c. Bend estimation (`core/glove/flex.py`)
+
+The counterpart to §5b, and deliberately weaker, because the data is weaker.
+
+**There is no published curve for a bend sensor.** Interlink publishes four
+anchor points for the FSR402, which is what makes §5b defensible. Spectra
+Symbol publishes only a nominal flat resistance and a nominal resistance at
+90°, with wide part-to-part spread and no transfer function between them.
+Inventing one would manufacture exactly the false precision this document keeps
+guarding against.
+
+**So the readout is position within a recorded span, not an angle.** Given a
+flat and a fully-bent resistance measured from the actual sensor on the actual
+finger, `bend_fraction()` reports where the current reading sits, 0–1. That is
+honest, useful for tracking movement, and needs no datasheet. Interpolation is
+**linear in resistance** — not a claim about the physics, just the neutral
+choice for a normalised readout when the true shape is unmeasured. (§5b
+interpolates in log-log space because the datasheet's own anchors demand it;
+here there are no anchors to honour.)
+
+**Honesty rules, mirroring §5b:**
+
+- The default span is a placeholder, and `is_calibrated()` reports it as such
+  so the UI badges it *"provisional span — not calibrated"* rather than
+  implying measurement.
+- Readings are **clamped** at both ends of the span, and `bend_range()` returns
+  `below` / `in` / `above` so a clamped reading is badged instead of silently
+  pretending to still track movement.
+- A span too narrow to be real travel (`MIN_SPAN_RATIO`) is rejected outright —
+  dividing by it would amplify jitter into a full-scale swing.
+- The span is direction-agnostic: a sensor can be mounted or wired so bending
+  *lowers* resistance, and "flat" must keep meaning flat either way.
+
+**Degrees wait for gate 9.** `calibrate.py` is where a per-user angle mapping
+belongs, and also where a non-linear correction goes *if measurement shows one
+is needed* — not before.
+
+> **Peak direction differs between the two sensors, and it is easy to get
+> backwards.** Both sit on the high side of their divider, so rising resistance
+> pulls the reading down. Pressing an FSR *lowers* its resistance → hardest
+> press is the **highest** count. Bending a flex strip *raises* its resistance
+> → most bend is the **lowest** count. Taking the max count for both reports a
+> flex sensor's peak as the moment it was straightest.
+
 ---
 
 ## 6. Build order, with a verification gate at each step
@@ -349,7 +463,7 @@ proceed past a failed gate.**
 |---|---|---|
 | 0 | Blink + banner on a bare board | Board enumerates as a COM port; banner prints in Serial Monitor. Proves toolchain and driver before any sensor exists. |
 | 1 | Simulate the divider ([§7.5](#75-simulators-browser-no-install)) | You can predict the junction voltage at 3.3 V for min and max sensor resistance, on paper, before spending money. |
-| 2 | One flex sensor, direct to A0 | Reading swings smoothly over a wide span as you bend. **Record the actual min/max** — it feeds calibration. |
+| 2 | One flex sensor, direct to A1 | **Host side ready** — `f0` is declared in the firmware's channel table on a 47 kΩ leg and the dev page shows bend %. Gate still open: reading must swing smoothly over a wide span as you bend, and the **actual min/max must be recorded** — those two numbers become the calibrated span in §5c, which is provisional until they exist. |
 | 3 | One FSR, direct to A1 | Reading responds monotonically to pressure. Note that FSRs are strongly non-linear; that is expected. |
 | 4 | Add the CD74HC4067, move both sensors onto it | Both read correctly through the mux, **and channel 0 does not change when only channel 1 is pressed.** This is the crosstalk gate — §3.3. |
 | 5 | Onboard IMU | Accel reads ≈1 g on the down axis and swaps sign when the board is flipped. Banner reports the correct IMU variant. |
@@ -452,6 +566,38 @@ hardware arrives.
 - Per-user calibration profiles — they contain personal measurements and are
   device- and user-specific.
 - `results/` is already ignored and covers glove session logs.
+
+---
+
+## 7b. Deferred: the hand pressure map
+
+**Designed, not built.** Deferred deliberately until more sensors are fitted —
+with two channels there is nothing to map.
+
+The goal is to see *where* the hand is pressing hardest. Note what that
+requires: **one FSR402 reports a single number for its whole pad** and has no
+spatial resolution of its own. "Which part of the hand" can only come from
+several sensors at known positions — which is precisely what the 5 fingertips +
+1 palm layout in §9.1 is for.
+
+Design, when it lands:
+
+- A hand outline with a marked site per sensor: five fingertips and the palm
+  for force, the finger positions for bend.
+- Fill = pressure now; ring = hardest press since the last `Z`. The dev page
+  already tracks those peaks per channel, so this is a rendering job, not a new
+  measurement path — including the peak-direction trap in §5c.
+- Sites matched by **channel name** (`p0`–`p5`, `f0`–`f4`), which the firmware
+  already assigns thumb → pinky. Sites with no sensor fitted draw faint and
+  empty, so the map stays honest about what is actually measured and fills in
+  as sensors are added, with no code change per sensor.
+- Anything past 20 N carries the same "upper bound only" badge the channel
+  tiles use, so a hard press cannot masquerade as a precise figure.
+
+**Waits on:** enough sensors to be meaningful, which past ~7 channels waits on
+the CD74HC4067 and its crosstalk check (gate 4).
+**Settle first:** palm sensor placement (§9.1) — the map needs one spot chosen,
+and the thenar eminence and mid-palm measure different things.
 
 ---
 

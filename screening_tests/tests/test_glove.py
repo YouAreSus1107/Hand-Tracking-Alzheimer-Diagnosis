@@ -18,7 +18,13 @@ sys.path.insert(0, str(_REPO_ROOT))
 from core.glove.force import (FSR402_CURVE, PART_TO_PART_PCT, RATED_MAX_N,
                               RATED_MIN_N, conductance_us, force_model,
                               force_newtons, force_range, grams_force)
-from core.glove.protocol import (PROTO_SUPPORTED, FrameAccumulator, adc_to_mv,
+from core.glove.flex import (MIN_SPAN_RATIO, NOMINAL_BENT_OHM,
+                             NOMINAL_FLAT_OHM, FlexSpan, bend_fraction,
+                             bend_percent, bend_range, default_span,
+                             flex_model, is_calibrated, span_from_ohms)
+from core.glove.protocol import (KIND_FLEX, KIND_FSR, KIND_UNKNOWN,
+                                 PROTO_SUPPORTED, ChannelMeta,
+                                 FrameAccumulator, adc_to_mv, kind_from_name,
                                  parse_banner, parse_frame, sensor_ohms,
                                  seq_gap, us_delta)
 
@@ -26,6 +32,12 @@ from core.glove.protocol import (PROTO_SUPPORTED, FrameAccumulator, adc_to_mv,
 REAL_BANNER = ("#GLOVE fw=0.1.0 proto=1 board=nano33ble rate=100 adc_bits=10 "
                "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=none emg=0 "
                "cols=seq,t_us,p0")
+
+# Firmware 0.3.0: FSR on A0 + flex on A1, each with its own low-side resistor.
+TWO_CHANNEL_BANNER = (
+    "#GLOVE fw=0.3.0 proto=1 board=nano33ble rate=100 adc_bits=12 "
+    "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=none emg=0 "
+    "cols=seq,t_us,p0,f0 chan=p0:fsr:10000,f0:flex:47000")
 
 
 def test_banner_parses_all_fields():
@@ -278,6 +290,191 @@ def test_full_chain_adc_to_force_at_12_bit():
     f = force_newtons(r)
     assert 8.0 < f < 12.0                          # ~10 N per the curve
     assert force_range(f) == "rated"
+
+
+# ── per-channel banner metadata (firmware 0.3.0) ────────────────────────────
+
+
+def test_banner_parses_per_channel_kind_and_resistor():
+    b = parse_banner(TWO_CHANNEL_BANNER)
+    assert b is not None
+    assert b.channels == ("p0", "f0")
+    metas = b.channel_meta
+    assert [m.name for m in metas] == ["p0", "f0"]
+    assert metas[0].kind == KIND_FSR and metas[0].r_fixed == 10000
+    assert metas[1].kind == KIND_FLEX and metas[1].r_fixed == 47000
+    # The added field must not disturb the layout contract.
+    assert b.proto == PROTO_SUPPORTED and b.supported
+    assert b.adc_max == 4095
+
+
+def test_banner_without_chan_field_falls_back_to_naming_convention():
+    # Firmware 0.2.0 and earlier emit no chan= at all. Every channel must still
+    # come back with a kind and a resistor, or the dev page shifts its readouts.
+    b = parse_banner(REAL_BANNER)
+    metas = b.channel_meta
+    assert len(metas) == len(b.channels)
+    assert metas[0].kind == KIND_FSR          # "p0" -> pressure
+    assert metas[0].r_fixed == b.r_fixed      # global fallback
+
+
+def test_channel_meta_covers_channels_the_chan_field_missed():
+    # A chan= naming only some channels must not drop the rest - one entry per
+    # column, always, in column order.
+    b = parse_banner(TWO_CHANNEL_BANNER.replace(
+        "chan=p0:fsr:10000,f0:flex:47000", "chan=p0:fsr:10000"))
+    metas = b.channel_meta
+    assert [m.name for m in metas] == ["p0", "f0"]
+    assert metas[1].kind == KIND_FLEX         # guessed from the name
+    assert metas[1].r_fixed == 10000          # global fallback
+
+
+def test_banner_chan_field_never_raises_on_junk():
+    junk = ("chan=", "chan=,,,", "chan=:::", "chan=p0", "chan=p0:",
+            "chan=p0:fsr", "chan=p0:fsr:", "chan=p0:fsr:abc",
+            "chan=p0:fsr:0", "chan=p0:fsr:-5", "chan=p0:bogus:10000",
+            "chan=p0:fsr:10000,,f0:flex:47000")
+    for bad in junk:
+        b = parse_banner(TWO_CHANNEL_BANNER.replace(
+            "chan=p0:fsr:10000,f0:flex:47000", bad))
+        assert b is not None, bad
+        metas = b.channel_meta
+        assert len(metas) == len(b.channels), bad
+        for m in metas:
+            # A bad resistor must never reach the divider maths as <= 0.
+            assert m.r_fixed > 0, bad
+            assert m.kind in (KIND_FSR, KIND_FLEX, KIND_UNKNOWN), bad
+
+
+def test_banner_chan_rejects_an_unknown_kind():
+    b = parse_banner(TWO_CHANNEL_BANNER.replace("f0:flex:47000",
+                                                "f0:magnetic:47000"))
+    meta = b.meta_for(1)
+    # Unknown kinds stop at resistance rather than being guessed into a curve.
+    assert meta.kind == KIND_UNKNOWN and meta.r_fixed == 47000
+
+
+def test_meta_for_out_of_range_is_none():
+    b = parse_banner(TWO_CHANNEL_BANNER)
+    assert b.meta_for(0) is not None and b.meta_for(1) is not None
+    assert b.meta_for(2) is None and b.meta_for(-1) is None
+
+
+def test_kind_from_name_follows_the_plan_convention():
+    assert kind_from_name("f0") == KIND_FLEX
+    assert kind_from_name("f4") == KIND_FLEX
+    assert kind_from_name("p0") == KIND_FSR
+    assert kind_from_name("p5") == KIND_FSR
+    for name in ("", "emg", "ax", "gz", "x1"):
+        assert kind_from_name(name) == KIND_UNKNOWN, name
+
+
+def test_per_channel_resistor_changes_the_resistance():
+    # The whole point of the per-channel field: the same counts on different
+    # resistors are different resistances. Sharing one value silently
+    # mis-scales whichever sensor did not own it.
+    b = parse_banner(TWO_CHANNEL_BANNER)
+    fsr, flex = b.meta_for(0), b.meta_for(1)
+    counts = 2048
+    r_fsr = sensor_ohms(counts, 3300, 3300, fsr.r_fixed, 12)
+    r_flex = sensor_ohms(counts, 3300, 3300, flex.r_fixed, 12)
+    assert r_fsr is not None and r_flex is not None
+    assert r_flex > r_fsr * 4          # 47k vs 10k
+
+
+# ── flex / bend estimation ──────────────────────────────────────────────────
+
+
+def test_default_flex_span_is_flagged_uncalibrated():
+    # The nominal span exists so the UI has something to draw, and must never
+    # pass itself off as measured.
+    span = default_span()
+    assert span.flat_ohm == NOMINAL_FLAT_OHM
+    assert span.bent_ohm == NOMINAL_BENT_OHM
+    assert span.usable
+    assert not is_calibrated(span)
+
+
+def test_bend_fraction_runs_flat_to_bent():
+    span = FlexSpan(flat_ohm=10_000, bent_ohm=110_000, calibrated=True)
+    assert bend_fraction(10_000, span) == 0.0
+    assert bend_fraction(110_000, span) == 1.0
+    mid = bend_fraction(60_000, span)
+    assert 0.49 < mid < 0.51
+    assert bend_percent(60_000, span) == mid * 100.0
+
+
+def test_bend_fraction_clamps_outside_the_recorded_span():
+    # Past either end the sensor has left the range it was calibrated over.
+    # Extrapolating would invent travel that was never measured.
+    span = FlexSpan(flat_ohm=10_000, bent_ohm=110_000, calibrated=True)
+    assert bend_fraction(500, span) == 0.0
+    assert bend_fraction(10_000_000, span) == 1.0
+
+
+def test_bend_range_flags_a_clamped_reading():
+    span = FlexSpan(flat_ohm=10_000, bent_ohm=110_000, calibrated=True)
+    assert bend_range(9_000, span) == "below"
+    assert bend_range(50_000, span) == "in"
+    assert bend_range(200_000, span) == "above"
+    assert bend_range(None, span) == "open"
+    assert bend_range(0, span) == "open"
+
+
+def test_bend_handles_a_reversed_span():
+    # A sensor can be mounted or wired so that bending lowers resistance.
+    # "below" must keep meaning the flat end either way.
+    span = FlexSpan(flat_ohm=110_000, bent_ohm=10_000, calibrated=True)
+    assert bend_fraction(110_000, span) == 0.0
+    assert bend_fraction(10_000, span) == 1.0
+    assert bend_range(200_000, span) == "below"
+    assert bend_range(5_000, span) == "above"
+
+
+def test_bend_rejects_a_span_too_narrow_to_be_travel():
+    narrow = FlexSpan(flat_ohm=10_000, bent_ohm=10_100, calibrated=True)
+    assert not narrow.usable
+    assert bend_fraction(10_050, narrow) is None
+    assert bend_range(10_050, narrow) == "open"
+    assert not is_calibrated(narrow)
+    # span_from_ohms refuses to build one, handing back the default instead.
+    assert span_from_ohms(10_000, 10_100) == default_span()
+    assert span_from_ohms(10_000, 10_000 * MIN_SPAN_RATIO * 2).calibrated
+
+
+def test_bend_open_and_invalid_inputs():
+    span = FlexSpan(flat_ohm=10_000, bent_ohm=110_000, calibrated=True)
+    for bad in (None, 0, -1):
+        assert bend_fraction(bad, span) is None
+        assert bend_percent(bad, span) is None
+    assert span_from_ohms(None, 110_000) == default_span()
+    assert span_from_ohms(10_000, None) == default_span()
+    for bad_span in (FlexSpan(flat_ohm=0, bent_ohm=110_000),
+                     FlexSpan(flat_ohm=10_000, bent_ohm=-5)):
+        assert not bad_span.usable
+        assert bend_fraction(50_000, bad_span) is None
+
+
+def test_flex_model_payload_is_transportable():
+    m = flex_model(FlexSpan(flat_ohm=12_000, bent_ohm=90_000, calibrated=True))
+    assert m["flat_ohm"] == 12_000 and m["bent_ohm"] == 90_000
+    assert m["calibrated"] is True and m["usable"] is True
+    assert "no published curve" in m["source"]
+    # The default span ships as explicitly uncalibrated.
+    assert flex_model(default_span())["calibrated"] is False
+
+
+def test_flex_channel_carries_the_signal_that_stops_the_force_curve():
+    # Guards the exact bug this change exists to prevent: the FSR402 curve
+    # applied to a bending finger. force_newtons() will happily return a
+    # number for any resistance - the channel's kind is what stops the caller
+    # from asking, so assert that signal is present and correct.
+    b = parse_banner(TWO_CHANNEL_BANNER)
+    flex = b.meta_for(1)
+    assert flex.kind == KIND_FLEX and flex.kind != KIND_FSR
+    ohm = sensor_ohms(2048, 3300, 3300, flex.r_fixed, 12)
+    assert force_newtons(ohm) is not None
+    assert isinstance(flex, ChannelMeta)
 
 
 if __name__ == "__main__":
