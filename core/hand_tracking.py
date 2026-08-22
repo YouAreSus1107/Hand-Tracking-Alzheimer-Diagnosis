@@ -36,6 +36,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
 import cv2
+from core import quiet          # keep above mediapipe: silences its startup log
 import mediapipe as mp
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
@@ -98,7 +99,8 @@ class Inspector:
             min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.65,
         )
-        self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        with quiet.muted_native_stderr():
+            self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
         # Per-hand One-Euro filter sets (separate filters for left/right hand).
         self.lm_filters = {'L': make_landmark_filters(),
                            'R': make_landmark_filters()}

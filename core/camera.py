@@ -7,9 +7,16 @@ Enter defaults to webcam 0 so a bare double-click still works.
 from __future__ import annotations
 
 import ctypes
+import json
 import sys
+from pathlib import Path
 
 import cv2
+
+# Remembers the capture config that actually worked, so a later run opens the
+# camera once instead of probing (each probe = a visible camera-LED flash and
+# ~1 s of dead time). Runtime state, git-ignored, alongside .launcher.pid.
+_CACHE_PATH = Path(__file__).resolve().parents[1] / ".camera_cache.json"
 
 
 def select_camera_source() -> int | str:
@@ -31,42 +38,97 @@ def select_camera_source() -> int | str:
     return 0
 
 
-def _configure(cap, width: int, height: int, mjpg: bool) -> None:
+def _configure(cap, width: int, height: int, mjpg: bool,
+               fps: int | None = None) -> None:
     """Apply capture properties (best-effort; unsupported ones are ignored)."""
     if mjpg:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    if fps:
+        cap.set(cv2.CAP_PROP_FPS, fps)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # keep only the latest frame (low latency)
 
 
-def open_capture(source: int | str, width: int = 640, height: int = 480):
+def _load_cached(key: str) -> list | None:
+    """The [backend, mjpg] combo that last worked for this source, if any."""
+    try:
+        entry = json.loads(_CACHE_PATH.read_text("utf-8")).get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    if (isinstance(entry, list) and len(entry) == 2
+            and isinstance(entry[1], bool)):
+        return entry
+    return None
+
+
+def _store_cached(key: str, combo: tuple) -> None:
+    """Remember a working combo; a read-only checkout just means no cache."""
+    try:
+        try:
+            data = json.loads(_CACHE_PATH.read_text("utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data[key] = [combo[0], combo[1]]
+        _CACHE_PATH.write_text(json.dumps(data), "utf-8")
+    except OSError:
+        pass
+
+
+def open_capture(source: int | str, width: int = 640, height: int = 480,
+                 fps: int | None = None):
     """Open the capture; returns cv2.VideoCapture or None on failure.
 
     For integer webcam sources on Windows we prefer the DirectShow backend over
     OpenCV's default (MSMF): measured lower read latency and no MSMF decode-thread
     contention spikes that otherwise stall MediaPipe inference (see
-    docs/FPS_INVESTIGATION_PLAN.md). Each backend is verified with a real test
-    read, and we fall back gracefully so a camera that works today never regresses:
-      DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF+MJPG -> MSMF (no MJPG).
+    docs/FPS_INVESTIGATION_PLAN.md). Each candidate is verified with a real test
+    read, and we fall back gracefully so a camera that works today never
+    regresses:  DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF (no MJPG).
+
+    Every candidate that has to be tried costs a camera open — a visible LED
+    flash plus ~1 s of warm-up — so the combo that succeeds is cached to
+    `.camera_cache.json` and tried first next time: steady state is one open.
+    A stale cache entry simply fails its test read and the full probe resumes.
+
+    `fps` is requested during configuration rather than by re-setting the
+    property after opening, which would renegotiate the stream (another flash).
     IP-stream (str) sources and non-Windows platforms use OpenCV's default open.
     """
     if not isinstance(source, int):
         cap = cv2.VideoCapture(source)
         return cap if cap.isOpened() else (cap.release() or None)
 
-    backends = ([cv2.CAP_DSHOW, cv2.CAP_MSMF]
-                if sys.platform.startswith("win") else [None])
-    for backend in backends:
-        for mjpg in (True, False):   # MJPG helps USB webcams; some cams reject it
-            cap = (cv2.VideoCapture(source, backend) if backend is not None
-                   else cv2.VideoCapture(source))
-            if cap.isOpened():
-                _configure(cap, width, height, mjpg)
-                ok, _frame = cap.read()   # verify frames actually flow
-                if ok:
-                    return cap
-            cap.release()
+    if sys.platform.startswith("win"):
+        # MJPG mainly matters on DSHOW; MSMF largely ignores the fourcc, so it
+        # is only worth one attempt.
+        candidates = [(cv2.CAP_DSHOW, True), (cv2.CAP_DSHOW, False),
+                      (cv2.CAP_MSMF, False)]
+    else:
+        candidates = [(None, True), (None, False)]
+
+    key = f"{source}|{width}x{height}|{fps or 0}"
+    cached = _load_cached(key)
+    if cached is not None:
+        combo = (cached[0], cached[1])
+        if combo in candidates:
+            candidates.remove(combo)
+        candidates.insert(0, combo)
+
+    for combo in candidates:
+        backend, mjpg = combo
+        cap = (cv2.VideoCapture(source, backend) if backend is not None
+               else cv2.VideoCapture(source))
+        if cap.isOpened():
+            _configure(cap, width, height, mjpg, fps)
+            ok, _frame = cap.read()   # verify frames actually flow
+            if ok:
+                if cached != [combo[0], combo[1]]:
+                    _store_cached(key, combo)
+                return cap
+        cap.release()
     return None
 
 

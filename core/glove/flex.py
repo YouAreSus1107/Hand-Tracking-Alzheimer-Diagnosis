@@ -170,5 +170,9 @@ def flex_model(span: FlexSpan | None = None) -> dict:
         "bent_ohm": span.bent_ohm,
         "calibrated": is_calibrated(span),
         "usable": span.usable,
+        # Shipped so the dev page can apply the same "is this real travel or
+        # just noise?" test to a span it derives from live readings, without
+        # keeping its own copy of the threshold.
+        "min_span_ratio": MIN_SPAN_RATIO,
         "source": SOURCE,
     }

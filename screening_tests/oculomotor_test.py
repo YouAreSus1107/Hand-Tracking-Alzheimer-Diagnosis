@@ -62,6 +62,11 @@ MODEL_PATH = str(_REPO_ROOT / "model" / "face_landmarker.task")
 
 COUNTDOWN_FROM = 3
 DIM_ALPHA = 0.80            # video dim during stimulus phases (dot salience)
+# Full-screen text cards read as a murky gray veil over the video at the
+# stimulus dim, so they get a near-solid backdrop and an opaque panel instead:
+# nothing to look at but the words.
+CARD_DIM = 0.96
+CARD_PANEL_ALPHA = 0.98
 FEEDBACK_S = 0.9            # practice per-trial feedback pause
 
 # ── States ─────────────────────────────────────────────────────────────────
@@ -81,6 +86,15 @@ FIX_INSTRUCTIONS = (
 
 # Trial phases inside PRACTICE / RECORDING
 FIXATION, GAP, TARGET, FEEDBACK = "fixation", "gap", "target", "feedback"
+
+# How much the video is dimmed per state. Applied once in the run loop, before
+# the status bar is drawn, so the bar stays legible instead of being painted
+# over. IDLE is absent: the user needs a clear view to frame their face.
+DIM_BY_STATE = {
+    CALIBRATION: DIM_ALPHA, COUNTDOWN: DIM_ALPHA, PRACTICE: DIM_ALPHA,
+    RECORDING: DIM_ALPHA, FIX_HOLD: DIM_ALPHA,
+    INSTRUCTION: CARD_DIM, FIX_INTRO: CARD_DIM, COMPLETE: CARD_DIM,
+}
 
 
 class Toasts:
@@ -187,9 +201,9 @@ class App:
         return self.gaze_map.position(sample.ratio)
 
     # ── stimulus drawing ──────────────────────────────────────────────────
-    def dim_video(self, c: Canvas):
+    def dim_video(self, c: Canvas, alpha: float = DIM_ALPHA):
         c._dirty = True
-        c.draw.rectangle([0, 0, c.w, c.h], fill=theme.rgba("bg", DIM_ALPHA))
+        c.draw.rectangle([0, 0, c.w, c.h], fill=theme.rgba("bg", alpha))
 
     def draw_cross(self, c: Canvas, alpha: float = 1.0):
         cx, cy = c.w // 2, c.h // 2
@@ -239,14 +253,13 @@ class App:
             self.goto(INSTRUCTION, now)
 
     def screen_instruction(self, c: Canvas, now: float):
-        self.dim_video(c)
         w, h = c.w, c.h
         task = self.task
         lines = task.instructions
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
-        c.panel(px, py, pw, ph)
+        c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
         c.text(w // 2, py + 34, task.title, role="h2", anchor="mm", color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
@@ -275,7 +288,6 @@ class App:
 
     def screen_calibration(self, c: Canvas, now: float,
                            sample: GazeSample | None):
-        self.dim_video(c)
         w, h = c.w, c.h
         cal = self.calibrator
         ratio = sample.ratio if sample is not None else None
@@ -317,7 +329,6 @@ class App:
                              "info", hold=3.0, now=now)
 
     def screen_countdown(self, c: Canvas, now: float):
-        self.dim_video(c)
         w, h = c.w, c.h
         elapsed = now - self.t_state
         remaining = COUNTDOWN_FROM - int(elapsed)
@@ -410,7 +421,6 @@ class App:
 
     def screen_trials(self, c: Canvas, now: float, pos: float | None,
                       sample: GazeSample | None):
-        self.dim_video(c)
         w, h = c.w, c.h
         practice = self.state == PRACTICE
         elapsed = now - self.phase_t0
@@ -468,13 +478,12 @@ class App:
 
     # ── fixation-stability block (Part 3) ─────────────────────────────────
     def screen_fix_intro(self, c: Canvas, now: float):
-        self.dim_video(c)
         w, h = c.w, c.h
         lines = FIX_INSTRUCTIONS
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
-        c.panel(px, py, pw, ph)
+        c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
         c.text(w // 2, py + 34, FIX_TITLE, role="h2", anchor="mm", color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
@@ -492,7 +501,6 @@ class App:
 
     def screen_fixation(self, c: Canvas, now: float, pos: float | None,
                         sample: GazeSample | None):
-        self.dim_video(c)
         w, h = c.w, c.h
         rx = sample.ratio if sample is not None else None
         ry = sample.ratio_y if sample is not None else None
@@ -584,7 +592,6 @@ class App:
         }
 
     def screen_complete(self, c: Canvas, now: float):
-        self.dim_video(c)
         w, h = c.w, c.h
         r = self.results
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
@@ -632,7 +639,7 @@ class App:
         ph = btn_off + bh + 14
 
         px, py = (w - pw) // 2, max(56, (h - ph) // 2)
-        c.panel(px, py, pw, ph, alpha=0.9)
+        c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
         c.text(w // 2, py + 30, "Eye Movement Test - Results", role="h2",
                anchor="mm")
 
@@ -702,6 +709,9 @@ class App:
             pos = self.gaze_pos(sample)
 
             c = Canvas(frame)
+            dim = DIM_BY_STATE.get(self.state)
+            if dim:
+                self.dim_video(c, dim)
             chips = [("Face detected", "success") if sample is not None
                      else ("Face the camera", "warning")]
             if self.fps < 24:
@@ -758,15 +768,14 @@ def main():
               "face_landmarker/face_landmarker/float16/latest/face_landmarker.task")
         sys.exit(1)
     source = select_camera_source()
-    cap = open_capture(source)
+    # 60 fps is requested at open time (finer saccade-latency resolution, §3.4)
+    # and falls back silently to whatever the camera supports; setting it
+    # afterwards would renegotiate the stream and flash the camera again.
+    print("[INFO] Opening camera and loading the face model - a few seconds...")
+    cap = open_capture(source, fps=60)
     if cap is None:
         print("[ERROR] Could not open camera.")
         sys.exit(1)
-    # Attempt 60 fps capture for finer saccade-latency resolution (§3.4);
-    # falls back silently to what the camera supports.
-    if isinstance(source, int):
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FPS, 60)
     App(cap).run()
 
 

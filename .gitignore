@@ -20,6 +20,7 @@ model/face_landmarker.task
 
 # Runtime state
 .launcher.pid
+.camera_cache.json
 
 # Working material — kept locally, not published
 Hand_Digital_Twin_Reference.docx

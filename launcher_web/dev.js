@@ -126,21 +126,57 @@ function devForceBadge(range){
 function devFlexModel(){
   return (dev.status && dev.status.flex_model) || null;
 }
-// Linear in resistance, mirroring flex.bend_fraction(). Clamped at both ends:
-// past the recorded span the sensor has left the range it was calibrated over
-// and extrapolating would invent travel nobody measured.
-function devBend(ohm){
+
+/* Which span to measure a bend against.
+
+   The server's default span is a placeholder (§5c) — real flex strips vary
+   enough part-to-part that a reading will often sit entirely outside it, which
+   clamps the trace flat at 0% or 100% and looks like a dead sensor.
+
+   So until a calibration exists, prefer the span this channel has ACTUALLY
+   been seen to cover. That is not a fudge: §5c's whole position is that bend
+   is a position within a recorded range, and the live min/max is a recorded
+   range. It is labelled "observed" rather than "calibrated" so nobody mistakes
+   it for a measurement, and it widens as the finger moves further.
+
+   Direction matters. Both sensors sit on the high side of their divider, so
+   rising resistance pulls the count down. Bending a flex strip raises its
+   resistance, so the HIGHEST count is flattest and the LOWEST is most bent. */
+function devFlexSpan(i){
   const m = devFlexModel();
-  if(!m || !m.usable || ohm === null || ohm === undefined || ohm <= 0) return null;
-  const {flat_ohm:flat, bent_ohm:bent} = m;
+  if(m && m.calibrated && m.usable){
+    return {flat: m.flat_ohm, bent: m.bent_ohm, basis: "calibrated"};
+  }
+  const ratio = (m && m.min_span_ratio) || 1.2;
+  const b = dev.status && dev.status.banner;
+  const s = dev.span[i];
+  if(s && s.min !== null && s.max !== null){
+    const rf = devRFixed(i);
+    const flat = devOhm(s.max, b, rf);      // highest count  -> lowest R
+    const bent = devOhm(s.min, b, rf);      // lowest count   -> highest R
+    // Same "is this travel or noise?" guard flex.py applies: dividing by a
+    // span narrower than this turns jitter into a full-scale swing.
+    if(flat !== null && bent !== null && flat > 0 && bent / flat >= ratio){
+      return {flat, bent, basis: "observed"};
+    }
+  }
+  if(m && m.usable) return {flat: m.flat_ohm, bent: m.bent_ohm, basis: "provisional"};
+  return null;
+}
+
+// Linear in resistance, mirroring flex.bend_fraction(). Clamped at both ends:
+// past the span the sensor has left the range that was recorded, and
+// extrapolating would invent travel nobody measured.
+function devBend(ohm, span){
+  if(!span || ohm === null || ohm === undefined || ohm <= 0) return null;
+  const {flat, bent} = span;
   if(bent === flat) return null;
   return Math.max(0, Math.min(1, (ohm - flat) / (bent - flat))) * 100;
 }
-function devBendRange(ohm){
-  const m = devFlexModel();
-  if(!m || !m.usable || ohm === null || ohm === undefined || ohm <= 0) return "open";
-  const lo = Math.min(m.flat_ohm, m.bent_ohm), hi = Math.max(m.flat_ohm, m.bent_ohm);
-  const flatIsLow = m.flat_ohm <= m.bent_ohm;
+function devBendRange(ohm, span){
+  if(!span || ohm === null || ohm === undefined || ohm <= 0) return "open";
+  const lo = Math.min(span.flat, span.bent), hi = Math.max(span.flat, span.bent);
+  const flatIsLow = span.flat <= span.bent;
   if(ohm < lo) return flatIsLow ? "below" : "above";
   if(ohm > hi) return flatIsLow ? "above" : "below";
   return "in";
@@ -149,19 +185,24 @@ function devBendText(pct){
   if(pct === null || pct === undefined) return "—";
   return pct.toFixed(0) + "% bend";
 }
-// The uncalibrated span must never look like a measurement.
-function devBendBadge(range){
-  const m = devFlexModel();
-  const map = {
-    open:  ["dev-badge-dim",  "no signal"],
-    below: ["dev-badge-warn", "flatter than recorded — re-record span"],
-    above: ["dev-badge-warn", "bent past recorded — re-record span"],
-    in:    m && m.calibrated
-             ? ["dev-badge-ok",   "calibrated span"]
-             : ["dev-badge-warn", "provisional span — not calibrated"],
-  };
-  const [cls, text] = map[range] || map.open;
-  return `<span class="dev-badge ${cls}">${text}</span>`;
+// An uncalibrated span must never look like a measurement, and the badge has
+// to say WHICH span produced the number.
+function devBendBadge(range, span){
+  const basis = span ? span.basis : null;
+  if(range === "open" || !basis){
+    return `<span class="dev-badge dev-badge-dim">no signal</span>`;
+  }
+  if(basis === "provisional"){
+    return `<span class="dev-badge dev-badge-warn">provisional span — bend the sensor to set its range</span>`;
+  }
+  if(range === "below" || range === "above"){
+    // On an observed span this cannot persist: the span grows to include the
+    // new extreme on the next frame. On a calibrated one it is a real warning.
+    return `<span class="dev-badge dev-badge-warn">${range === "below" ? "flatter" : "bent"} than recorded — re-record span</span>`;
+  }
+  return basis === "calibrated"
+    ? `<span class="dev-badge dev-badge-ok">calibrated span</span>`
+    : `<span class="dev-badge dev-badge-warn">observed span — not calibrated</span>`;
 }
 
 /* Which channels get which curve. The kind comes from the firmware's banner
@@ -581,10 +622,11 @@ function devRenderChannelValues(){
     // finger, which is exactly the kind of dressed-up guess this project
     // refuses to show.
     if(kind === "flex"){
-      const pct = devBend(ohm);
+      const span = devFlexSpan(i);
+      const pct = devBend(ohm, span);
       set("dev-force-", devBendText(pct));
       set("dev-gram-", devOhmText(ohm));
-      if(bd) bd.innerHTML = devBendBadge(devBendRange(ohm));
+      if(bd) bd.innerHTML = devBendBadge(devBendRange(ohm, span), span);
     } else if(kind === "fsr"){
       const n = devForce(ohm);
       set("dev-force-", devForceText(n));
@@ -616,7 +658,7 @@ function devRenderChannelValues(){
         const peakAdc = kind === "flex" ? s.min : s.max;
         const peakOhm = devOhm(peakAdc, b, rf);
         const peak = kind === "flex"
-          ? devBendText(devBend(peakOhm))
+          ? devBendText(devBend(peakOhm, devFlexSpan(i)))
           : devForceText(devForce(peakOhm));
         sp.textContent = `peak ${peak}  ·  adc span ${s.min}–${s.max}`
           + ` of ${b ? (1<<b.adc_bits)-1 : 1023}`;
@@ -674,13 +716,16 @@ function devDraw(){
   // y-scale would make two series silently incomparable.
   const fm = devForceModel();
   const convFor = (i) => {
+    // Both resolved once per channel per redraw, not per sample: they depend
+    // only on the channel, and the window holds hundreds of samples.
     const rf = devRFixed(i);
+    const sp = dev.unit === "bend" ? devFlexSpan(i) : null;
     return {
       adc:   v => v,
       ohm:   v => devOhm(v, b, rf),
       us:    v => { const r = devOhm(v, b, rf); return r ? 1e6/r : null; },
       force: v => devForce(devOhm(v, b, rf)),
-      bend:  v => devBend(devOhm(v, b, rf)),
+      bend:  v => devBend(devOhm(v, b, rf), sp),
     }[dev.unit] || (v => v);
   };
   const fixedRange = {
@@ -768,14 +813,36 @@ function devDraw(){
   });
   g.restore();   // release the plot-rectangle clip
 
-  // Say so when a unit hides channels, rather than letting a line silently
-  // vanish and look like a dead sensor.
-  const hidden = sel.length - drawable.length;
-  if(hidden > 0){
-    g.fillStyle = "#64748B"; g.font = "11px 'JetBrains Mono', monospace";
-    g.textAlign = "left"; g.textBaseline = "top";
-    g.fillText(`${hidden} channel${hidden>1?"s":""} hidden — not a ${unitKind === "flex" ? "bend" : "force"} sensor`,
-               pad.l + 6, pad.t + 6);
+  // A blank plot must say why it is blank. Silently drawing nothing is
+  // indistinguishable from a dead sensor, which is exactly the confusion this
+  // page exists to remove.
+  g.fillStyle = "#64748B"; g.font = "11px 'JetBrains Mono', monospace";
+  g.textAlign = "left"; g.textBaseline = "top";
+  if(!drawable.length && unitKind){
+    const kindWord = unitKind === "flex" ? "bend" : "force";
+    const anyOfKind = dev.channels.some((_,i) => devKind(i) === unitKind);
+    const msg = !dev.channels.length
+      ? "no channels yet — connect the board"
+      : !anyOfKind
+        ? `no ${kindWord} sensor on this board — check the banner's chan= field`
+        : `no ${kindWord} channel selected — tick one in the tiles below`;
+    g.fillText(msg, pad.l + 6, pad.t + 6);
+  } else {
+    const hidden = sel.length - drawable.length;
+    if(hidden > 0){
+      g.fillText(`${hidden} channel${hidden>1?"s":""} hidden — not a ${unitKind === "flex" ? "bend" : "force"} sensor`,
+                 pad.l + 6, pad.t + 6);
+    }
+    // On an observed span, say so on the plot too — the y-axis reads 0-100%
+    // and that is 100% of what has been SEEN, not of the sensor's travel.
+    if(dev.unit === "bend" && drawable.length){
+      const sp = devFlexSpan(drawable[0]);
+      if(sp && sp.basis !== "calibrated"){
+        g.textAlign = "right";
+        g.fillText(sp.basis === "observed" ? "% of observed range" : "provisional range",
+                   pad.l + pw - 6, pad.t + 6);
+      }
+    }
   }
 }
 

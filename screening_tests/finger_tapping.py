@@ -31,6 +31,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
 import cv2
+from core import quiet          # keep above mediapipe: silences its startup log
 import mediapipe as mp
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
@@ -93,7 +94,8 @@ class App:
             min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.55,
         )
-        self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        with quiet.muted_native_stderr():
+            self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
         self.audio = AudioWorker()
         self.beep_wav = build_tone(880, 100)
         self.tick_wav = build_tone(660, 60)
@@ -591,6 +593,7 @@ def main():
     print("  Modes: Big & Fast (primary) / Paced Rhythm")
     print("=" * 52)
     source = select_camera_source()
+    print("[INFO] Opening camera and loading the hand model - a few seconds...")
     cap = open_capture(source)
     if cap is None:
         print("[ERROR] Could not open camera.")

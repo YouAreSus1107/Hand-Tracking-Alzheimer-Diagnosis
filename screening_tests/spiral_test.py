@@ -38,6 +38,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
 import cv2
+from core import quiet          # keep above mediapipe: silences its startup log
 import mediapipe as mp
 import numpy as np
 
@@ -136,16 +137,11 @@ class Toasts:
 
 class App:
     def __init__(self, cap):
+        # 60 fps (MJPG) is requested by open_capture so the raw fingertip
+        # resolves more of the tremor band; the loop measures and reports the
+        # actual rate and falls back to whatever the camera delivers
+        # (docs/SPIRAL_TEST_PLAN.md §3.3).
         self.cap = cap
-        # Ask for 60 fps (MJPG) so the raw fingertip resolves more of the tremor
-        # band; the loop measures and reports the actual rate and falls back to
-        # whatever the camera delivers (docs/SPIRAL_TEST_PLAN.md §3.3).
-        try:
-            self.cap.set(cv2.CAP_PROP_FOURCC,
-                         cv2.VideoWriter_fourcc(*"MJPG"))
-            self.cap.set(cv2.CAP_PROP_FPS, 60)
-        except Exception:                    # noqa: BLE001 - camera may ignore it
-            pass
         options = mp.tasks.vision.HandLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
             running_mode=mp.tasks.vision.RunningMode.VIDEO,
@@ -154,7 +150,8 @@ class App:
             min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.55,
         )
-        self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        with quiet.muted_native_stderr():
+            self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
         self.audio = AudioWorker()
         self.start_wav = build_tone(880, 100)
         self.tick_wav = build_tone(660, 60)
@@ -737,7 +734,8 @@ def main():
     print("  Click 'Start Test' in the camera window.  Q to quit.")
     print("=" * 52)
     source = select_camera_source()
-    cap = open_capture(source)
+    print("[INFO] Opening camera and loading the hand model - a few seconds...")
+    cap = open_capture(source, fps=60)
     if cap is None:
         print("[ERROR] Could not open camera.")
         sys.exit(1)

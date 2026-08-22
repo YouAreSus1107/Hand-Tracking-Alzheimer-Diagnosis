@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core import quiet          # keep above mediapipe: silences its startup log
 import mediapipe as mp
 
 from core.hand_utils import OneEuroFilter
@@ -88,7 +89,8 @@ class GazeTracker:
             min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
         )
-        self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
+        with quiet.muted_native_stderr():
+            self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
         self._filter = OneEuroFilter(min_cutoff=min_cutoff, beta=beta)
         self._filter_y = OneEuroFilter(min_cutoff=min_cutoff, beta=beta)
         self._had_face = False
