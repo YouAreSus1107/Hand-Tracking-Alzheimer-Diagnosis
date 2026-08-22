@@ -1,85 +1,130 @@
-# Hand-Detection-3D — Camera-Based Motor Screening Suite
+# Hand-Detection-3D
 
-Webcam-based hand-motion tests for detecting fine-motor changes associated
-with early cognitive decline (Alzheimer's disease in particular). Built on
-OpenCV + MediaPipe hand tracking — no wearables, no special hardware, just a
-camera.
+Webcam motor and eye-movement tests, built to measure the kinds of fine-motor
+changes that show up in the early-cognitive-decline literature. Runs on
+OpenCV + MediaPipe with no hardware beyond a camera.
 
-The suite grew out of a real-time hand-tracking pipeline (originally driving a
-rigged 3D hand in Unity) and repurposes that tracking core to measure motor
-biomarkers identified in the clinical literature: tapping-rhythm variability,
-beat synchronization, and drawing smoothness.
+The tracking core started as a real-time hand-tracking pipeline driving a rigged
+3D hand in Unity. It was rewritten around the MediaPipe Tasks API and pointed at
+motor measurement instead.
 
-## The Tests
+## Status
 
-| Test | What the patient does | What it measures |
+This is a research prototype, not a screening tool. Nobody has run it on a
+clinical population, and it has not been validated against any reference
+instrument. Specifically:
+
+- Scoring thresholds are taken from the papers cited below, not fitted to data
+  collected with this pipeline. Treat the status bands as provisional.
+- It has mostly been run on one laptop and one camera. Some scaling is tied to
+  the capture resolution and will need work on other setups.
+- The hand and face landmark models are Google's pretrained MediaPipe bundles.
+  What is here is the measurement layer on top of them.
+
+## Tests
+
+| Test | Task | Primary metric |
 |---|---|---|
-| **IIV Finger Tapping** (`screening_tests/iiv_test.py`) | Taps thumb and index finger once per metronome beep | **IIV** — intra-individual variability of inter-tap intervals (rhythm consistency), and **sync consistency** — variability of tap latency after each beat. Both degrade early in AD. |
-| **Spiral Tracing** (`screening_tests/spiral_test.py`) | Traces an on-screen Archimedes spiral in the air with the index fingertip | Path deviation, velocity variability (CV%), normalized jerk (smoothness), completion %, active-movement ratio. |
+| Finger tapping (`screening_tests/finger_tapping.py`) | Tap thumb and index together, either at maximum speed or on a metronome | CV% of inter-tap intervals, plus beat-sync consistency in paced mode |
+| Spiral tracing (`screening_tests/spiral_test.py`) | Trace an Archimedes spiral in the air with the index fingertip | SPARC movement-smoothness index, with normalized jerk and velocity CV% |
+| Eye movement (`screening_tests/oculomotor_test.py`) | Look toward a flashing dot, then away from it, then hold fixation | Anti-saccade error rate, Anti − Pro latency, fixation stability (RMS jitter, BCEA) |
 
-Research grounding: Namkoong & Roh (2024) systematic review, *Technology and
-Health Care* 32(S1):253–264, plus Suzumura et al., Roalf et al. (2018),
-Kachouri et al. (2021), Schroter et al. (2003). See
-[`docs/alzheimers_hand_tracking_analysis.md`](docs/alzheimers_hand_tracking_analysis.md)
-for the full analysis.
+Each test writes one JSON file per session to `results/` plus a row in
+`results/index.csv`. The launcher charts those over time on its Analysis page.
 
-## Quick Start
+Sources for the metrics and thresholds: Namkoong & Roh (2024), *Technology and
+Health Care* 32(S1):253–264; Suzumura et al.; Roalf et al. (2018); Kachouri et
+al. (2021); Schroter et al. (2003); Balasubramanian et al. (2015) for SPARC.
+For the oculomotor test: Opwonya et al. (2022), Crawford et al. (2005), and the
+Antoniades et al. (2013) protocol. Full notes are in `research/` and
+[`docs/alzheimers_hand_tracking_analysis.md`](docs/alzheimers_hand_tracking_analysis.md).
+
+## Setup
 
 ```bash
-pip install -r requirements.txt
-python launcher.py          # or double-click run_hub.bat on Windows
+python install.py     # creates .venv, installs deps, downloads model bundles
+python launcher.py    # control hub at http://127.0.0.1:8770
 ```
 
-The launcher opens a control hub at `http://127.0.0.1:8770` with system
-status, one-click launch for each test, and the research summary. Each tool
-can also be run directly, e.g. `python screening_tests/iiv_test.py`.
+On Windows, `setup.bat` and `run_hub.bat` do the same by double-click.
+`install.py` uses only the standard library and downloads
+`model/face_landmarker.task`, which is too large to keep in the repo. If you
+manage your own environment, `pip install -r requirements.txt` also works.
 
-On startup each tool asks for a camera source: `1` local webcam (default) or
-`2` an IP stream URL (e.g. the Android "IP Webcam" app). Press `q` to quit a
-test window.
+To run a test without the launcher, use the venv interpreter:
 
-> **Note:** the test scripts use `winsound` for audio cues, so they are
-> Windows-only as written.
+```bash
+.venv/Scripts/python screening_tests/finger_tapping.py
+```
 
-## Repository Layout
+Each tool asks for a camera source at startup: `1` for a local webcam, `2` for
+an IP stream URL such as the Android IP Webcam app. Press `q` to quit. Audio
+cues use `winsound` on Windows and `sounddevice` elsewhere.
+
+Unit tests cover the pure engine code and need no camera or hardware:
+
+```bash
+python screening_tests/tests/test_gaze.py
+python screening_tests/tests/test_spiral.py
+python screening_tests/tests/test_glove.py
+```
+
+## Layout
 
 ```
-launcher.py            Control hub (stdlib-only web server + dashboard)
-run_hub.bat            Windows double-click entry point
+launcher.py            Control hub, standard library only
+launcher_web/          Hub frontend (index.html, styles.css, app.js, dev.js,
+                       background.js, hand3d.js)
 core/
-  hand_tracking.py     21-landmark tracker + UDP broadcast (port 5052)
-  hand_utils.py        Shared: One-Euro filtering, CLAHE preprocessing,
-                       landmark connectivity
-screening_tests/
-  iiv_test.py          IIV finger-tapping test
-  spiral_test.py       Spiral tracing test
-model/
-  hand_landmarker.task MediaPipe hand-landmarker model bundle (~7.5 MB)
-docs/
-  alzheimers_hand_tracking_analysis.md   Research deep-dive
-  BUILD_LAUNCHER.md    Packaging the hub as a standalone .exe
-  PROJECT_OVERVIEW.md  Architecture and progress notes
-archive/               Retired Unity project (local only, not in git)
+  hand_tracking.py     21-landmark tracker + UDP broadcast on port 5052
+  hand_utils.py        One-Euro filtering, CLAHE preprocessing, connectivity
+  camera.py            Camera-source prompt/open helper
+  session.py           Results schema: results/*.json + index.csv
+  tapping/             Tapping engine (modes, detector, metrics, audio)
+  spiral/              Spiral engine (geometry, metrics)
+  gaze/                Gaze engine (tracker, calibrate, detector, metrics,
+                       tasks, fixation)
+  glove/               Sensor-glove host stack (protocol, force, serial_io)
+  ui/                  PIL-overlay UI toolkit (theme, components, anim)
+screening_tests/       The three tests, plus tests/ for the engine unit tests
+firmware/glove/        Arduino sketch for the sensor glove
+model/                 MediaPipe model bundles
+docs/                  Architecture, build/packaging, per-test design plans
+research/              Papers and repos per test domain, with conclusions
+results/               Session output (git-ignored)
 ```
 
-## How the Tracking Works
+## How the tracking works
 
-- **MediaPipe Tasks API** (`HandLandmarker`, VIDEO mode) — the modern API,
-  compatible with Python 3.12+.
-- **One-Euro filtering** on landmark x/y: heavy smoothing at rest to kill
-  jitter, light smoothing during fast motion to preserve tap edges. z is left
-  raw (monocular depth is too noisy to smooth usefully).
-- **Preprocessing** before detection: CLAHE on the luminance channel plus
-  gentle sharpening, for reliable detection in poor lighting.
+- MediaPipe Tasks API (`HandLandmarker`, VIDEO mode), not the deprecated
+  `solutions` API, so it runs on Python 3.12+.
+- One-Euro filtering on landmark x/y for display. z is left raw, since
+  monocular depth is too noisy to smooth usefully. The spiral test measures
+  jitter on the raw fingertip, because the filter would erase the signal it is
+  looking for.
+- CLAHE on the luminance channel plus light sharpening before detection, which
+  helps in poor lighting. The displayed frame is untouched.
 - `core/hand_tracking.py` broadcasts each hand as
-  `L:[x1,y1,z1,...,x21,y21,z21]` / `R:[...]` (pixel-scaled) over UDP to
-  `127.0.0.1:5052` for any downstream consumer.
+  `L:[x1,y1,z1,...,x21,y21,z21]` over UDP to `127.0.0.1:5052` for any
+  downstream consumer.
+- The oculomotor test uses the Face Landmarker (478 landmarks including iris).
+  Its horizontal gaze proxy is iris-center x relative to the eye corners, which
+  is invariant to head translation, smoothed and mapped to screen zones by a
+  3-point per-user calibration.
+
+## Sensor glove (in progress)
+
+`firmware/glove/glove.ino` streams 12-bit samples from an Arduino Nano 33 BLE at
+100 Hz; `core/glove/` parses the frames, records them, and converts resistance
+to approximate force using the published Interlink FSR402 curve. Per-user
+calibration is not done yet, so forces are approximate and readings outside the
+sensor's rated 0.2–20 N band are flagged rather than reported. Build order and
+verification gates are in [`docs/GLOVE_FIRMWARE_PLAN.md`](docs/GLOVE_FIRMWARE_PLAN.md).
 
 ## Origins
 
-The tracking pipeline started from
+The tracking pipeline began from
 [imadeddinedjekoune/Hand-Detection-3D](https://github.com/imadeddinedjekoune/Hand-Detection-3D),
-which mirrored a real hand onto a Blender-modeled, rigged hand in Unity. This
-project modernized the tracker (Tasks API, filtering, preprocessing) and
-redirected it toward clinical motor screening; the Unity receiver side was
-retired and is kept only as a local archive.
+which mirrored a hand onto a rigged model in Unity. This project modernized the
+tracker and redirected it toward motor measurement. The Unity side is retired
+and kept only in a local archive.
