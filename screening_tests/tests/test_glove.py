@@ -1,0 +1,294 @@
+"""
+Unit tests for the glove wire protocol (GLOVE_FIRMWARE_PLAN.md §4 + gate 7):
+pure parsing exercised against recorded and synthetic serial lines — no board,
+no pyserial.
+
+Run:  python -m pytest screening_tests/tests/test_glove.py
+ or:  python screening_tests/tests/test_glove.py   (self-runs without pytest)
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+
+from core.glove.force import (FSR402_CURVE, PART_TO_PART_PCT, RATED_MAX_N,
+                              RATED_MIN_N, conductance_us, force_model,
+                              force_newtons, force_range, grams_force)
+from core.glove.protocol import (PROTO_SUPPORTED, FrameAccumulator, adc_to_mv,
+                                 parse_banner, parse_frame, sensor_ohms,
+                                 seq_gap, us_delta)
+
+# Captured verbatim from the Nano 33 BLE on COM10, 2026-07-26.
+REAL_BANNER = ("#GLOVE fw=0.1.0 proto=1 board=nano33ble rate=100 adc_bits=10 "
+               "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=none emg=0 "
+               "cols=seq,t_us,p0")
+
+
+def test_banner_parses_all_fields():
+    b = parse_banner(REAL_BANNER)
+    assert b is not None
+    assert b.fw == "0.1.0"
+    assert b.proto == PROTO_SUPPORTED and b.supported
+    assert b.board == "nano33ble"
+    assert b.rate == 100
+    assert b.adc_ref_mv == 3300 and b.vdiv_mv == 3300 and b.r_fixed == 10000
+    assert b.cols == ("seq", "t_us", "p0")
+    assert b.channels == ("p0",)
+    assert b.adc_max == 1023
+
+
+def test_banner_rejects_non_banner_lines():
+    for line in ("", "G,1,1703,7", "#DIAG p0 adc=2", "#ZERO", "garbage"):
+        assert parse_banner(line) is None
+
+
+def test_banner_proto_mismatch_is_unsupported():
+    b = parse_banner(REAL_BANNER.replace("proto=1", "proto=99"))
+    assert b is not None and not b.supported
+
+
+def test_frame_parses_real_line():
+    f = parse_frame("G,1,1703,7", 1)
+    assert f is not None
+    assert (f.seq, f.t_us, f.values) == (1, 1703, (7,))
+
+
+def test_frame_rejects_wrong_channel_count():
+    # Guarding this stops values being silently mapped onto the wrong columns.
+    assert parse_frame("G,1,1703,7,9", 1) is None
+    assert parse_frame("G,1,1703", 1) is None
+    assert parse_frame("G,1,1703,7,9", 2) is not None
+
+
+def test_frame_accepts_any_count_before_banner_known():
+    f = parse_frame("G,5,100,1,2,3", None)
+    assert f is not None and f.values == (1, 2, 3)
+
+
+def test_frame_never_raises_on_junk():
+    junk = ["", "   ", "G,", "G,a,b,c", "G,1,1703,xx", "#GLOVE fw=1",
+            "G,1,-5,7", "\x00\xff garbage", "G,1"]
+    for line in junk:
+        assert parse_frame(line, 1) is None
+
+
+def test_frame_tolerates_truncation_mid_line():
+    # A read straddling a frame boundary is the normal case, not an error.
+    assert parse_frame("G,12,3456", 1) is None
+    assert parse_frame("G,12,3456,88", 1) is not None
+
+
+def test_seq_gap_counts_losses():
+    assert seq_gap(10, 11) == 0        # consecutive
+    assert seq_gap(10, 14) == 3        # three lost
+    assert seq_gap(10, 10) == 0        # duplicate
+
+
+def test_seq_gap_survives_uint32_wrap():
+    assert seq_gap(0xFFFFFFFF, 0) == 0
+    assert seq_gap(0xFFFFFFFE, 1) == 2
+
+
+def test_seq_gap_treats_reset_as_no_loss():
+    # The 'Z' command zeroes the counter; that is not 4 billion dropped frames.
+    assert seq_gap(5000, 0) == 0
+
+
+def test_us_delta_survives_wrap():
+    assert us_delta(100, 400) == 300
+    assert us_delta(0xFFFFFF00, 0x00000100) == 512
+
+
+def test_adc_to_mv_matches_firmware_integer_math():
+    # Values printed by the board's own #DIAG output.
+    assert adc_to_mv(2, 3300, 10) == 6
+    assert adc_to_mv(13, 3300, 10) == 41
+    assert adc_to_mv(0, 3300, 10) == 0
+    assert adc_to_mv(1023, 3300, 10) == 3300
+
+
+def test_sensor_ohms_matches_firmware():
+    assert sensor_ohms(2, 3300, 3300, 10000, 10) == 5490000
+    assert sensor_ohms(13, 3300, 3300, 10000, 10) == 794878
+
+
+def test_sensor_ohms_edges():
+    assert sensor_ohms(0, 3300, 3300, 10000, 10) is None     # open sensor
+    assert sensor_ohms(1023, 3300, 3300, 10000, 10) == 0     # at the rail
+
+
+def test_sensor_ohms_falls_as_force_rises():
+    # Physical sanity: harder press -> higher ADC -> lower resistance.
+    readings = [sensor_ohms(a) for a in (50, 200, 512, 900)]
+    assert all(r is not None for r in readings)
+    assert readings == sorted(readings, reverse=True)
+
+
+def test_accumulator_reads_banner_then_frames():
+    acc = FrameAccumulator()
+    assert acc.feed(REAL_BANNER) is None
+    assert acc.banner is not None and acc.banner.channels == ("p0",)
+    f = acc.feed("G,1,1703,7")
+    assert f is not None and f.values == (7,)
+    assert acc.total == 1 and acc.dropped == 0
+
+
+def test_accumulator_counts_dropped_frames():
+    acc = FrameAccumulator()
+    acc.feed(REAL_BANNER)
+    for seq in (1, 2, 5, 6):          # 3 and 4 lost
+        acc.feed(f"G,{seq},{seq * 10000},{seq}")
+    assert acc.total == 4
+    assert acc.dropped == 2
+
+
+def test_accumulator_ignores_noise_lines():
+    acc = FrameAccumulator()
+    acc.feed(REAL_BANNER)
+    for line in ("#DIAG p0 adc=2 mv=6", "#ZERO", "", "junk"):
+        assert acc.feed(line) is None
+    assert acc.total == 0 and acc.dropped == 0
+
+
+def test_accumulator_measures_rate():
+    acc = FrameAccumulator()
+    acc.feed(REAL_BANNER)
+    for i in range(1, 201):           # exactly 100 Hz -> 10000 us apart
+        acc.feed(f"G,{i},{i * 10000},{i % 1024}")
+    assert abs(acc.rate_hz - 100.0) < 0.01
+
+
+def test_accumulator_rate_matches_measured_hardware():
+    # The real capture: seq 1..295 spanning 2931819 -> 2941910 us per frame.
+    acc = FrameAccumulator()
+    acc.feed(REAL_BANNER)
+    for i in range(1, 101):
+        acc.feed(f"G,{i},{1703 + (i - 1) * 10009},5")
+    assert 99.0 < acc.rate_hz < 101.0
+
+
+def test_accumulator_reset_clears_counters():
+    acc = FrameAccumulator()
+    acc.feed(REAL_BANNER)
+    acc.feed("G,1,1000,5")
+    acc.feed("G,9,2000,5")
+    assert acc.dropped > 0
+    acc.reset_counters()
+    assert acc.total == 0 and acc.dropped == 0 and acc.rate_hz == 0.0
+    # Banner survives a counter reset — the board did not reboot.
+    assert acc.banner is not None
+
+
+def test_accumulator_rate_is_zero_before_data():
+    assert FrameAccumulator().rate_hz == 0.0
+
+
+# ── force estimation (Interlink FSR402 published curve) ──────────────────
+
+def test_force_is_exact_at_every_published_anchor():
+    # The whole point of interpolating in log-log space rather than fitting one
+    # global power law: the datasheet's own points come back unchanged.
+    for newtons, ohms in FSR402_CURVE:
+        got = force_newtons(ohms)
+        assert abs(got - newtons) < 1e-9, f"{ohms} ohm -> {got}, want {newtons}"
+
+
+def test_force_beats_a_single_power_law_fit():
+    # A global least-squares fit R = 7138 * F**-0.7654 misses the published
+    # anchors by up to ~20%; this is the regression guard for that choice.
+    import math
+    worst_fit = 0.0
+    worst_ours = 0.0
+    for newtons, ohms in FSR402_CURVE:
+        fit_r = 7138.0 * newtons ** -0.7654
+        worst_fit = max(worst_fit, abs(fit_r - ohms) / ohms)
+        worst_ours = max(worst_ours, abs(force_newtons(ohms) - newtons) / newtons)
+    assert worst_fit > 0.15, "the power-law fit should be visibly bad"
+    assert worst_ours < 1e-9, "piecewise interpolation must be exact"
+
+
+def test_force_rises_monotonically_as_resistance_falls():
+    forces = [force_newtons(r) for r in (30000, 10000, 6000, 3000, 1000, 500, 250)]
+    assert all(a < b for a, b in zip(forces, forces[1:])), forces
+
+
+def test_force_interpolates_between_anchors():
+    # 2 kOhm sits between the 1 N and 10 N anchors, so must land between them.
+    f = force_newtons(2000)
+    assert 1.0 < f < 10.0
+
+
+def test_force_extrapolates_past_the_ends():
+    assert force_newtons(1_000_000) < RATED_MIN_N   # barely touched
+    assert force_newtons(150) > 100.0               # crushed
+
+
+def test_force_open_and_invalid_inputs():
+    assert force_newtons(None) is None
+    assert force_newtons(-5) is None
+    # 0 ohm means at/past the rail (protocol.sensor_ohms), not a crash.
+    assert force_newtons(0) == FSR402_CURVE[-1][0]
+
+
+def test_force_range_classifies_against_the_datasheet_band():
+    assert force_range(None) == "open"
+    assert force_range(0.05) == "below"            # under 0.2 N actuation
+    assert force_range(RATED_MIN_N) == "rated"
+    assert force_range(5.0) == "rated"
+    assert force_range(RATED_MAX_N) == "rated"
+    assert force_range(RATED_MAX_N + 0.1) == "above"
+
+
+def test_hard_press_is_flagged_not_silently_reported():
+    # 250 ohm reads 100 N off the curve, but the part is only rated to 20 N.
+    # The UI must be able to badge that rather than print a confident number.
+    assert force_range(force_newtons(250)) == "above"
+
+
+def test_grams_force_conversion():
+    assert grams_force(None) is None
+    assert abs(grams_force(9.80665) - 1000.0) < 1e-6   # 1 kgf
+    assert abs(grams_force(1.0) - 101.97) < 0.01
+
+
+def test_conductance_is_reciprocal_resistance():
+    assert conductance_us(1_000_000) == 1.0
+    assert conductance_us(1000) == 1000.0
+    assert conductance_us(None) is None
+    assert conductance_us(0) is None
+
+
+def test_force_model_payload_is_transportable():
+    m = force_model()
+    assert m["points"] == [[f, r] for f, r in FSR402_CURVE]
+    assert m["rated_min_n"] == RATED_MIN_N and m["rated_max_n"] == RATED_MAX_N
+    assert m["tolerance_pct"] == PART_TO_PART_PCT
+    assert "FSR402" in m["source"]
+
+
+def test_full_chain_adc_to_force_at_12_bit():
+    # 12-bit ADC, 10k pulldown, 3.3 V: an ADC count all the way through to a
+    # force, the way the dev page does it.
+    r = sensor_ohms(3723, 3300, 3300, 10000, 12)
+    assert r is not None and 900 < r < 1100        # ~1 kOhm
+    f = force_newtons(r)
+    assert 8.0 < f < 12.0                          # ~10 N per the curve
+    assert force_range(f) == "rated"
+
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"  PASS  {fn.__name__}")
+        except AssertionError as e:
+            failed += 1
+            print(f"  FAIL  {fn.__name__}: {e}")
+    print(f"\n{len(fns) - failed}/{len(fns)} passed")
+    sys.exit(1 if failed else 0)
