@@ -4,10 +4,14 @@
  * Implements the analog front end and serial protocol specified in
  * docs/GLOVE_FIRMWARE_PLAN.md (sections 3 and 4).
  *
- * Current hardware (build gate 3): one FSR402 on A0, wired as
- *     3V3 --- FSR --- A0 --- R_FIXED --- GND
- * Channels are declared in the CHANNELS[] table below; adding the remaining
- * flex/FSR sensors (and the CD74HC4067 mux) is a table edit, not a rewrite.
+ * Current hardware (build gates 2-3): one FSR402 on A0 and one flex strip on
+ * A1, each wired as its own divider against the 3V3 rail:
+ *     3V3 --- SENSOR --- Ax --- rFixed --- GND
+ * The two need *different* low-side resistors (a divider is most sensitive
+ * where rFixed is near the sensor's own resistance, and these two parts live in
+ * very different resistance bands), so rFixed is per-channel in CHANNELS[]
+ * rather than one global. Adding the remaining flex/FSR sensors (and the
+ * CD74HC4067 mux) is a table edit, not a rewrite.
  *
  * Firmware emits RAW ADC counts only. Conversion to newtons and degrees is a
  * per-user host-side step (plan section 2) so recalibration never needs a
@@ -50,7 +54,7 @@
 
 /* ---------- configuration ------------------------------------------------ */
 
-#define FW_VERSION      "0.2.0"
+#define FW_VERSION      "0.3.0"
 /*
  * Frame layout is unchanged from proto 1 by the move to 12-bit: only the value
  * scale moved, and the banner's adc_bits already tells the host about that. So
@@ -65,19 +69,28 @@ static const uint32_t FRAME_PERIOD_US = 1000000UL / SAMPLE_RATE_HZ;
 static const uint16_t VDIV_SUPPLY_MV = 3300;
 
 /*
- * Fixed low-side resistor, ohms. A divider is most sensitive where
- * R_FIXED is near the sensor's resistance, so this value sets *which* force
- * band gets the most ADC range. 10k centres on a moderate press; if light
- * touch matters more (it probably does for fine-motor work), try 47k-100k
- * and compare the spans you record at gate 3.
+ * Legacy banner value only. Each channel carries its own rFixed (see
+ * CHANNELS[] below); this is what the banner's `r_fixed=` field reports so a
+ * host predating the per-channel `chan=` field still gets a sane number for
+ * the force channels rather than nothing at all.
  */
-static const uint32_t R_FIXED_OHMS = 10000;
+static const uint32_t R_FIXED_DEFAULT_OHMS = 10000;
 
 /* Reads averaged per channel per timestep - noise reduction within one
  * sample, which does not touch the inter-sample dynamics we care about.
  * Raised to 8 with the move to 12-bit: the extra two bits are only worth
- * having if they sit above the ADC's noise floor. */
-static const uint8_t OVERSAMPLE = 8;
+ * having if they sit above the ADC's noise floor.
+ *
+ * Raised again to 16 at gate 2. At the top of the FSR's range the force curve
+ * is steep enough that a single count is worth roughly a newton, so ADC noise
+ * reads as large force swings; averaging more reads per timestep is the one
+ * noise reduction plan section 2 allows, because it stays *within* a timestep
+ * and so cannot touch the inter-sample dynamics (tremor) we are measuring.
+ * BUDGET: this is affordable at 2 channels. 11 channels x 16 reads will not
+ * fit the 10 ms frame period - bring this back down when the mux lands and
+ * re-check the measured rate at gate 6.
+ */
+static const uint8_t OVERSAMPLE = 16;
 
 /* Mux settle time. Raise this if adjacent channels bleed into each other. */
 static const uint8_t MUX_SETTLE_US = 5;
@@ -87,17 +100,34 @@ static const uint8_t MUX_SEL_PINS[4] = { 2, 3, 4, 5 };
 
 struct AnalogChannel {
   const char *name;   /* protocol column name */
+  const char *kind;   /* "fsr" | "flex" - which curve the host should apply */
   uint8_t     pin;    /* analog pin (mux common pin if muxCh >= 0) */
   int8_t      muxCh;  /* -1 = wired directly, else CD74HC4067 channel */
+  uint32_t    rFixed; /* this channel's own low-side resistor, ohms */
 };
 
 /*
  * Column order here IS the frame's column order, and is published in the boot
  * banner so the host can verify the layout before trusting a single sample.
  * Naming follows the plan: f0..f4 = flex thumb->pinky, p0..p5 = FSR.
+ *
+ * `kind` matters as much as the resistor value: the host applies a *published
+ * FSR402 force curve* to force channels, and that curve is meaningless for a
+ * flex strip. Mislabel a channel here and the dev page will print confident
+ * newtons for a bending finger.
+ *
+ * rFixed picks which part of each sensor's range gets the most ADC resolution:
+ *   p0  10k  - centres on a moderate press, deliberately kept (plan 5b weighed
+ *              lowering it and rejected it: the resolution gained sits above
+ *              the part's rated 20 N and costs light-touch resolution).
+ *   f0  47k  - a flex strip runs roughly 10k flat to ~110k fully bent, and a
+ *              divider is most sensitive near the geometric mean of that span
+ *              (~33-47k). The 10k used for the FSR would waste most of the
+ *              range. Confirm against the span you actually record at gate 2.
  */
 static const AnalogChannel CHANNELS[] = {
-  { "p0", A0, -1 },
+  { "p0", "fsr",  A0, -1, 10000 },
+  { "f0", "flex", A1, -1, 47000 },
 };
 static const uint8_t N_CHANNELS = sizeof(CHANNELS) / sizeof(CHANNELS[0]);
 
@@ -154,12 +184,15 @@ static uint16_t adcToMillivolts(uint16_t adc) {
   return (uint16_t)(((uint32_t)adc * ADC_FULLSCALE_MV) / (uint32_t)ADC_MAX);
 }
 
-/* R_sensor = R_FIXED * (Vsupply - Vout) / Vout. Returns -1 for "open". */
-static int32_t sensorOhms(uint16_t adc) {
+/* R_sensor = rFixed * (Vsupply - Vout) / Vout. Returns -1 for "open".
+ * Takes rFixed as an argument rather than reading a global: the FSR and the
+ * flex strip sit on different resistors, and sharing one value here would
+ * silently scale one of them wrong. */
+static int32_t sensorOhms(uint16_t adc, uint32_t rFixed) {
   int32_t mv = adcToMillivolts(adc);
   if (mv <= 0) return -1;
   if (mv >= VDIV_SUPPLY_MV) return 0;
-  return (R_FIXED_OHMS * (int32_t)(VDIV_SUPPLY_MV - mv)) / mv;
+  return ((int32_t)rFixed * (int32_t)(VDIV_SUPPLY_MV - mv)) / mv;
 }
 
 /* ---------- output ------------------------------------------------------- */
@@ -176,11 +209,27 @@ static void emitBanner() {
   Serial.print(F(" vdiv_mv="));
   Serial.print(VDIV_SUPPLY_MV);
   Serial.print(F(" r_fixed="));
-  Serial.print(R_FIXED_OHMS);
+  Serial.print(R_FIXED_DEFAULT_OHMS);
   Serial.print(F(" imu=none emg=0 cols=seq,t_us"));
   for (uint8_t i = 0; i < N_CHANNELS; i++) {
     Serial.print(',');
     Serial.print(CHANNELS[i].name);
+  }
+  /*
+   * Per-channel detail: name:kind:rFixed, comma separated. This is an ADDITIVE
+   * banner field - `cols` and the frame layout are unchanged, and the host's
+   * parser ignores keys it does not know - so proto stays 1 and older
+   * recordings still read. A host that does not understand `chan` falls back
+   * to r_fixed above and to the f./p. naming convention for kind.
+   */
+  Serial.print(F(" chan="));
+  for (uint8_t i = 0; i < N_CHANNELS; i++) {
+    if (i) Serial.print(',');
+    Serial.print(CHANNELS[i].name);
+    Serial.print(':');
+    Serial.print(CHANNELS[i].kind);
+    Serial.print(':');
+    Serial.print(CHANNELS[i].rFixed);
   }
   Serial.println();
 }
@@ -229,7 +278,7 @@ static void emitDiag() {
     Serial.print(F(" mv="));
     Serial.print(adcToMillivolts(g_sample[i]));
     Serial.print(F(" ohm="));
-    Serial.print(sensorOhms(g_sample[i]));
+    Serial.print(sensorOhms(g_sample[i], CHANNELS[i].rFixed));
     Serial.print(F(" min="));
     Serial.print(g_min[i]);
     Serial.print(F(" max="));
