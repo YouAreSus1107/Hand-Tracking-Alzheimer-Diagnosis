@@ -441,6 +441,17 @@ here there are no anchors to honour.)
 - The span is direction-agnostic: a sensor can be mounted or wired so bending
   *lowers* resistance, and "flat" must keep meaning flat either way.
 
+**Until calibration exists, the dev page measures against the span it has
+actually observed** — the live min/max for that channel, converted to ohms.
+This is not a fudge; it is the same idea as the section above, since the live
+min/max *is* a recorded range. It is labelled **"observed span — not
+calibrated"** on the tile and **"% of observed range"** on the plot, so the
+number is never mistaken for travel through the sensor's full sweep, and it
+widens as the finger moves further. A calibrated span from `calibrate.py`
+takes precedence the moment one exists. The same `MIN_SPAN_RATIO` guard applies
+to a derived span, and ships in `flex_model()` so the threshold is written down
+once, in Python.
+
 **Degrees wait for gate 9.** `calibrate.py` is where a per-user angle mapping
 belongs, and also where a non-linear correction goes *if measurement shows one
 is needed* — not before.

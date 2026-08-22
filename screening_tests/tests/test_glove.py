@@ -460,6 +460,9 @@ def test_flex_model_payload_is_transportable():
     assert m["flat_ohm"] == 12_000 and m["bent_ohm"] == 90_000
     assert m["calibrated"] is True and m["usable"] is True
     assert "no published curve" in m["source"]
+    # The dev page derives a span from live readings and needs the same
+    # "travel or noise?" threshold, so it must travel with the payload.
+    assert m["min_span_ratio"] == MIN_SPAN_RATIO
     # The default span ships as explicitly uncalibrated.
     assert flex_model(default_span())["calibrated"] is False
 
