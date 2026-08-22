@@ -1,20 +1,29 @@
 """
-Hand-Detection-3D — Launcher Hub
-================================
-A self-contained local web app that connects every tool in this project and
-presents the research behind it. Run it, and it opens a dashboard in your
-browser with:
+Cognitive Screening Suite — Launcher Hub
+========================================
+A self-contained local web app that connects every tool in this camera-based
+cognitive-screening suite and presents the research behind it. Run it, and it
+opens a dashboard in your browser with:
 
-  - System status  (Python, model file, OpenCV, MediaPipe)
-  - One-click launch for each tool:
-        * IIV Finger Tapping Test   (iiv_test.py)
+  - System status  (Python, model files, OpenCV, MediaPipe)
+  - One-click launch for each tool, spanning motor and oculomotor modalities
+    (a speech modality is planned — see docs/ROADMAP.md):
+        * Finger Tapping Test       (finger_tapping.py)
         * Spiral Tracing Test       (spiral_test.py)
+        * Eye Movement Test         (oculomotor_test.py)
         * Hand Tracking / UDP       (hand_tracking.py)
-  - The Alzheimer's motor-biomarker research summary
+  - The cognitive-biomarker research summary spanning each modality
   - A link to the full analysis document
+  - A Developer page: sensor-glove toolchain, firmware compile/upload, and a
+    live scope for the analog channels streaming off the Arduino
 
-Standard library only — no extra pip installs — so it also packages into a
-single .exe with PyInstaller (see BUILD_LAUNCHER.md).
+The Python server uses the standard library only — no extra pip installs — so
+it still packages into a single .exe with PyInstaller (see BUILD_LAUNCHER.md).
+The one exception is the Developer page, whose serial reader needs ``pyserial``;
+that import is lazy and optional, so the hub runs identically without it and
+the page simply reports the dependency as missing.
+The frontend lives as plain static files in ``launcher_web/`` (index.html,
+styles.css, app.js, dev.js, background.js, hand3d.js), served straight off disk.
 
 Run:   python launcher.py
 Quit:  press Ctrl+C in this console, or close the window.
@@ -25,26 +34,75 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import threading
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_FILE = os.path.join(BASE_DIR, "model", "hand_landmarker.task")
-ANALYSIS_FILE = os.path.join(BASE_DIR, "docs", "alzheimers_hand_tracking_analysis.md")
+# BASE_DIR    — real folder on disk: where the tool scripts live and where the
+#               PID file is written (must be a real path even in a frozen exe).
+# RESOURCE_DIR — where bundled read-only assets are read from. In a PyInstaller
+#               one-file build these are unpacked to sys._MEIPASS; otherwise
+#               they sit next to this file.
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+    RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    RESOURCE_DIR = BASE_DIR
+
+# The Developer page imports core.glove.* from real disk, so BASE_DIR must be
+# importable even when the rest of the app is running out of a frozen bundle.
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+WEB_DIR = os.path.join(RESOURCE_DIR, "launcher_web")
+ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
+# Session results live on real disk (git-ignored), written by core/session.py.
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+MODEL_FILE = os.path.join(RESOURCE_DIR, "model", "hand_landmarker.task")
+FACE_MODEL_FILE = os.path.join(RESOURCE_DIR, "model", "face_landmarker.task")
+ANALYSIS_FILE = os.path.join(RESOURCE_DIR, "docs", "alzheimers_hand_tracking_analysis.md")
 
 HOST = "127.0.0.1"
 PORT = 8770
 
+# ── MIME types ─────────────────────────────────────────────────────────────
+_MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".glb": "model/gltf-binary",
+    ".gltf": "model/gltf+json",
+    ".bin": "application/octet-stream",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
+
+
+def _mime(path: str) -> str:
+    return _MIME.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
+
+
 # ── Tool registry ──────────────────────────────────────────────────────────
 # key -> (script filename, human title)
 TOOLS: dict[str, tuple[str, str]] = {
-    "iiv":      (os.path.join("screening_tests", "iiv_test.py"),    "IIV Finger Tapping Test"),
-    "spiral":   (os.path.join("screening_tests", "spiral_test.py"), "Spiral Tracing Test"),
-    "tracking": (os.path.join("core", "hand_tracking.py"),          "Hand Tracking / UDP Broadcast"),
+    "iiv":       (os.path.join("screening_tests", "finger_tapping.py"), "Finger Tapping Test"),
+    "spiral":    (os.path.join("screening_tests", "spiral_test.py"), "Spiral Tracing Test"),
+    "oculomotor": (os.path.join("screening_tests", "oculomotor_test.py"), "Eye Movement Test"),
+    "tracking":  (os.path.join("core", "hand_tracking.py"),          "Hand Tracking / UDP Broadcast"),
 }
 
 # key -> live subprocess.Popen (only while running)
@@ -58,6 +116,8 @@ def _dep_present(module: str) -> bool:
     try:
         return importlib.util.find_spec(module) is not None
     except (ImportError, ValueError):
+        return False
+    except Exception:  # noqa: BLE001 - a broken package must not break a probe
         return False
 
 
@@ -124,10 +184,184 @@ def stop_tool(key: str) -> tuple[bool, str]:
     return True, "Stopping."
 
 
+# ── Developer page: sensor glove + firmware toolchain ─────────────────────
+# Everything below serves the Developer page. It is kept out of the core hub
+# path on purpose: the glove reader is constructed lazily so that importing or
+# running launcher.py never requires pyserial.
+
+FIRMWARE_DIR = os.path.join(BASE_DIR, "firmware", "glove")
+FQBN = "arduino:mbed_nano:nano33ble"
+
+_glove = None
+_glove_lock = threading.Lock()
+
+
+def _get_glove():
+    """The process-wide GloveReader, built on first use."""
+    global _glove
+    with _glove_lock:
+        if _glove is None:
+            from core.glove.serial_io import GloveReader
+            _glove = GloveReader(RESULTS_DIR)
+        return _glove
+
+
+def _venv_python() -> str:
+    """The repo's .venv interpreter if it exists, else whatever is running us."""
+    sub = "Scripts" if os.name == "nt" else "bin"
+    exe = "python.exe" if os.name == "nt" else "python"
+    cand = os.path.join(BASE_DIR, ".venv", sub, exe)
+    return cand if os.path.exists(cand) else sys.executable
+
+
+def _arduino_cli() -> str | None:
+    """Locate arduino-cli: our known install dir first, then PATH."""
+    local = os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                         "Programs", "arduino-cli", "arduino-cli.exe")
+    if os.path.exists(local):
+        return local
+    return shutil.which("arduino-cli")
+
+
+def _arduino_data_dir() -> str:
+    if os.name == "nt":
+        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Arduino15")
+    return os.path.join(os.path.expanduser("~"), ".arduino15")
+
+
+def _mbed_core_present() -> bool:
+    return os.path.isdir(os.path.join(_arduino_data_dir(), "packages", "arduino",
+                                      "hardware", "mbed_nano"))
+
+
+def dev_env_payload() -> dict:
+    """Toolchain probe backing the Developer page's status pills."""
+    cli = _arduino_cli()
+    try:
+        from core.glove.serial_io import has_pyserial, list_ports
+        pyserial = has_pyserial()
+        ports = list_ports()
+    except Exception:  # noqa: BLE001 - never let a probe break the page
+        pyserial, ports = False, []
+
+    # Which interpreter is running this hub. Informational only: what actually
+    # matters is whether the packages import HERE, not which python it is. A
+    # non-venv interpreter with everything installed is perfectly fine, so the
+    # UI must key its warning on `missing_deps`, never on `on_venv`.
+    venv_py = _venv_python()
+    on_venv = os.path.normcase(sys.executable) == os.path.normcase(venv_py)
+
+    importlib.invalidate_caches()   # see a package installed since startup
+    deps = {name: _dep_present(mod) for name, mod in
+            (("pyserial", "serial"), ("opencv", "cv2"), ("mediapipe", "mediapipe"))}
+    missing_deps = sorted(n for n, ok in deps.items() if not ok)
+
+    return {
+        "python_exe": sys.executable,
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}."
+                          f"{sys.version_info.micro}",
+        "deps": deps,
+        "missing_deps": missing_deps,
+        "venv_python": venv_py,
+        "venv_present": os.path.exists(os.path.join(BASE_DIR, ".venv")),
+        "on_venv": on_venv,
+        "pyserial": pyserial,
+        "arduino_cli": cli,
+        "arduino_cli_present": cli is not None,
+        "mbed_core": _mbed_core_present(),
+        "sketch_present": os.path.isfile(os.path.join(FIRMWARE_DIR, "glove.ino")),
+        "fqbn": FQBN,
+        "ports": ports,
+        # None means "cannot tell" — without pyserial there is no way to look,
+        # which is NOT the same as "no board plugged in".
+        "board_detected": any(p["is_glove"] for p in ports) if pyserial else None,
+    }
+
+
+def _dev_command(task: str, port: str | None) -> tuple[list[str] | None, str]:
+    """Build the argv for a dev task, or explain why it can't run."""
+    if task == "setup":
+        return [sys.executable, os.path.join(BASE_DIR, "install.py")], "Running setup…"
+    if task == "install_pyserial":
+        # Install into the interpreter running THIS process, not the venv:
+        # this hub is what has to import pyserial, and installing into a
+        # different interpreter is a no-op it can never see.
+        return ([sys.executable, "-m", "pip", "install", "pyserial"],
+                f"Installing pyserial into {os.path.basename(sys.executable)}…")
+    if task == "tests":
+        script = os.path.join(BASE_DIR, "screening_tests", "tests", "test_glove.py")
+        return [_venv_python(), script], "Running glove tests…"
+
+    if task in ("compile", "upload"):
+        cli = _arduino_cli()
+        if cli is None:
+            return None, ("arduino-cli not found. Expected it in "
+                          r"%LOCALAPPDATA%\Programs\arduino-cli\ or on PATH.")
+        if not os.path.isfile(os.path.join(FIRMWARE_DIR, "glove.ino")):
+            return None, "firmware/glove/glove.ino is missing."
+        if task == "compile":
+            return [cli, "compile", "--fqbn", FQBN, FIRMWARE_DIR], "Compiling firmware…"
+        if not port:
+            return None, "No port selected — pick the board's port first."
+        return ([cli, "upload", "-p", port, "--fqbn", FQBN, FIRMWARE_DIR],
+                f"Uploading to {port}…")
+
+    return None, f"Unknown task: {task}"
+
+
+def run_dev_task(task: str, port: str | None) -> tuple[bool, str]:
+    """Spawn a dev task in its own console so its output is visible."""
+    argv, message = _dev_command(task, port)
+    if argv is None:
+        return False, message
+
+    note = ""
+    if task == "upload":
+        # Windows allows one owner per COM port: the reader must let go or
+        # bossac cannot open the board.
+        glove = _get_glove()
+        if glove.is_connected():
+            glove.disconnect()
+            note = " Disconnected the live stream first — reconnect when it finishes."
+
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_CONSOLE  # type: ignore[attr-defined]
+    try:
+        subprocess.Popen(argv, cwd=BASE_DIR, creationflags=creationflags)
+    except OSError as exc:
+        return False, f"Failed to start: {exc}"
+    return True, message + note
+
+
+def sessions_payload() -> dict:
+    """All saved sessions for the longitudinal view, newest last.
+
+    Reads the per-session JSON files in ``results/`` (the CSV index has stale
+    columns for some tests) and strips the heavy per-frame ``raw`` arrays so
+    the payload stays small. The frontend groups + charts these client-side.
+    """
+    sessions: list[dict] = []
+    if os.path.isdir(RESULTS_DIR):
+        for name in sorted(os.listdir(RESULTS_DIR)):
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(RESULTS_DIR, name), "r", encoding="utf-8") as fh:
+                    rec = json.load(fh)
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            rec.pop("raw", None)  # drop per-frame landmark arrays — charts don't need them
+            sessions.append(rec)
+    sessions.sort(key=lambda r: r.get("timestamp", ""))
+    return {"sessions": sessions}
+
+
 def status_payload() -> dict:
     return {
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "model_present": os.path.exists(MODEL_FILE),
+        "face_model_present": os.path.exists(FACE_MODEL_FILE),
         "opencv": _dep_present("cv2"),
         "mediapipe": _dep_present("mediapipe"),
         "analysis_present": os.path.exists(ANALYSIS_FILE),
@@ -146,17 +380,52 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # Never cache — prevents stale UI after code changes.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
     def _send_json(self, obj, code: int = 200):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
 
+    def _serve_dir_file(self, directory: str, name: str):
+        """Serve a single file from *directory*, guarded against path traversal."""
+        safe = os.path.basename(name.split("?", 1)[0])
+        fpath = os.path.join(directory, safe)
+        if safe and os.path.isfile(fpath):
+            with open(fpath, "rb") as f:
+                self._send(200, f.read(), _mime(safe))
+        else:
+            self._send(404, b"Not found", "text/plain; charset=utf-8")
+
     def do_GET(self):
+        route = urllib.parse.urlsplit(self.path).path
+
         if self.path in ("/", "/index.html"):
-            self._send(200, PAGE_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            self._serve_dir_file(WEB_DIR, "index.html")
         elif self.path == "/api/status":
             self._send_json(status_payload())
+        elif self.path == "/api/sessions":
+            self._send_json(sessions_payload())
+        elif route == "/api/dev/env":
+            self._send_json(dev_env_payload())
+        elif route == "/api/glove/status":
+            self._send_json(_get_glove().stats())
+        elif route == "/api/glove/ports":
+            from core.glove.serial_io import HAS_PYSERIAL, list_ports
+            self._send_json({"pyserial": HAS_PYSERIAL, "ports": list_ports()})
+        elif route == "/api/glove/samples":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            try:
+                since = int(q.get("since", ["-1"])[0])
+            except ValueError:
+                since = -1
+            try:
+                limit = max(1, min(2000, int(q.get("max", ["2000"])[0])))
+            except ValueError:
+                limit = 2000
+            self._send_json(_get_glove().snapshot(since, limit))
         elif self.path == "/analysis":
             if os.path.exists(ANALYSIS_FILE):
                 with open(ANALYSIS_FILE, "r", encoding="utf-8") as fh:
@@ -164,8 +433,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, text.encode("utf-8"), "text/plain; charset=utf-8")
             else:
                 self._send(404, b"Analysis document not found.", "text/plain; charset=utf-8")
+        elif self.path.startswith("/assets/"):
+            self._serve_dir_file(ASSETS_DIR, self.path.split("/assets/", 1)[1])
         else:
-            self._send(404, b"Not found", "text/plain; charset=utf-8")
+            # Static frontend files: styles.css, app.js, background.js, hand3d.js …
+            self._serve_dir_file(WEB_DIR, self.path.lstrip("/"))
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
@@ -175,251 +447,116 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             data = {}
         key = data.get("test", "")
+        route = urllib.parse.urlsplit(self.path).path
+
+        # ── Developer page endpoints (no tool-running state to report) ──
+        if route.startswith("/api/glove/") or route.startswith("/api/dev/"):
+            ok, msg = self._dev_post(route, data)
+            self._send_json({"ok": ok, "message": msg})
+            return
 
         if self.path == "/api/launch":
             ok, msg = launch_tool(key)
-            self._send_json({"ok": ok, "message": msg, "running": status_payload()["running"]})
         elif self.path == "/api/stop":
             ok, msg = stop_tool(key)
-            self._send_json({"ok": ok, "message": msg, "running": status_payload()["running"]})
         else:
             self._send_json({"ok": False, "message": "Unknown endpoint"}, code=404)
+            return
+
+        running = {k: _running(k) for k in TOOLS}
+        self._send_json({"ok": ok, "message": msg, "running": running})
+
+    def _dev_post(self, route: str, data: dict) -> tuple[bool, str]:
+        if route == "/api/dev/run":
+            return run_dev_task(str(data.get("task", "")), data.get("port") or None)
+
+        glove = _get_glove()
+        if route == "/api/glove/connect":
+            return glove.connect(str(data.get("port", "")))
+        if route == "/api/glove/disconnect":
+            return glove.disconnect()
+        if route == "/api/glove/command":
+            return glove.send_command(str(data.get("cmd", "")))
+        if route == "/api/glove/record":
+            return glove.start_recording() if data.get("on") else glove.stop_recording()
+        return False, f"Unknown endpoint: {route}"
 
 
-# ── Front-end (single self-contained page) ─────────────────────────────────
+# ── Stale-server cleanup ──────────────────────────────────────────────────
 
-PAGE_HTML = r"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hand-Detection-3D — Control Hub</title>
-<style>
-  :root{
-    --bg:#0d1117; --panel:#161b22; --panel-2:#1c2330; --line:#2a3240;
-    --text:#e6edf3; --muted:#8b95a3; --accent:#4c9eff; --accent-2:#7c5cff;
-    --green:#3fb950; --amber:#d29922; --red:#f85149;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--text);line-height:1.55;}
-  a{color:var(--accent);text-decoration:none}
-  a:hover{text-decoration:underline}
-  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 64px;}
-  header.hero{padding:8px 0 22px;border-bottom:1px solid var(--line);margin-bottom:26px;}
-  .badge{display:inline-block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;
-         color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:4px 12px;margin-bottom:14px;}
-  h1{margin:0 0 8px;font-size:30px;letter-spacing:-.02em;}
-  .sub{color:var(--muted);max-width:70ch;margin:0;}
-  h2{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
-     margin:34px 0 14px;font-weight:600;}
-  /* Status bar */
-  .status{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;}
-  .chip{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
-        border-radius:8px;padding:8px 13px;font-size:13px;}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none;}
-  .dot.ok{background:var(--green);box-shadow:0 0 8px rgba(63,185,80,.5)}
-  .dot.bad{background:var(--red);box-shadow:0 0 8px rgba(248,81,73,.5)}
-  .chip b{color:var(--text);font-weight:600}
-  .chip span{color:var(--muted)}
-  /* Tool cards */
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
-  .card{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
-        border-radius:14px;padding:20px;display:flex;flex-direction:column;position:relative;overflow:hidden;}
-  .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;
-                background:linear-gradient(90deg,var(--accent),var(--accent-2));opacity:.9}
-  .card h3{margin:6px 0 4px;font-size:18px;}
-  .card .file{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);}
-  .card p{color:var(--muted);font-size:14px;margin:12px 0 14px;flex:1;}
-  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
-  .tag{font-size:11.5px;color:var(--text);background:#20283420;border:1px solid var(--line);
-       border-radius:6px;padding:3px 8px;}
-  .row{display:flex;align-items:center;gap:10px;}
-  button{font:inherit;font-size:14px;font-weight:600;border:none;border-radius:9px;padding:10px 16px;
-         cursor:pointer;transition:filter .15s,opacity .15s;}
-  .btn-go{background:var(--accent);color:#04122b;flex:1;}
-  .btn-go:hover{filter:brightness(1.08)}
-  .btn-stop{background:transparent;color:var(--red);border:1px solid var(--red);}
-  .btn-stop:hover{background:rgba(248,81,73,.12)}
-  button:disabled{opacity:.5;cursor:not-allowed;filter:none}
-  .live{display:none;align-items:center;gap:7px;font-size:12.5px;color:var(--green);margin-bottom:12px;}
-  .live.on{display:flex}
-  .pulse{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
-  /* Research */
-  .research{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px 26px;}
-  .research p{color:var(--muted);}
-  .research strong{color:var(--text)}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:6px;}
-  .metric{border-left:2px solid var(--accent);padding-left:14px;}
-  .metric h4{margin:0 0 4px;font-size:15px;color:var(--text)}
-  .metric span{font-size:13.5px;color:var(--muted)}
-  .disclaimer{margin-top:20px;font-size:13px;color:var(--amber);background:rgba(210,153,34,.08);
-              border:1px solid rgba(210,153,34,.3);border-radius:8px;padding:12px 14px;}
-  footer{margin-top:34px;color:var(--muted);font-size:12.5px;text-align:center;}
-  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
-         background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:11px 18px;
-         border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  @media(max-width:640px){.grid2{grid-template-columns:1fr}}
-</style>
-</head>
-<body>
-<div class="wrap">
+def _kill_stale_hubs(port: int) -> int:
+    """Kill any existing processes listening on *port*. Returns count killed."""
+    if os.name != "nt":
+        return 0
+    killed = 0
+    my_pid = os.getpid()
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano", "-p", "TCP"],
+            text=True, creationflags=0x08000000,   # CREATE_NO_WINDOW
+        )
+        pids: set[int] = set()
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and f"127.0.0.1:{port}" in parts[1] and parts[3] == "LISTENING":
+                try:
+                    pid = int(parts[4])
+                    if pid != my_pid and pid != 0:
+                        pids.add(pid)
+                except ValueError:
+                    pass
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed += 1
+            except OSError:
+                pass
+    except (subprocess.SubprocessError, OSError):
+        pass
+    return killed
 
-  <header class="hero">
-    <span class="badge">Motor Biomarker Suite</span>
-    <h1>Hand-Detection-3D — Control Hub</h1>
-    <p class="sub">Real-time hand tracking with OpenCV + MediaPipe. Launch each tool, check your
-    environment, and read the research behind the two Alzheimer's motor-screening tests — all from here.</p>
-  </header>
 
-  <h2>System Status</h2>
-  <div class="status" id="status"><div class="chip"><span>Checking…</span></div></div>
+# ── PID file for single-instance guard ────────────────────────────────────
 
-  <h2>Tools</h2>
-  <div class="cards" id="cards"></div>
+_PID_FILE = os.path.join(BASE_DIR, ".launcher.pid")
 
-  <h2>Research Background</h2>
-  <div class="research">
-    <p>Two of the tools above are experimental screening tests grounded in a 2024 systematic review
-    (<strong>Namkoong &amp; Roh, <em>Technology and Health Care</em> 32(S1):253–264</strong>), which found hand
-    dexterity "strongly correlated with cognitive function in all 17 studies reviewed." The hand acts as a
-    <strong>peripheral readout of central neurodegeneration</strong>: fine motor control simultaneously exercises the
-    motor cortex, basal ganglia automaticity loops, and cerebellar timing — the same circuits Alzheimer's erodes
-    early, often before cognitive symptoms are salient enough to diagnose.</p>
-    <div class="grid2">
-      <div class="metric">
-        <h4>Rhythm variability (IIV)</h4>
-        <span>Roalf et al. (2018): intra-individual variability of inter-tap intervals is elevated across
-        neurodegenerative groups. The <em>IIV Finger Tapping Test</em> measures tap-to-tap consistency.</span>
-      </div>
-      <div class="metric">
-        <h4>Movement smoothness</h4>
-        <span>Schroter et al. (2003) &amp; Kachouri et al. (2021): AD produces irregular, less-automated movement.
-        The <em>Spiral Tracing Test</em> measures path deviation, velocity variation, and normalized jerk.</span>
-      </div>
-    </div>
-    <p style="margin-top:20px"><a href="/analysis" target="_blank">Open the full research analysis&nbsp;→</a></p>
-    <div class="disclaimer">These tests are research prototypes, <strong>not medical diagnostics</strong>.
-    Results are not a diagnosis. Consult a healthcare professional for any clinical concern.</div>
-  </div>
 
-  <footer>Local hub · served at 127.0.0.1 · no data leaves this machine</footer>
-</div>
+def _write_pid():
+    try:
+        with open(_PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
 
-<div class="toast" id="toast"></div>
 
-<script>
-const TOOLS = [
-  { key:"iiv", title:"IIV Finger Tapping Test", file:"iiv_test.py",
-    desc:"Tap index-to-thumb on each beep for 30 s. Scores rhythm consistency (intra-individual variability of tap intervals).",
-    tags:["30 s test","1 hand","Audio metronome"] },
-  { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py",
-    desc:"Trace an Archimedes spiral with your index fingertip for 40 s. Scores path deviation, velocity variation, and smoothness.",
-    tags:["40 s test","1 hand","On-screen guide"] },
-  { key:"tracking", title:"Hand Tracking / UDP Broadcast", file:"hand_tracking.py",
-    desc:"Streams 21 hand landmarks (x, y, z) over UDP to 127.0.0.1:5052 for the Unity receiver. Prompts for camera in its console.",
-    tags:["Live stream","2 hands","UDP :5052"] },
-];
-
-const cardsEl = document.getElementById("cards");
-const statusEl = document.getElementById("status");
-const toastEl = document.getElementById("toast");
-let toastTimer = null;
-
-function toast(msg){
-  toastEl.textContent = msg;
-  toastEl.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>toastEl.classList.remove("show"), 2600);
-}
-
-function renderCards(running){
-  cardsEl.innerHTML = "";
-  for(const t of TOOLS){
-    const on = running && running[t.key];
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
-      <div class="file">${t.file}</div>
-      <h3>${t.title}</h3>
-      <div class="live ${on?"on":""}"><span class="pulse"></span>Running — check the camera window</div>
-      <p>${t.desc}</p>
-      <div class="meta">${t.tags.map(x=>`<span class="tag">${x}</span>`).join("")}</div>
-      <div class="row">
-        <button class="btn-go" data-go="${t.key}" ${on?"disabled":""}>${on?"Running…":"▶ Launch"}</button>
-        <button class="btn-stop" data-stop="${t.key}" ${on?"":"disabled"}>Stop</button>
-      </div>`;
-    cardsEl.appendChild(card);
-  }
-  cardsEl.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>act("launch", b.dataset.go));
-  cardsEl.querySelectorAll("[data-stop]").forEach(b=>b.onclick=()=>act("stop", b.dataset.stop));
-}
-
-function chip(ok, label, value){
-  const cls = ok ? "ok" : "bad";
-  return `<div class="chip"><span class="dot ${cls}"></span><b>${label}</b>&nbsp;<span>${value}</span></div>`;
-}
-
-function renderStatus(s){
-  let html = "";
-  html += chip(true, "Python", s.python);
-  html += chip(s.model_present, "Model", s.model_present ? "hand_landmarker.task" : "missing");
-  html += chip(s.opencv, "OpenCV", s.opencv ? "installed" : "missing");
-  html += chip(s.mediapipe, "MediaPipe", s.mediapipe ? "installed" : "missing");
-  statusEl.innerHTML = html;
-  renderCards(s.running);
-}
-
-async function refresh(){
-  try{
-    const r = await fetch("/api/status");
-    renderStatus(await r.json());
-  }catch(e){ /* server closing */ }
-}
-
-async function act(kind, key){
-  try{
-    const r = await fetch("/api/"+kind, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({test:key})
-    });
-    const data = await r.json();
-    toast(data.message || (data.ok?"Done":"Failed"));
-    if(data.running) renderCards(data.running);
-    setTimeout(refresh, 400);
-  }catch(e){ toast("Request failed"); }
-}
-
-refresh();
-setInterval(refresh, 2500);
-</script>
-</body>
-</html>
-"""
+def _remove_pid():
+    try:
+        os.remove(_PID_FILE)
+    except OSError:
+        pass
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
 
 def main():
-    global PORT
+    # Kill any stale hub processes hogging our port.
+    n = _kill_stale_hubs(PORT)
+    if n:
+        print(f"[INFO] Killed {n} stale hub process(es) on port {PORT}.")
+        import time; time.sleep(0.4)  # brief pause for OS to release the socket
+
     server = None
-    # Find a free port starting at the default.
-    for candidate in range(PORT, PORT + 20):
-        try:
-            server = ThreadingHTTPServer((HOST, candidate), Handler)
-            PORT = candidate
-            break
-        except OSError:
-            continue
-    if server is None:
-        print("[ERROR] Could not bind to a port in range.")
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError:
+        print(f"[ERROR] Port {PORT} still in use. Close the old hub and retry.")
         sys.exit(1)
+
+    _write_pid()
 
     url = f"http://{HOST}:{PORT}/"
     print("=" * 56)
-    print("  Hand-Detection-3D — Control Hub")
+    print("  Cognitive Screening Suite — Control Hub")
     print("=" * 56)
     print(f"  Dashboard:  {url}")
     print("  Opening your browser… (Ctrl+C here to quit)")
@@ -432,8 +569,8 @@ def main():
     except KeyboardInterrupt:
         print("\n[INFO] Shutting down hub.")
     finally:
-        # Leave launched tools running; just close the server.
         server.server_close()
+        _remove_pid()
 
 
 if __name__ == "__main__":

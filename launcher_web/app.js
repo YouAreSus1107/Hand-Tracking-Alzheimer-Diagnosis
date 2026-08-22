@@ -1,0 +1,838 @@
+/* ── SVG Icon library (style guide section 8: 2px stroke, rounded) ── */
+const I = {
+  hand: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.25 1.25 0 0 1 2.5 0V11"/><path d="M10.5 11V5a1.25 1.25 0 0 1 2.5 0v6"/><path d="M13 11.5V6a1.25 1.25 0 0 1 2.5 0v6"/><path d="M15.5 12.5V9a1.25 1.25 0 0 1 2.5 0v4.5a6 6 0 0 1-6 6h-.5a6 6 0 0 1-5.3-3.2l-1.5-2.9a1.25 1.25 0 0 1 2.1-1.3L10 13"/></svg>',
+  spiral: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 12a1.5 1.5 0 0 1 1.5 1.5A3 3 0 0 1 10.5 16.5 4.5 4.5 0 0 1 6 12a6 6 0 0 1 6-6 7.5 7.5 0 0 1 7.5 7.5A9 9 0 0 1 10.5 22.5"/></svg>',
+  broadcast: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="13" rx="2"/><circle cx="12" cy="11.5" r="3.5"/><circle cx="17.5" cy="7.5" r="1" fill="currentColor" stroke="none"/><path d="M8 21h8"/><path d="M12 18v3"/></svg>',
+  eye: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6,3 20,12 6,21"/></svg>',
+  stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
+  check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  arrowLeft: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+  arrowRight: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+  clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  wave: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/><path d="M2 18c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/></svg>',
+  beaker: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v7l4 8H5l4-8V3z"/><line x1="8" y1="3" x2="16" y2="3"/></svg>',
+  home: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/><path d="M9.5 21v-5.5a2.5 2.5 0 0 1 5 0V21"/></svg>',
+  chart: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/><circle cx="7" cy="14" r="1.1" fill="currentColor" stroke="none"/><circle cx="11" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="14" cy="13" r="1.1" fill="currentColor" stroke="none"/><circle cx="19" cy="7" r="1.1" fill="currentColor" stroke="none"/></svg>',
+  up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>',
+  down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="6 13 12 19 18 13"/></svg>',
+  minus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  scale: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M7 21h10"/><path d="M6 7l-4 6a4 4 0 0 0 8 0L6 7z"/><path d="M18 7l-4 6a4 4 0 0 0 8 0l-4-6z"/><path d="M4 7h16"/></svg>',
+  code: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  lock: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  layers: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+  shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>',
+};
+
+const TOOLS = [
+  { key:"iiv", title:"Finger Tapping Test", file:"finger_tapping.py", icon:"hand",
+    tags:["30 s test","1 hand","Audio metronome","Paced tapping"],
+    video:"/assets/finger-tapping.mp4" },
+  { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py", icon:"spiral",
+    tags:["40 s test","1 hand","On-screen guide","Air tracing"] },
+  { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py", icon:"eye",
+    tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"] },
+  { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py", icon:"broadcast",
+    tags:["Live stream","2 hands","UDP :5052","21 landmarks"],
+    video:"/assets/hand-tracking.mp4" },
+];
+
+const RESEARCH = [
+  { icon:"clock", title:"Motor \u2014 rhythm and movement",
+    text:"Finger tapping measures how much the gaps between taps vary. That variability is higher in neurodegenerative groups than in controls. Spiral tracing adds movement smoothness (SPARC), speed variation, and normalized jerk.",
+    cite:"Roalf et al. (2018) \u00b7 Wang et al. (2025) \u00b7 PMC11496774" },
+  { icon:"eye", title:"Oculomotor \u2014 inhibitory control",
+    text:"The anti-saccade error rate counts how often the eyes are pulled toward a target you were told to look away from. Meta-analysis puts the effect separating Alzheimer's groups from controls at SMD 1.59.",
+    cite:"Opwonya et al. (2022) \u00b7 Crawford et al. (2005) \u00b7 PMC9090874" },
+  { icon:"beaker", title:"Speech \u2014 not built yet",
+    text:"Word-finding pauses, flat prosody, and reduced vocabulary are among the earliest reported signs of decline. A microphone-only speech task is the next modality planned here.",
+    cite:"Planned \u2014 see docs/ROADMAP.md" },
+  { icon:"home", title:"The method works at home",
+    text:"MediaPipe tapping matched Polhemus electromagnetic sensors within \u00b11 Hz about 90% of the time, and 404 adults with no symptoms completed unsupervised webcam testing at home. Both studies validate the approach, not this implementation.",
+    cite:"Li et al., TapTalk (2024) \u00b7 TAS Test (2022\u20132025) \u00b7 PMC10809289" },
+];
+
+/* ── "Why This" page data (differentiation) ──────────────────────────
+   Source of truth: research/README.md (TAS Test framing),
+   research/01-webcam-hand-motor.md (finger-tapping vs TapTalk table),
+   docs/ROADMAP.md §1 & §7. Keep claims honest — the validation row
+   deliberately shows where TAS Test is ahead. */
+const WHY_PILLARS = [
+  { icon:"code", title:"Open source",
+    text:"Every script is on GitHub, including the scoring code." },
+  { icon:"lock", title:"Runs locally",
+    text:"Nothing leaves the machine. The hub serves on 127.0.0.1 and results stay on disk." },
+  { icon:"layers", title:"Two domains, one system",
+    text:"Hand-motor and oculomotor tests in the same session, written to the same results format." },
+  { icon:"shield", title:"Thresholds shown as provisional",
+    text:"Each metric links the paper it came from, and bands not yet fitted to data are labelled as such." },
+];
+
+// Cell states → status token + word. Word is always shown next to the icon so
+// meaning never rides on colour alone (UI_STYLE_GUIDE §2.4).
+const CMP_STATES = {
+  yes:     { icon:"check", word:"Yes",     cls:"st-yes" },
+  no:      { icon:"x",     word:"No",      cls:"st-no" },
+  partial: { icon:"minus", word:"Partial", cls:"st-partial" },
+  planned: { icon:"clock", word:"Planned", cls:"st-planned" },
+  notyet:  { icon:"clock", word:"Not yet", cls:"st-planned" },
+};
+const CMP_COLS = ["This suite", "Consumer apps", "TAS Test (research)"];
+const WHY_MATRIX = [
+  { cap:"Motor biomarkers (tapping, spiral)",      cells:["yes","no","yes"] },
+  { cap:"Oculomotor anti-saccade",                 cells:["yes","no","no"] },
+  { cap:"Speech tasks",                            cells:["planned","no","yes"] },
+  { cap:"Camera-only, no wearable needed",         cells:["yes","yes","yes"] },
+  { cap:"Open-source / inspectable",               cells:["yes","no","no"] },
+  { cap:"Fully local, no data upload",             cells:["yes","no","no"] },
+  { cap:"Longitudinal self-tracking",              cells:["yes","partial","yes"] },
+  { cap:"Literature-cited metrics shown in-app",   cells:["yes","no","partial"] },
+  { cap:"Validated on patient cohorts",            cells:["notyet","no","yes"] },
+  { cap:"Wearable co-contraction twin",            cells:["planned","no","no"] },
+];
+
+let currentRunning = {};
+let cardsBuilt = false;
+let carousel = null;
+let whyBuilt = false;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ── Inject SVG icons into detail pages + research cards ─────────── */
+(function(){
+  // Detail page icons
+  const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", tracking:"broadcast"};
+  for(const [k,v] of Object.entries(map)){
+    const el = document.getElementById("detail-icon-"+k);
+    if(el) el.innerHTML = I[v];
+  }
+  // Back buttons
+  document.querySelectorAll(".detail-back").forEach(b=>{
+    b.innerHTML = I.arrowLeft + " Back to Dashboard";
+  });
+  // Analysis header icon
+  const ai = document.getElementById("analysis-icon");
+  if(ai) ai.innerHTML = I.chart;
+  // Why-this header icon
+  const wi = document.getElementById("why-icon");
+  if(wi) wi.innerHTML = I.scale;
+  // Research cards
+  const rc = document.getElementById("research-cards");
+  if(rc) rc.innerHTML = RESEARCH.map(r => `<div class="r-card">
+    <div class="r-content">
+      <h4>${I[r.icon]} ${r.title}</h4>
+      <p>${r.text}</p>
+      <div class="r-cite">${r.cite}</div>
+    </div>
+    <div class="r-peel">
+      <div class="peel-layer peel-l1"></div>
+      <div class="peel-layer peel-l2"></div>
+      <div class="peel-layer peel-l3"></div>
+      <div class="peel-layer peel-cover">
+        <div class="peel-face">${I[r.icon]}<span>${r.title}</span></div>
+      </div>
+    </div>
+  </div>`).join("");
+})();
+
+/* ── Page navigation ─────────────────────────────────────────────── */
+function showPage(id){
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  requestAnimationFrame(()=>{
+    document.getElementById("page-"+id).classList.add("active");
+    window.scrollTo({top:0,behavior:"smooth"});
+  });
+  document.querySelectorAll(".nav-link").forEach(n =>
+    n.classList.toggle("active", n.dataset.page===id));
+  if(TOOLS.find(t=>t.key===id)) renderDetailActions(id);
+  if(id==="analysis") loadAnalysis();
+  if(id==="why") renderWhy();
+  // dev.js owns a ~100 ms poll; it must only run while its page is on screen.
+  if(id==="dev") window.startDev?.(); else window.stopDev?.();
+}
+document.querySelectorAll(".nav-link").forEach(n =>
+  n.addEventListener("click", ()=> showPage(n.dataset.page)));
+
+/* ── Card rendering (build once, update surgically) ──────────────── */
+const cardsEl = document.getElementById("cards");
+
+function buildCards(){
+  cardsEl.innerHTML = "";
+  TOOLS.forEach((t,i) => {
+    const on = !!currentRunning[t.key];
+    const card = document.createElement("div");
+    card.className = "card";
+    card.setAttribute("data-key", t.key);
+    card.setAttribute("data-index", i);
+    const tagsHtml = t.tags.map(x=>`<span class="card-tag">${x}</span>`).join("");
+    card.innerHTML = `
+      <div class="card-glow"></div>
+      <div class="card-body">
+        <div class="card-header"><div class="card-icon">${I[t.icon]}</div><div class="card-tags">${tagsHtml}</div></div>
+        <h3>${t.title}</h3>
+        <div class="live-badge ${on?"on":""}"><span class="live-pulse"></span>Running &#8212; check the camera window</div>
+        <div class="card-video${t.video?" has-video":""}">${t.video?`<video muted loop autoplay playsinline preload="auto" src="${t.video}"></video>`:""}</div>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-go="${t.key}" ${on?"disabled":""} aria-label="Launch ${t.title}">${on?"Running...":I.play+" Launch"}</button>
+          <button class="btn btn-danger" data-stop="${t.key}" ${on?"":"disabled"} aria-label="Stop ${t.title}">${I.stop} Stop</button>
+          <button class="card-more" data-detail="${t.key}" aria-label="View details for ${t.title}">Details ${I.arrowRight}</button>
+        </div>
+      </div>`;
+    card.addEventListener("mousemove", e=>{
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", ((e.clientX-r.left)/r.width*100)+"%");
+      card.style.setProperty("--my", ((e.clientY-r.top)/r.height*100)+"%");
+    });
+    cardsEl.appendChild(card);
+  });
+  // Card actions only fire on the centered card; on a side card any click
+  // recenters that card instead (see initCarousel).
+  const guard = (card, run) => e => {
+    e.stopPropagation();
+    if(carousel && carousel.dragged()) return;                // ignore a drag that ended on a button
+    if(carousel && !carousel.isActive(card)){ carousel.goTo(+card.dataset.index); return; }
+    run(e);
+  };
+  cardsEl.querySelectorAll("[data-go]").forEach(b =>
+    b.onclick = guard(b.closest(".card"), e => { addRipple(b,e); act("launch", b.dataset.go); }));
+  cardsEl.querySelectorAll("[data-stop]").forEach(b =>
+    b.onclick = guard(b.closest(".card"), () => act("stop", b.dataset.stop)));
+  cardsEl.querySelectorAll("[data-detail]").forEach(s =>
+    s.onclick = guard(s.closest(".card"), () => showPage(s.dataset.detail)));
+  cardsBuilt = true;
+  initCarousel();
+}
+
+/* ── 3D coverflow carousel controller ────────────────────────────────
+   Cards ride an infinite wrap-around ring: one faces forward (active,
+   fully interactive), neighbours angle inward and dim. Auto-advances every
+   ~4 s; drag / arrows / wheel / dots / click-a-side-card rotate manually and
+   pause the auto-spin until the user idles. Under reduced-motion we bail out
+   and let CSS render a flat, fully-interactive fallback grid. */
+function initCarousel(){
+  const wrap = document.getElementById("carousel");
+  const stage = cardsEl;
+  const dotsEl = document.getElementById("carousel-dots");
+  const prevBtn = document.getElementById("carousel-prev");
+  const nextBtn = document.getElementById("carousel-next");
+  if(!wrap) return;
+  prevBtn.innerHTML = I.arrowLeft;
+  nextBtn.innerHTML = I.arrowRight;
+
+  const cards = Array.from(stage.querySelectorAll(".card"));
+  const count = cards.length;
+  if(!count) return;
+
+  if(reducedMotion){ carousel = null; return; } // CSS flat fallback
+
+  let active = 0, autoTimer = null, idleTimer = null;
+  const AUTO_MS = 4000, IDLE_MS = 5000;
+
+  dotsEl.innerHTML = "";
+  const dots = cards.map((c,i) => {
+    const d = document.createElement("button");
+    d.className = "carousel-dot";
+    d.setAttribute("role","tab");
+    d.setAttribute("aria-label", TOOLS[i] ? TOOLS[i].title : "Tool "+(i+1));
+    d.onclick = () => { poke(); goTo(i); };
+    dotsEl.appendChild(d);
+    return d;
+  });
+
+  function signedDist(i){
+    let d = i - active;
+    if(d >  count/2) d -= count;
+    if(d < -count/2) d += count;
+    return d;
+  }
+  function layout(){
+    const GAP = wrap.clientWidth < 640 ? 150 : 250;
+    cards.forEach((card,i) => {
+      const d = signedDist(i), ad = Math.abs(d), isActive = d === 0;
+      const scale = isActive ? 1 : Math.max(.7, 1 - ad*.12);
+      const op = ad > 2 ? 0 : (isActive ? 1 : .55);
+      card.style.transform =
+        `translateX(-50%) translateX(${d*GAP}px) translateZ(${-ad*220}px) `+
+        `rotateY(${d*-34}deg) scale(${scale})`;
+      card.style.opacity = op;
+      card.style.filter = isActive ? "none" : "brightness(.6)";
+      card.style.zIndex = String(100 - ad);
+      card.style.pointerEvents = ad > 2 ? "none" : "auto";
+      card.classList.toggle("is-active", isActive);
+      card.setAttribute("aria-hidden", isActive ? "false" : "true");
+      card.querySelectorAll("button").forEach(b =>
+        isActive ? b.removeAttribute("tabindex") : b.setAttribute("tabindex","-1"));
+    });
+    dots.forEach((dot,i) => {
+      const on = i === active;
+      dot.classList.toggle("on", on);
+      dot.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+  function goTo(i){ active = ((i % count) + count) % count; layout(); }
+  function go(dir){ goTo(active + dir); }
+
+  function startAuto(){ stopAuto(); autoTimer = setInterval(() => go(1), AUTO_MS); }
+  function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer = null; } }
+  function poke(){ stopAuto(); clearTimeout(idleTimer); idleTimer = setTimeout(startAuto, IDLE_MS); }
+
+  prevBtn.onclick = () => { poke(); go(-1); };
+  nextBtn.onclick = () => { poke(); go(1); };
+
+  wrap.addEventListener("keydown", e => {
+    if(e.key === "ArrowLeft"){ poke(); go(-1); e.preventDefault(); }
+    else if(e.key === "ArrowRight"){ poke(); go(1); e.preventDefault(); }
+  });
+
+  let wheelLock = false;
+  wrap.addEventListener("wheel", e => {
+    const amt = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : 0);
+    if(!amt) return;
+    e.preventDefault(); poke();
+    if(wheelLock) return;
+    wheelLock = true; go(amt > 0 ? 1 : -1);
+    setTimeout(() => wheelLock = false, 350);
+  }, {passive:false});
+
+  // Drag vs click: a press that moves < SLOP px stays a click; a drag past STEP
+  // px advances the ring by at most ONE card per gesture (the `stepped` guard).
+  // Move/up listen on window so a drag that leaves the stage still tracks; the
+  // recenter rides the native click event so 3D-transformed cards hit-test right.
+  const SLOP = 8, STEP = 60;
+  let downX = null, downY = null, moved = false, stepped = false;
+  stage.addEventListener("pointerdown", e => {
+    if(e.button !== 0) return;
+    downX = e.clientX; downY = e.clientY; moved = false; stepped = false;
+    poke();
+  });
+  window.addEventListener("pointermove", e => {
+    if(downX === null) return;
+    if(Math.abs(e.clientX - downX) > SLOP || Math.abs(e.clientY - downY) > SLOP) moved = true;
+    if(!stepped){
+      const dx = e.clientX - downX;
+      if(Math.abs(dx) > STEP){ go(dx > 0 ? -1 : 1); stepped = true; }  // one card max
+    }
+  });
+  window.addEventListener("pointerup", () => { downX = downY = null; });
+  // Click a non-active card's body to bring it forward. Buttons handle their own
+  // clicks via the guard in buildCards; a drag (moved) suppresses the recenter.
+  stage.addEventListener("click", e => {
+    if(moved) return;
+    const card = e.target.closest(".card");
+    if(card && !card.classList.contains("is-active")){ poke(); goTo(+card.dataset.index); }
+  });
+
+  wrap.addEventListener("mouseenter", stopAuto);
+  wrap.addEventListener("mouseleave", () => { if(downX === null) startAuto(); });
+  window.addEventListener("resize", layout);
+
+  layout();
+  startAuto();
+
+  carousel = {
+    isActive: card => card.classList.contains("is-active"),
+    dragged: () => moved,
+    goTo: i => { poke(); goTo(i); },
+  };
+}
+
+function updateCardStates(running){
+  currentRunning = running || {};
+  TOOLS.forEach(t => {
+    const card = cardsEl.querySelector(`[data-key="${t.key}"]`);
+    if(!card) return;
+    const on = !!running[t.key];
+    card.querySelector(".live-badge").classList.toggle("on", on);
+    const goBtn = card.querySelector("[data-go]");
+    goBtn.disabled = on;
+    goBtn.innerHTML = on ? "Running..." : I.play + " Launch";
+    card.querySelector("[data-stop]").disabled = !on;
+  });
+  TOOLS.forEach(t => renderDetailActions(t.key));
+}
+
+function renderDetailActions(key){
+  const el = document.getElementById(key+"-actions");
+  if(!el) return;
+  const on = !!currentRunning[key];
+  el.innerHTML = `
+    <button class="btn btn-primary" onclick="act('launch','${key}')" ${on?"disabled":""} aria-label="Launch test">${on?"Running...":I.play+" Launch Test"}</button>
+    <button class="btn btn-danger" onclick="act('stop','${key}')" ${on?"":"disabled"} aria-label="Stop test">${I.stop} Stop</button>`;
+}
+
+/* ── "Why This" page render (build once) ─────────────────────────── */
+function renderWhy(){
+  if(whyBuilt) return;
+
+  const pillars = document.getElementById("why-pillars");
+  if(pillars) pillars.innerHTML = WHY_PILLARS.map(p => `<div class="pillar">
+    <div class="pillar-ic">${I[p.icon]}</div>
+    <h4>${p.title}</h4><p>${p.text}</p></div>`).join("");
+
+  const legend = document.getElementById("why-legend");
+  if(legend) legend.innerHTML = ["yes","partial","planned","no"].map(k => {
+    const s = CMP_STATES[k];
+    return `<span class="cmp-key ${s.cls}">${I[s.icon]}${s.word}</span>`;
+  }).join("");
+
+  const matrix = document.getElementById("why-matrix");
+  if(matrix){
+    const head = `<tr><th scope="col" class="cmp-cap-h">Capability</th>${
+      CMP_COLS.map((c,i) => `<th scope="col"${i===0?' class="cmp-own"':''}>${c}</th>`).join("")}</tr>`;
+    const rows = WHY_MATRIX.map(r => `<tr><th scope="row">${r.cap}</th>${
+      r.cells.map((state,i) => {
+        const s = CMP_STATES[state];
+        return `<td${i===0?' class="cmp-own"':''}>
+          <span class="cmp-cell ${s.cls}" aria-label="${s.word}" title="${s.word}">
+            ${I[s.icon]}<span>${s.word}</span></span></td>`;
+      }).join("")}</tr>`).join("");
+    matrix.innerHTML = `<table class="cmp"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  }
+
+  whyBuilt = true;
+}
+
+/* ── Ripple effect ───────────────────────────────────────────────── */
+function addRipple(btn, e){
+  const r = btn.getBoundingClientRect();
+  const ripple = document.createElement("span");
+  ripple.className = "ripple";
+  const size = Math.max(r.width, r.height);
+  ripple.style.width = ripple.style.height = size+"px";
+  ripple.style.left = (e.clientX-r.left-size/2)+"px";
+  ripple.style.top = (e.clientY-r.top-size/2)+"px";
+  btn.appendChild(ripple);
+  setTimeout(()=>ripple.remove(), 500);
+}
+
+/* ── Status pills ────────────────────────────────────────────────── */
+const statusEl = document.getElementById("status");
+let statusBuilt = false;
+
+function renderStatus(s){
+  if(!statusBuilt){
+    let html = "";
+    html += pill(true, "Python", s.python);
+    html += pill(s.model_present, "Hand model", s.model_present ? "Ready" : "Missing");
+    html += pill(s.face_model_present, "Face model", s.face_model_present ? "Ready" : "Missing");
+    html += pill(s.opencv, "OpenCV", s.opencv ? "OK" : "Missing");
+    html += pill(s.mediapipe, "MediaPipe", s.mediapipe ? "OK" : "Missing");
+    statusEl.innerHTML = html;
+    statusBuilt = true;
+  }
+  if(!cardsBuilt){
+    currentRunning = s.running || {};
+    buildCards();
+  } else {
+    updateCardStates(s.running);
+  }
+}
+
+function pill(ok, label, value){
+  return `<div class="s-pill"><span class="s-dot ${ok?"ok":"bad"}"></span><b>${label}</b>&#160;<span>${value}</span></div>`;
+}
+
+/* ── Toast ────────────────────────────────────────────────────────── */
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+function toast(msg, type){
+  const icons = {ok:I.check, fail:I.x, info:I.info};
+  toastEl.innerHTML = `<span class="toast-icon">${icons[type]||icons.info}</span> ${msg}`;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toastEl.classList.remove("show"), 2800);
+}
+
+/* ── API ──────────────────────────────────────────────────────────── */
+async function refresh(){
+  try{
+    const r = await fetch("/api/status");
+    renderStatus(await r.json());
+  }catch(e){}
+}
+
+async function act(kind, key){
+  try{
+    const r = await fetch("/api/"+kind, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({test:key})
+    });
+    const data = await r.json();
+    toast(data.message || (data.ok?"Done":"Failed"), data.ok?"ok":"fail");
+    if(data.running) updateCardStates(data.running);
+    setTimeout(refresh, 400);
+  }catch(e){ toast("Request failed","fail"); }
+}
+
+/* ── Animated counter ────────────────────────────────────────────── */
+function animateCounters(){
+  if(reducedMotion){
+    document.querySelectorAll("[data-count]").forEach(el =>
+      el.textContent = el.dataset.count);
+    return;
+  }
+  document.querySelectorAll("[data-count]").forEach(el=>{
+    const target = parseInt(el.dataset.count);
+    const start = performance.now();
+    function tick(now){
+      const t = Math.min((now-start)/1200, 1);
+      el.textContent = Math.round(target * (1 - Math.pow(1-t, 3)));
+      if(t<1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+/* ── Scroll reveal ───────────────────────────────────────────────── */
+const observer = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      e.target.classList.add("visible");
+      if(e.target.querySelector("[data-count]")) animateCounters();
+    }
+  });
+}, {threshold:.15});
+document.querySelectorAll(".reveal").forEach(el=>observer.observe(el));
+
+/* ── Longitudinal Analysis ───────────────────────────────────────────
+   Reads /api/sessions and charts each test's headline metric over time.
+   Reference bands are provisional (mirrors the detail-page copy). Colours
+   are the shared status tokens; the chart line is a neutral accent so it
+   reads over every band. Status is never colour-alone — dots carry a hover
+   label, the readout names the band, and a legend maps colour → word. */
+
+const TREND = {
+  finger_tapping: {
+    label:"Finger Tapping", icon:"hand", page:"iiv",
+    headline:{ key:"cv_pct", name:"Rhythm variability", unit:"%", lowerBetter:true,
+      bands:[{max:15,status:"ok"},{max:25,status:"warn"},{max:Infinity,status:"bad"}] },
+    supporting:[
+      {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+      {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
+      {key:"decrement_pct_per_s", name:"Speed decrement", unit:"%/s"},
+    ],
+    // Two test types share the CV% headline; each foregrounds its own third metric
+    // (Big & Fast → speed decrement, Paced → beat-sync tightness).
+    modes:[
+      { key:"big_and_fast", label:"Big & Fast", supporting:[
+        {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+        {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
+        {key:"decrement_pct_per_s", name:"Speed decrement", unit:"%/s"},
+      ]},
+      { key:"paced", label:"Paced", supporting:[
+        {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+        {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
+        {key:"sync_sd_ms", name:"Beat-sync SD", unit:"ms"},
+      ]},
+    ],
+  },
+  spiral: {
+    label:"Spiral Tracing", icon:"spiral", page:"spiral",
+    headline:{ key:"vel_cv_pct", name:"Velocity variability", unit:"%", lowerBetter:true, bands:null },
+    supporting:[
+      {key:"smoothness_index", name:"Smoothness index", unit:""},
+      {key:"norm_jerk", name:"Normalized jerk", unit:""},
+      {key:"completion_pct", name:"Completion", unit:"%"},
+    ],
+  },
+  oculomotor: {
+    label:"Eye Movement", icon:"eye", page:"oculomotor",
+    headline:{ key:"error_rate_pct", name:"Anti-saccade error rate", unit:"%", lowerBetter:true,
+      bands:[{max:20,status:"ok"},{max:40,status:"warn"},{max:Infinity,status:"bad"}] },
+    supporting:[
+      {key:"anti_minus_pro_ms", name:"Anti − Pro latency", unit:"ms"},
+      {key:"corrected_rate_pct", name:"Corrected errors", unit:"%"},
+      {key:"valid_trials", name:"Valid trials", unit:""},
+    ],
+  },
+};
+const TREND_ORDER = ["finger_tapping","spiral","oculomotor"];
+const ST = {
+  ok:  {word:"Typical",   dot:"#22C55E", band:"rgba(34,197,94,.13)"},
+  warn:{word:"Monitor",   dot:"#F5A524", band:"rgba(245,165,36,.14)"},
+  bad: {word:"Follow-up", dot:"#EF4444", band:"rgba(239,68,68,.14)"},
+  none:{word:"Logged",    dot:"#5197FB", band:"transparent"},
+};
+const INK_MUTED = "#94A3B8", INK_DIM = "#64748B", GRID = "#2A3442", LINE_C = "#5197FB";
+
+let analysisFilter = "all";
+let analysisSessions = null;
+let analysisModes = {};   // per-test selected sub-mode (e.g. finger_tapping → "paced")
+
+function fmtNum(v){
+  if(v==null || !isFinite(v)) return "—";
+  const a = Math.abs(v);
+  if(a >= 1000) return Math.round(v).toLocaleString();
+  if(a >= 100)  return v.toFixed(0);
+  if(a >= 10)   return v.toFixed(1);
+  return v.toFixed(2);
+}
+function fmtDate(iso){
+  return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+}
+function fmtDateTime(iso){
+  return new Date(iso).toLocaleString(undefined,
+    {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function bandFor(v, bands){
+  if(!bands) return "none";
+  for(const b of bands){ if(v <= b.max) return b.status; }
+  return "none";
+}
+
+async function loadAnalysis(){
+  const body = document.getElementById("analysis-body");
+  if(!body) return;
+  if(!analysisSessions) body.innerHTML = `<div class="analysis-empty">Loading sessions…</div>`;
+  try{
+    const r = await fetch("/api/sessions");
+    analysisSessions = (await r.json()).sessions || [];
+  }catch(e){ analysisSessions = []; }
+  renderAnalysis();
+}
+
+function renderAnalysis(){
+  const sessions = analysisSessions || [];
+  const byTest = {};
+  TREND_ORDER.forEach(k => byTest[k] = []);
+  sessions.forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
+
+  renderAnalysisSummary(sessions, byTest);
+  renderAnalysisFilter(byTest);
+
+  const body = document.getElementById("analysis-body");
+  if(!sessions.length){
+    body.innerHTML = `<div class="analysis-empty">
+      <div class="analysis-empty-icon">${I.chart}</div>
+      <h3>No sessions logged yet</h3>
+      <p>Run a screening test from the dashboard. Each session is saved locally, and
+      its metrics will chart here so you can watch the trend over time.</p>
+      <button class="btn btn-primary" onclick="showPage('home')">${I.play} Go to tests</button>
+    </div>`;
+    return;
+  }
+  const show = TREND_ORDER.filter(k =>
+    (analysisFilter==="all" || analysisFilter===k) && byTest[k].length);
+  if(!show.length){
+    body.innerHTML = `<div class="analysis-empty"><p>No sessions for this test yet.</p></div>`;
+    return;
+  }
+  body.innerHTML = show.map(k => trendCard(k, byTest[k])).join("");
+}
+
+function renderAnalysisSummary(sessions, byTest){
+  const el = document.getElementById("analysis-summary");
+  const withData = TREND_ORDER.filter(k => byTest[k].length).length;
+  let span = "—";
+  if(sessions.length){
+    const a = fmtDate(sessions[0].timestamp), b = fmtDate(sessions[sessions.length-1].timestamp);
+    span = a===b ? a : `${a} – ${b}`;
+  }
+  const tiles = [
+    ["Total sessions", sessions.length],
+    ["Tests tracked", `${withData} / ${TREND_ORDER.length}`],
+    ["Date range", span],
+  ];
+  el.innerHTML = tiles.map(([l,v]) =>
+    `<div class="sum-tile"><div class="sum-val">${v}</div><div class="sum-label">${l}</div></div>`
+  ).join("");
+}
+
+function renderAnalysisFilter(byTest){
+  const el = document.getElementById("analysis-filter");
+  const opts = [["all","All tests"]].concat(
+    TREND_ORDER.filter(k=>byTest[k].length).map(k=>[k, TREND[k].label]));
+  el.innerHTML = opts.map(([k,label]) =>
+    `<button class="seg-btn ${analysisFilter===k?"active":""}" role="tab"
+       aria-selected="${analysisFilter===k}" data-filter="${k}">${label}</button>`).join("");
+  el.querySelectorAll("[data-filter]").forEach(b =>
+    b.onclick = () => { analysisFilter = b.dataset.filter; renderAnalysis(); });
+}
+
+function trendCard(key, allSessions){
+  const cfg = TREND[key], h = cfg.headline;
+
+  // Optional per-mode split (finger tapping: Big & Fast vs Paced). The toggle
+  // swaps everything below the header — chart, readout, and supporting tiles.
+  let sessions = allSessions, supporting = cfg.supporting, modeBar = "";
+  if(cfg.modes){
+    const active = activeMode(key, cfg, allSessions);
+    const m = cfg.modes.find(x => x.key===active) || cfg.modes[0];
+    sessions = allSessions.filter(s => s.mode === active);
+    supporting = m.supporting || cfg.supporting;
+    modeBar = `<div class="trend-modes" role="tablist" aria-label="Test type">${cfg.modes.map(md =>
+      `<button class="seg-btn seg-sm ${md.key===active?"active":""}" role="tab"
+        aria-selected="${md.key===active}"
+        onclick="setTrendMode('${key}','${md.key}')">${md.label}</button>`).join("")}</div>`;
+  }
+
+  // Scoreable points only, chronological.
+  const pts = sessions
+    .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
+                 status:bandFor(s.metrics ? s.metrics[h.key] : null, h.bands) }))
+    .filter(p => p.v!=null && isFinite(p.v));
+
+  const head = `<div class="trend-head">
+      <div class="trend-title"><span class="trend-ic">${I[cfg.icon]}</span>
+        <div><h3>${cfg.label}</h3>
+          <div class="trend-metric">${h.name}${h.unit?` (${h.unit})`:""}</div></div>
+      </div>
+      <button class="trend-open" onclick="showPage('${cfg.page}')">Details ${I.arrowRight}</button>
+    </div>`;
+
+  if(!pts.length){
+    return `<div class="trend-card">${head}${modeBar}
+      <div class="analysis-note">${sessions.length} session(s) logged${cfg.modes?" for this type":""},
+      but none were scoreable for this metric yet.</div></div>`;
+  }
+
+  const latest = pts[pts.length-1], prev = pts.length>1 ? pts[pts.length-2] : null;
+  const st = ST[latest.status];
+  const readout = `<div class="trend-readout">
+      <div class="trend-now"><span class="trend-now-val">${fmtNum(latest.v)}</span>
+        <span class="trend-now-unit">${h.unit}</span></div>
+      <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${st.word}</span>
+      ${prev ? deltaChip(latest.v, prev.v, h.lowerBetter) : ""}
+    </div>`;
+
+  const dateSpan = pts.length>1
+    ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${pts.length} sessions`
+    : `1 session · a trend line appears after your next`;
+
+  const legend = h.bands ? `<div class="trend-legend">
+      <span><i style="background:${ST.ok.dot}"></i>Typical</span>
+      <span><i style="background:${ST.warn.dot}"></i>Monitor</span>
+      <span><i style="background:${ST.bad.dot}"></i>Follow-up</span>
+    </div>` : "";
+
+  const support = `<div class="trend-support">${supporting.map(m =>
+    supportTile(sessions, m)).join("")}</div>`;
+
+  return `<div class="trend-card">${head}${modeBar}${readout}
+    <div class="trend-span">${dateSpan}</div>
+    <div class="trend-chart">${trendSvg(pts, h)}</div>
+    ${legend}${support}</div>`;
+}
+
+// Selected sub-mode for a test: explicit choice, else the mode with the most
+// scoreable sessions (so the card opens on its richest trend).
+function activeMode(key, cfg, sessions){
+  if(analysisModes[key]) return analysisModes[key];
+  const hk = cfg.headline.key;
+  let best = cfg.modes[0].key, bestN = -1;
+  cfg.modes.forEach(md => {
+    const n = sessions.filter(s => s.mode===md.key && s.metrics
+      && s.metrics[hk]!=null && isFinite(s.metrics[hk])).length;
+    if(n > bestN){ bestN = n; best = md.key; }
+  });
+  return best;
+}
+function setTrendMode(key, mode){ analysisModes[key] = mode; renderAnalysis(); }
+
+function deltaChip(cur, prev, lowerBetter){
+  const d = cur - prev;
+  if(Math.abs(d) < 1e-9) return `<span class="delta delta-flat">no change</span>`;
+  const improved = lowerBetter ? d < 0 : d > 0;
+  const arrow = d > 0 ? I.up : I.down;
+  const cls = improved ? "delta-good" : "delta-bad";
+  return `<span class="delta ${cls}">${arrow}${fmtNum(Math.abs(d))} vs last</span>`;
+}
+
+/* ── SVG line chart with status bands ─────────────────────────────── */
+function trendSvg(pts, h){
+  const W=640, H=210, padL=46, padR=18, padT=18, padB=36;
+  const iw=W-padL-padR, ih=H-padT-padB;
+  let vals = pts.map(p=>p.v);
+  let lo=Math.min(...vals), hi=Math.max(...vals);
+  if(h.bands) h.bands.forEach(b=>{ if(isFinite(b.max)){ lo=Math.min(lo,b.max); hi=Math.max(hi,b.max);} });
+  if(lo===hi){ const e=Math.abs(lo)*0.15||1; lo-=e; hi+=e; }
+  const p=(hi-lo)*0.12; lo-=p; hi+=p;
+  const x = i => padL + (pts.length===1 ? iw/2 : iw*i/(pts.length-1));
+  const y = v => padT + ih*(1-(v-lo)/(hi-lo));
+  const clampY = v => Math.max(padT, Math.min(padT+ih, y(v)));
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+    aria-label="${h.name} across ${pts.length} sessions">`;
+
+  // Status bands (value ranges → clamped rects).
+  if(h.bands){
+    let prevMax = -Infinity;
+    for(const b of h.bands){
+      const top = clampY(isFinite(b.max)? b.max : hi);
+      const bot = clampY(isFinite(prevMax)? prevMax : lo);
+      const fill = ST[b.status].band;
+      if(bot-top > 0.5) svg += `<rect x="${padL}" y="${top}" width="${iw}" height="${bot-top}" fill="${fill}"/>`;
+      prevMax = b.max;
+    }
+  }
+
+  // Horizontal gridlines + y tick labels (4 ticks).
+  const ticks = 4;
+  for(let i=0;i<=ticks;i++){
+    const v = lo + (hi-lo)*i/ticks, yy = y(v);
+    svg += `<line x1="${padL}" y1="${yy}" x2="${padL+iw}" y2="${yy}" stroke="${GRID}" stroke-width="1" opacity="${i===0?0:.55}"/>`;
+    svg += `<text x="${padL-8}" y="${yy+3.5}" text-anchor="end" font-size="11" fill="${INK_DIM}" font-family="'JetBrains Mono',monospace">${fmtNum(v)}</text>`;
+  }
+
+  // Area fill + line.
+  if(pts.length>1){
+    const line = pts.map((pt,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join("");
+    const area = `M${x(0).toFixed(1)},${(padT+ih)} `
+      + pts.map((pt,i)=>`L${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(" ")
+      + ` L${x(pts.length-1).toFixed(1)},${(padT+ih)} Z`;
+    svg += `<path d="${area}" fill="${LINE_C}" opacity=".08"/>`;
+    svg += `<path d="${line}" fill="none" stroke="${LINE_C}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+
+  // Dots (status-coloured) with hover titles; latest emphasised.
+  pts.forEach((pt,i)=>{
+    const last = i===pts.length-1, r = last?6:4.5;
+    if(last) svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r+4}" fill="${ST[pt.status].dot}" opacity=".22"/>`;
+    svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r}" fill="${ST[pt.status].dot}" stroke="#0E1520" stroke-width="${last?2.5:2}">`
+      + `<title>${fmtDateTime(pt.iso)} — ${fmtNum(pt.v)}${h.unit} (${ST[pt.status].word})</title></circle>`;
+  });
+
+  // Direct label on the latest value.
+  const lx = x(pts.length-1), lv = y(latestVal(pts));
+  const above = lv - 14 > padT+6;
+  svg += `<text x="${Math.min(lx, W-padR)}" y="${above? lv-12 : lv+18}" text-anchor="${pts.length===1?"middle":"end"}"
+    font-size="12.5" font-weight="700" fill="#E2E8F0" font-family="'JetBrains Mono',monospace">${fmtNum(latestVal(pts))}${h.unit}</text>`;
+
+  // X-axis end labels.
+  svg += `<text x="${padL}" y="${H-12}" text-anchor="start" font-size="11" fill="${INK_MUTED}">${fmtDate(pts[0].iso)}</text>`;
+  if(pts.length>1)
+    svg += `<text x="${padL+iw}" y="${H-12}" text-anchor="end" font-size="11" fill="${INK_MUTED}">${fmtDate(pts[pts.length-1].iso)}</text>`;
+
+  return svg + `</svg>`;
+}
+function latestVal(pts){ return pts[pts.length-1].v; }
+
+function supportTile(sessions, m){
+  const series = sessions
+    .map(s => s.metrics ? s.metrics[m.key] : null)
+    .filter(v => v!=null && isFinite(v));
+  if(!series.length)
+    return `<div class="sup-tile"><div class="sup-name">${m.name}</div><div class="sup-val">—</div></div>`;
+  const cur = series[series.length-1];
+  return `<div class="sup-tile">
+    <div class="sup-name">${m.name}</div>
+    <div class="sup-row"><span class="sup-val">${fmtNum(cur)}<span class="sup-unit">${m.unit}</span></span>
+    ${miniSpark(series)}</div></div>`;
+}
+
+function miniSpark(vals){
+  if(vals.length<2) return "";
+  const W=64, H=22, p=3;
+  const lo=Math.min(...vals), hi=Math.max(...vals), rng=(hi-lo)||1;
+  const x=i=>p+(W-2*p)*i/(vals.length-1);
+  const y=v=>p+(H-2*p)*(1-(v-lo)/rng);
+  const d=vals.map((v,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<svg class="sup-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="${LINE_C}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${x(vals.length-1)}" cy="${y(vals[vals.length-1])}" r="2.2" fill="${LINE_C}"/></svg>`;
+}
+
+/* ── Init ─────────────────────────────────────────────────────────── */
+refresh();
+setInterval(refresh, 3000);
