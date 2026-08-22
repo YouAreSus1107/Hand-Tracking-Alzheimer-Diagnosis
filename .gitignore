@@ -12,8 +12,22 @@ dist/
 # Retired Unity project — kept locally, not published
 archive/
 
+# Test session data — personal health-adjacent data, never published
+results/
+
+# Large model bundle — install.py downloads it on setup
+model/face_landmarker.task
+
+# Runtime state
+.launcher.pid
+
+# Working material — kept locally, not published
+Hand_Digital_Twin_Reference.docx
+imported icons/
+
 # Local tool settings
-.claude/settings.local.json
+.claude/
+CLAUDE.md
 
 # OS
 Thumbs.db
