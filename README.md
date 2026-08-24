@@ -36,8 +36,8 @@ Sources for the metrics and thresholds: Namkoong & Roh (2024), *Technology and
 Health Care* 32(S1):253–264; Suzumura et al.; Roalf et al. (2018); Kachouri et
 al. (2021); Schroter et al. (2003); Balasubramanian et al. (2015) for SPARC.
 For the oculomotor test: Opwonya et al. (2022), Crawford et al. (2005), and the
-Antoniades et al. (2013) protocol. Full notes are in `research/` and
-[`docs/alzheimers_hand_tracking_analysis.md`](docs/alzheimers_hand_tracking_analysis.md).
+Antoniades et al. (2013) protocol. The full reading notes behind those choices
+are kept locally and are not published here.
 
 ## Setup
 
@@ -89,8 +89,6 @@ core/
 screening_tests/       The three tests, plus tests/ for the engine unit tests
 firmware/glove/        Arduino sketch for the sensor glove
 model/                 MediaPipe model bundles
-docs/                  Architecture, build/packaging, per-test design plans
-research/              Papers and repos per test domain, with conclusions
 results/               Session output (git-ignored)
 ```
 
@@ -119,7 +117,7 @@ results/               Session output (git-ignored)
 to approximate force using the published Interlink FSR402 curve. Per-user
 calibration is not done yet, so forces are approximate and readings outside the
 sensor's rated 0.2–20 N band are flagged rather than reported. Build order and
-verification gates are in [`docs/GLOVE_FIRMWARE_PLAN.md`](docs/GLOVE_FIRMWARE_PLAN.md).
+verification gates are tracked in a local plan document.
 
 ## Origins
 
