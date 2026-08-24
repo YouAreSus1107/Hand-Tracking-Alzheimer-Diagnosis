@@ -35,6 +35,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -186,6 +187,61 @@ def _camera_env() -> dict:
     env[ENV_CAMERA] = cam["url"] if cam["mode"] == "stream" else str(cam["index"])
     return env
 _procs_lock = threading.Lock()
+
+
+# ── Remote control (hosted dashboard) ────────────────────────────────────
+# The dashboard is also published as a static site (tools/build_web.py). That
+# page cannot run the tests itself — they are Python — so it drives *this* hub
+# instead, cross-origin. Two gates stand in front of that:
+#
+#   1. An origin allowlist, enforced here rather than left to the browser. A
+#      cross-origin POST of text/plain is a "simple" request and arrives with
+#      no preflight, so CORS response headers alone are not an access control.
+#   2. A token, because /api/dev/* shells out to arduino-cli and can flash
+#      firmware. It travels in a header, never a cookie, so there is no ambient
+#      authority for another page to ride on.
+
+HUB_VERSION = "1.0"
+
+_HOSTED_ORIGINS = (
+    "https://hand-tracking-project.web.app",
+    "https://hand-tracking-project.firebaseapp.com",
+)
+_LOCAL_ORIGINS = (f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}")
+
+
+def _allowed_origins() -> tuple[str, ...]:
+    """Origins that may call the API.
+
+    HAND3D_ALLOW_ORIGIN adds one more, for testing the hosted build against a
+    local `firebase serve` (http://127.0.0.1:5000).
+    """
+    origins = _HOSTED_ORIGINS + _LOCAL_ORIGINS
+    extra = os.environ.get("HAND3D_ALLOW_ORIGIN", "").strip().rstrip("/")
+    return origins + (extra,) if extra else origins
+
+
+def hub_token() -> str:
+    """The pairing token, kept beside the camera choice so pairing survives a
+    hub restart. Generated on first use."""
+    with _settings_lock:
+        data = _read_settings()
+        token = data.get("token")
+        if isinstance(token, str) and len(token) >= 16:
+            return token
+        token = secrets.token_urlsafe(16)
+        data["token"] = token
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError:
+            pass  # the in-memory token still works for this run
+        return token
+
+
+def pair_url(origin: str | None = None) -> str:
+    """Link that hands the token to the hosted dashboard."""
+    return f"{origin or _HOSTED_ORIGINS[0]}/#hub={PORT}&token={hub_token()}"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -564,8 +620,84 @@ class Handler(BaseHTTPRequestHandler):
         # Never cache — prevents stale UI after code changes.
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
+        self._cors()
         self.end_headers()
         self.wfile.write(body)
+
+    # ── Cross-origin gate ──────────────────────────────────────────
+    # Everything below serves the hosted dashboard (tools/web_static/
+    # static-api.js). Local, same-origin use sends no Origin header and is
+    # untouched by any of it.
+
+    def _origin(self) -> str:
+        return (self.headers.get("Origin") or "").strip().rstrip("/")
+
+    def _cors(self):
+        """Allow the caller's origin, if it is one we know.
+
+        Deliberately no Access-Control-Allow-Credentials: the token rides in a
+        header, so the hub has no cookie authority to lend out.
+        """
+        origin = self._origin()
+        if origin and origin in _allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        """CORS preflight.
+
+        Chrome sends one for any public page reaching loopback (Private Network
+        Access) and asks with Access-Control-Request-Private-Network; without
+        the matching allow header every call from the hosted page fails.
+        """
+        self.send_response(204)
+        self._cors()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Hub-Token")
+        self.send_header("Access-Control-Max-Age", "600")
+        if self.headers.get("Access-Control-Request-Private-Network") == "true":
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _authorised(self) -> bool:
+        """True to keep handling; otherwise this has already answered.
+
+        A stranger's origin gets a bare 403 with no CORS headers, so the
+        browser withholds the response from the calling page as well.
+        """
+        origin = self._origin()
+        if not origin or origin in _LOCAL_ORIGINS:
+            return True
+        if origin not in _allowed_origins():
+            self._send(403, b"Forbidden", "text/plain; charset=utf-8")
+            return False
+        if urllib.parse.urlsplit(self.path).path == "/api/hub":
+            return True  # detection probe: answerable before pairing
+        if secrets.compare_digest(self.headers.get("X-Hub-Token", ""), hub_token()):
+            return True
+        self._send_json({"ok": False,
+                         "message": "Pair this browser with the hub first."}, code=403)
+        return False
+
+    def _serve_pair(self):
+        """Hand the token to an allowlisted page through a top-level redirect.
+
+        The page cannot fetch the token — it would need the token to do so — so
+        pairing is a navigation the user starts: /pair bounces the browser back
+        to the site with #token=…, and a fragment never leaves the browser.
+        Checking `return` against the allowlist is what keeps this from handing
+        the token to any site that links here.
+        """
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        dest = (q.get("return", [""])[0] or "").strip().rstrip("/")
+        if dest not in _allowed_origins():
+            self._send(400, b"Unknown return address.", "text/plain; charset=utf-8")
+            return
+        self.send_response(302)
+        self.send_header("Location", pair_url(dest))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send_json(self, obj, code: int = 200):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
@@ -581,9 +713,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"Not found", "text/plain; charset=utf-8")
 
     def do_GET(self):
+        if not self._authorised():
+            return
         route = urllib.parse.urlsplit(self.path).path
 
-        if self.path in ("/", "/index.html"):
+        if route == "/api/hub":
+            # Presence probe for the hosted dashboard. Says nothing else.
+            self._send_json({"hub": "hand-detection-3d", "version": HUB_VERSION})
+        elif route == "/pair":
+            self._serve_pair()
+        elif self.path in ("/", "/index.html"):
             self._serve_dir_file(WEB_DIR, "index.html")
         elif self.path == "/api/status":
             self._send_json(status_payload())
@@ -626,6 +765,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_dir_file(WEB_DIR, self.path.lstrip("/"))
 
     def do_POST(self):
+        if not self._authorised():
+            return
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -730,6 +871,10 @@ def _remove_pid():
 # ── Entry point ────────────────────────────────────────────────────────────
 
 def main():
+    # --web opens the published dashboard already paired with this hub, rather
+    # than the local copy. Both drive the same API.
+    web = "--web" in sys.argv[1:]
+
     # Kill any stale hub processes hogging our port.
     n = _kill_stale_hubs(PORT)
     if n:
@@ -750,10 +895,14 @@ def main():
     print("  Cognitive Screening Suite — Control Hub")
     print("=" * 56)
     print(f"  Dashboard:  {url}")
+    print(f"  Online:     {pair_url()}")
+    print("              (that link pairs the published dashboard with this")
+    print("               hub — the code is this machine's, keep it private)")
     print("  Opening your browser… (Ctrl+C here to quit)")
     print("=" * 56)
 
-    threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    target = pair_url() if web else url
+    threading.Timer(0.6, lambda: webbrowser.open(target)).start()
 
     try:
         server.serve_forever()
