@@ -69,6 +69,28 @@ python screening_tests/tests/test_spiral.py
 python screening_tests/tests/test_glove.py
 ```
 
+
+## The published dashboard
+
+The same dashboard is published as a static site. It cannot run the tests —
+they are Python and need the camera — so it drives the hub on your own
+machine instead: start `run_hub.bat`, open the site, and press **Connect**.
+The hub hands the page a pairing token through a redirect, after which every
+button on the site works against your local install. Recordings never leave
+your machine; the browser talks to `127.0.0.1`, not to the host.
+
+Chrome or Edge only — Safari blocks a local connection from an https page.
+
+Publishing it:
+
+```bash
+python tools/build_web.py          # web-build/ + the setup bundle it hands out
+firebase deploy --only hosting
+```
+
+`tools/build_release.py` packages `git archive` of the current commit, so
+commit before building or the download will ship the previous version.
+
 ## Layout
 
 ```
@@ -88,6 +110,8 @@ core/
   ui/                  PIL-overlay UI toolkit (theme, components, anim)
 screening_tests/       The three tests, plus tests/ for the engine unit tests
 firmware/glove/        Arduino sketch for the sensor glove
+tools/                 build_web.py + build_release.py, and the connector
+                       that bridges the published site to a local hub
 model/                 MediaPipe model bundles
 results/               Session output (git-ignored)
 ```

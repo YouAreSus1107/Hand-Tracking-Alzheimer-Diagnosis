@@ -52,6 +52,20 @@ window.ZH = {
 "home.carousel.next": `下一個工具`,
 "home.carousel.dots": `選擇工具`,
 "home.sec.research": `研究依據`,
+/* ── get the app (published site only; see tools/web_static/static-api.js) ── */
+"get.h": `在您自己的電腦上執行測驗`,
+"get.lead": `篩檢測驗以 Python 撰寫並需要使用相機，因此在您的電腦上執行 &#8212;
+  本頁只負責操作它們。安裝一次之後，這裡的每個按鈕都會生效。`,
+"get.dl": `下載 Windows 版`,
+"get.connect": `已偵測到 Hub &#8212; 連接本頁`,
+"get.step1": `將資料夾解壓縮到任意位置。`,
+"get.step2": `按兩下 <code>setup.bat</code>。它會建立執行環境並下載模型 &#8212;
+  只需一次，需要幾分鐘。`,
+"get.step3": `按兩下 <code>run_hub.bat</code>，然後回到本頁，頁面會自動連線。`,
+"get.note": `需要 Windows 與 Python 3.9&#8211;3.12，並使用 Chrome 或 Edge。Safari 會封鎖
+  https 頁面存取本機 Hub。您錄下的資料不會上傳：本頁只與您的電腦通訊，不會送到伺服器。`,
+"get.manual": `或貼上 Hub 主控台顯示的配對碼：`,
+"get.pair": `配對`,
 /* hand model state label (hand3d.js) */
 "anatomical": `解剖模型`,
 "digitalized": `數位化`,
@@ -611,6 +625,7 @@ exact: {
   "Already running.": `已在執行中。`,
   "Not running.": `未在執行。`,
   "Unknown endpoint": `未知的端點`,
+  "Pair this browser with the hub first.": `請先將這個瀏覽器與 Hub 配對。`,
   "Enter a stream URL.": `請輸入串流網址。`,
   "Stream URL must start with http:// or rtsp://.":
     `串流網址必須以 http:// 或 rtsp:// 開頭。`,

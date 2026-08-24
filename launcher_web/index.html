@@ -50,6 +50,36 @@
       </div>
     </div>
 
+    <!-- Get the app. Shown only on the published site when no hub is
+         answering: the connector sets body[data-hub], and the local hub
+         never loads it, so this stays hidden there. -->
+    <div class="section get-app" id="get-app">
+      <div class="get-card">
+        <h2 data-i18n="get.h">Run the tests on your own machine</h2>
+        <p class="get-lead" data-i18n="get.lead">The screening tests are Python and need your camera, so they run on your
+          computer &#8212; this page drives them. Install once, and every button here goes live.</p>
+        <div class="get-actions">
+          <a class="btn btn-primary" href="/download/HandScreening-Setup.zip" download>
+            <span data-i18n="get.dl">Download for Windows</span>&#160;<span class="get-size" id="get-size"></span></a>
+          <button class="btn btn-ghost" id="hub-connect" onclick="hubConnect()"
+                  data-i18n="get.connect">Hub found &#8212; connect this page</button>
+        </div>
+        <ol class="get-steps">
+          <li data-i18n="get.step1">Unzip the folder anywhere.</li>
+          <li data-i18n="get.step2">Double-click <code>setup.bat</code>. It builds the environment and
+            downloads the models &#8212; once, and it takes a few minutes.</li>
+          <li data-i18n="get.step3">Double-click <code>run_hub.bat</code>, then come back here. The page
+            connects itself.</li>
+        </ol>
+        <p class="get-note" data-i18n="get.note">Windows with Python 3.9&#8211;3.12, in Chrome or Edge. Safari blocks a local
+          hub from an https page. Nothing you record is uploaded: this page talks to your machine, not to a server.</p>
+        <div class="get-manual">
+          <label for="hub-code" data-i18n="get.manual">Or paste the code the hub prints:</label>
+          <input id="hub-code" type="text" autocomplete="off" spellcheck="false">
+          <button class="btn btn-ghost" onclick="hubPairManual()" data-i18n="get.pair">Pair</button>
+        </div>
+      </div>
+    </div>
     <div class="stats-row reveal">
       <div class="stat"><div class="stat-num" data-count="2">0</div><div class="stat-label" data-i18n="home.stat.modalities">Sensing Modalities</div></div>
       <div class="stat"><div class="stat-num" data-count="3">0</div><div class="stat-label" data-i18n="home.stat.tools">Screening Tools</div></div>

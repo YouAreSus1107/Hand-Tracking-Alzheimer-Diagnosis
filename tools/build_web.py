@@ -9,11 +9,13 @@ serves /assets/ and serves the local-only research doc at /analysis. A static
 host does none of that, so this script assembles a build that:
 
   * copies launcher_web/ to the web root and assets/ to /assets/
-  * injects tools/web_static/static-api.js, which answers /api/* in the page
-    and hides the local-machine-only UI (see that file)
-  * rewrites the footer, which claims "127.0.0.1 / no data leaves this
-    machine" and links to /analysis -- a docs/ file that is deliberately
-    never published
+  * injects tools/web_static/static-api.js, which bridges /api/* to the hub
+    running on the visitor's own machine and falls back to a preview when
+    there is none (see that file)
+  * runs tools/build_release.py, which puts the downloadable setup bundle in
+    web-build/download/
+  * rewrites the footer, which links to /analysis -- a docs/ file that is
+    deliberately never published
 
 Nothing from results/, docs/ or research/ is copied. Deploy with:
 
@@ -27,6 +29,9 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import build_release  # noqa: E402 -- needs the path set above
 
 REPO = Path(__file__).resolve().parents[1]
 WEB_SRC = REPO / "launcher_web"
@@ -47,14 +52,14 @@ FOOTER_OLD = """    <div class="footer" data-i18n="home.footer">
     </div>"""
 
 FOOTER_NEW = """    <div class="footer" data-i18n="home.footer">
-      Online preview &#183; screening tests run in the desktop app &#183;
-      no personal data is stored here
+      Published dashboard &#183; drives the hub on your own machine &#183;
+      results stay there, nothing is stored on this site
     </div>"""
 
 FOOTER_ZH = (
     "\n/* Hosted-preview override, appended by tools/build_web.py. */\n"
-    "window.ZH[\"home.footer\"] = `線上預覽 &#183; 篩檢測驗需要電腦版應用程式 &#183;\n"
-    "      本站不儲存個人資料`;\n"
+    "window.ZH[\"home.footer\"] = `線上儀表板 &#183; 由您自己電腦上的 Hub 執行 &#183;\n"
+    "      結果留在該電腦，本站不儲存任何資料`;\n"
 )
 
 
@@ -106,6 +111,8 @@ def main() -> None:
 
     zh = OUT / "i18n.zh.js"
     zh.write_text(zh.read_text(encoding="utf-8") + FOOTER_ZH, encoding="utf-8")
+
+    build_release.main()   # after clean(), which would have removed download/
 
     files = sorted(p for p in OUT.rglob("*") if p.is_file())
     total = sum(p.stat().st_size for p in files)

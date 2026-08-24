@@ -12,6 +12,13 @@
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600" }]
       },
       {
+        "source": "/download/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" },
+          { "key": "Content-Disposition", "value": "attachment" }
+        ]
+      },
+      {
         "source": "/assets/**",
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
       }
