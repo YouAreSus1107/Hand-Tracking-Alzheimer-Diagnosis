@@ -37,9 +37,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
+# Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
+# ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core.splash import Splash, IMPORT_STEPS
+_splash = Splash("Spiral Tracing Test",
+                 "Click 'Start Test' in the camera window.  Q to quit.",
+                 IMPORT_STEPS, enabled=__name__ == "__main__")
+
 import cv2
-from core import quiet          # keep above mediapipe: silences its startup log
+_splash.step()               # OpenCV in
+from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
+_splash.step()               # MediaPipe in
 import numpy as np
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
@@ -54,6 +63,8 @@ from core.ui.components import Canvas, draw_hand_skeleton, get_font
 from core.spiral.geometry import (scale_spiral_to_frame, nearest_spiral_point,
                                  SPIRAL_TURNS, SPIRAL_NUM_POINTS)
 from core.spiral.metrics import compute_metrics, live_smoothness_status
+
+_splash.done()   # imports are in; the camera prompt follows immediately
 
 APP_VERSION = "0.3.0"
 MODEL_PATH = str(_REPO_ROOT / "model" / "hand_landmarker.task")
@@ -729,10 +740,7 @@ class App:
 
 
 def main():
-    print("=" * 52)
-    print("  Spiral Tracing Test")
-    print("  Click 'Start Test' in the camera window.  Q to quit.")
-    print("=" * 52)
+    # banner already printed by the splash, above the heavy imports
     source = select_camera_source()
     print("[INFO] Opening camera and loading the hand model - a few seconds...")
     cap = open_capture(source, fps=60)

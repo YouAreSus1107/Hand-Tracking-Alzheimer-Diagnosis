@@ -38,7 +38,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
+# Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
+# ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core.splash import Splash, GAZE_IMPORT_STEPS
+_splash = Splash("Eye Movement Test (Pro/Anti-saccade)",
+                 "Part 1: look toward - Part 2: look away - Part 3: hold still",
+                 GAZE_IMPORT_STEPS, enabled=__name__ == "__main__")
+
 import cv2
+import numpy as np
+_splash.step()               # OpenCV in
 
 from core.hand_utils import preprocess_for_mediapipe
 from core.camera import (select_camera_source, open_capture,
@@ -56,6 +65,8 @@ from core.gaze.tracker import GazeTracker, GazeSample
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, fade_in_out, lerp
 from core.ui.components import Canvas, get_font
+
+_splash.done()   # imports are in; the camera prompt follows immediately
 
 APP_VERSION = "0.1.0"
 MODEL_PATH = str(_REPO_ROOT / "model" / "face_landmarker.task")
@@ -135,6 +146,7 @@ class App:
         self.click: tuple[int, int] | None = None
         self.fps = 30.0
         self._last_frame_t: float | None = None
+        self._dim_solid = None          # cached solid for dim_frame
 
         self.reset_run()
 
@@ -201,9 +213,18 @@ class App:
         return self.gaze_map.position(sample.ratio)
 
     # ── stimulus drawing ──────────────────────────────────────────────────
-    def dim_video(self, c: Canvas, alpha: float = DIM_ALPHA):
-        c._dirty = True
-        c.draw.rectangle([0, 0, c.w, c.h], fill=theme.rgba("bg", alpha))
+    def dim_frame(self, frame, alpha: float) -> None:
+        """Blend the video toward the background color, in place.
+
+        Dimming the frame itself rather than painting a translucent rectangle
+        into the Canvas overlay matters: PIL's rectangle *replaces* overlay
+        pixels, so a dim rect and the status bar's own rect would each cut a
+        hole in the other. Here every overlay element composites over an
+        already-dimmed image, and panels keep their intended opacity.
+        """
+        if self._dim_solid is None or self._dim_solid.shape != frame.shape:
+            self._dim_solid = np.full(frame.shape, theme.bgr("bg"), np.uint8)
+        cv2.addWeighted(frame, 1.0 - alpha, self._dim_solid, alpha, 0.0, frame)
 
     def draw_cross(self, c: Canvas, alpha: float = 1.0):
         cx, cy = c.w // 2, c.h // 2
@@ -708,10 +729,10 @@ class App:
             sample = self.detect_gaze(frame, now)
             pos = self.gaze_pos(sample)
 
-            c = Canvas(frame)
             dim = DIM_BY_STATE.get(self.state)
             if dim:
-                self.dim_video(c, dim)
+                self.dim_frame(frame, dim)
+            c = Canvas(frame)
             chips = [("Face detected", "success") if sample is not None
                      else ("Face the camera", "warning")]
             if self.fps < 24:
@@ -758,10 +779,7 @@ class App:
 
 
 def main():
-    print("=" * 52)
-    print("  Eye Movement Test (Pro/Anti-saccade)")
-    print("  Part 1: look toward - Part 2: look away - Part 3: hold still")
-    print("=" * 52)
+    # banner already printed by the splash, above the heavy imports
     if not Path(MODEL_PATH).exists():
         print("[ERROR] model/face_landmarker.task not found.")
         print("  Download: https://storage.googleapis.com/mediapipe-models/"

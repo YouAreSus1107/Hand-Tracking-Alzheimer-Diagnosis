@@ -34,6 +34,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -107,6 +108,83 @@ TOOLS: dict[str, tuple[str, str]] = {
 
 # key -> live subprocess.Popen (only while running)
 _procs: dict[str, subprocess.Popen] = {}
+
+
+# ── Camera source ──────────────────────────────────────────────────────────
+# Which camera the tools should use. Chosen in the dashboard (the small chip
+# beside "Screening Tools" and on each test page) rather than at the console
+# prompt each tool used to open with, and handed to the spawned process through
+# core.camera.ENV_CAMERA. Persisted so the choice survives a hub restart.
+SETTINGS_FILE = os.path.join(BASE_DIR, ".launcher_settings.json")
+ENV_CAMERA = "HAND3D_CAMERA"
+_MAX_CAM_INDEX = 9
+_STREAM_SCHEMES = ("http://", "https://", "rtsp://", "rtmp://")
+
+_DEFAULT_CAMERA = {"mode": "webcam", "index": 0, "url": ""}
+_settings_lock = threading.Lock()
+
+
+def _read_settings() -> dict:
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _normalise_camera(raw) -> dict:
+    """Coerce anything on disk (or off the wire) into a valid camera setting."""
+    cam = dict(_DEFAULT_CAMERA)
+    if not isinstance(raw, dict):
+        return cam
+    # The URL is kept even while the webcam is selected, so switching back and
+    # forth does not make the user retype it.
+    url = str(raw.get("url", "")).strip()
+    if url.lower().startswith(_STREAM_SCHEMES):
+        cam["url"] = url
+        if raw.get("mode") == "stream":
+            cam["mode"] = "stream"
+    try:
+        cam["index"] = max(0, min(_MAX_CAM_INDEX, int(raw.get("index", 0))))
+    except (TypeError, ValueError):
+        pass
+    return cam
+
+
+def camera_setting() -> dict:
+    cam = _normalise_camera(_read_settings().get("camera"))
+    cam["label"] = (cam["url"] if cam["mode"] == "stream"
+                    else f"Webcam {cam['index']}")
+    return cam
+
+
+def set_camera_setting(raw) -> tuple[bool, str]:
+    if isinstance(raw, dict) and raw.get("mode") == "stream":
+        url = str(raw.get("url", "")).strip()
+        if not url:
+            return False, "Enter a stream URL."
+        if not url.lower().startswith(_STREAM_SCHEMES):
+            return False, "Stream URL must start with http:// or rtsp://."
+    cam = _normalise_camera(raw)
+    with _settings_lock:
+        data = _read_settings()
+        data["camera"] = cam
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError as exc:
+            return False, f"Could not save the camera choice: {exc}"
+    label = cam["url"] if cam["mode"] == "stream" else f"webcam {cam['index']}"
+    return True, f"Camera set to {label}."
+
+
+def _camera_env() -> dict:
+    """Process environment for a spawned tool, carrying the camera choice."""
+    cam = camera_setting()
+    env = os.environ.copy()
+    env[ENV_CAMERA] = cam["url"] if cam["mode"] == "stream" else str(cam["index"])
+    return env
 _procs_lock = threading.Lock()
 
 
@@ -162,6 +240,7 @@ def launch_tool(key: str) -> tuple[bool, str]:
         proc = subprocess.Popen(
             [sys.executable, script_path],
             cwd=BASE_DIR,
+            env=_camera_env(),      # the tool reads its source from here
             creationflags=creationflags,
         )
     except OSError as exc:
@@ -229,6 +308,83 @@ def _arduino_data_dir() -> str:
     return os.path.join(os.path.expanduser("~"), ".arduino15")
 
 
+#: The two IMU libraries, keyed by the name the firmware reports in its
+#: banner. WHICH ONE IS CORRECT DEPENDS ON THE BOARD REVISION (plan §1.3): the
+#: original Nano 33 BLE carries an LSM9DS1, the Rev2 a BMI270 + BMM150.
+#: Installing the wrong one compiles cleanly and reports no motion.
+#:
+#: The sketch picks one explicitly with a `#define GLOVE_IMU_…` line, so what
+#: matters here is not "which is installed" but "is the one the sketch selected
+#: installed" — a mismatch fails the compile with a missing-header error, which
+#: is the loud failure the sketch's comment explains it chose on purpose.
+IMU_LIBS = (("BMI270_BMM150", "Arduino_BMI270_BMM150"),
+            ("LSM9DS1", "Arduino_LSM9DS1"))
+
+#: Maps the sketch's selection macro to the banner name above.
+IMU_SELECT_MACROS = {"GLOVE_IMU_BMI270": "BMI270_BMM150",
+                     "GLOVE_IMU_LSM9DS1": "LSM9DS1",
+                     "GLOVE_IMU_NONE": "none"}
+
+_arduino_user_dir_cache: str | None = None
+
+
+def _arduino_user_dir() -> str:
+    """arduino-cli's sketchbook directory, where `lib install` puts libraries.
+
+    Asked of the CLI once and cached: this is polled every few seconds by the
+    Developer page and spawning a process each time would be absurd.
+    """
+    global _arduino_user_dir_cache
+    if _arduino_user_dir_cache is not None:
+        return _arduino_user_dir_cache
+    default = os.path.join(os.path.expanduser("~"), "Documents", "Arduino")
+    cli = _arduino_cli()
+    out = ""
+    if cli:
+        try:
+            # encoding= is not optional: text=True decodes with the locale
+            # codec, and a sketchbook path containing non-ASCII characters
+            # (this repo's own OneDrive path does) raises UnicodeDecodeError
+            # inside subprocess's reader thread, leaving stdout as None.
+            out = (subprocess.run([cli, "config", "get", "directories.user"],
+                                  capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
+                                  timeout=15).stdout or "").strip()
+        except Exception:  # noqa: BLE001 - a probe must never break the page
+            out = ""
+    _arduino_user_dir_cache = out if out and os.path.isdir(out) else default
+    return _arduino_user_dir_cache
+
+
+def _imu_libs_present() -> list[str]:
+    """Installed IMU libraries, by banner name, in __has_include order."""
+    libdir = os.path.join(_arduino_user_dir(), "libraries")
+    return [name for name, folder in IMU_LIBS
+            if os.path.isdir(os.path.join(libdir, folder))]
+
+
+def _sketch_imu_selection() -> str | None:
+    """Which IMU the sketch is currently set to build against.
+
+    Read from the source rather than assumed, because the choice is a one-line
+    edit in glove.ino (board revision decides it) and the page would otherwise
+    report a library state that has nothing to do with what will be flashed.
+    Returns the banner name, "none", or None if the sketch cannot be read.
+    """
+    path = os.path.join(FIRMWARE_DIR, "glove.ino")
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                # Only an uncommented #define counts; the alternatives sit
+                # commented out directly beneath it.
+                m = re.match(r"\s*#define\s+(GLOVE_IMU_\w+)", line)
+                if m and m.group(1) in IMU_SELECT_MACROS:
+                    return IMU_SELECT_MACROS[m.group(1)]
+    except OSError:
+        return None
+    return None
+
+
 def _mbed_core_present() -> bool:
     return os.path.isdir(os.path.join(_arduino_data_dir(), "packages", "arduino",
                                       "hardware", "mbed_nano"))
@@ -256,6 +412,8 @@ def dev_env_payload() -> dict:
             (("pyserial", "serial"), ("opencv", "cv2"), ("mediapipe", "mediapipe"))}
     missing_deps = sorted(n for n, ok in deps.items() if not ok)
 
+    imu_libs = _imu_libs_present() if cli else []
+    imu_selected = _sketch_imu_selection()
     return {
         "python_exe": sys.executable,
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}."
@@ -269,6 +427,15 @@ def dev_env_payload() -> dict:
         "arduino_cli": cli,
         "arduino_cli_present": cli is not None,
         "mbed_core": _mbed_core_present(),
+        # Which IMU library the sketch would compile against, and whether the
+        # ambiguous both-installed case needs resolving.
+        "imu_libs": imu_libs,
+        # What glove.ino will actually compile against, and whether that
+        # library is present. "none" is a valid selection, not a problem.
+        "imu_selected": imu_selected,
+        "imu_ready": (imu_selected == "none"
+                      or (imu_selected is not None and imu_selected in imu_libs)),
+        "arduino_user_dir": _arduino_user_dir() if cli else None,
         "sketch_present": os.path.isfile(os.path.join(FIRMWARE_DIR, "glove.ino")),
         "fqbn": FQBN,
         "ports": ports,
@@ -288,6 +455,17 @@ def _dev_command(task: str, port: str | None) -> tuple[list[str] | None, str]:
         # different interpreter is a no-op it can never see.
         return ([sys.executable, "-m", "pip", "install", "pyserial"],
                 f"Installing pyserial into {os.path.basename(sys.executable)}…")
+    if task.startswith("install_imu_"):
+        cli = _arduino_cli()
+        if cli is None:
+            return None, "arduino-cli not found — install the toolchain first."
+        wanted = task[len("install_imu_"):].upper()
+        folder = next((f for n, f in IMU_LIBS if n.upper().startswith(wanted)), None)
+        if folder is None:
+            return None, f"Unknown IMU library: {task}"
+        return ([cli, "lib", "install", folder],
+                f"Installing {folder} — re-flash the firmware afterwards.")
+
     if task == "tests":
         script = os.path.join(BASE_DIR, "screening_tests", "tests", "test_glove.py")
         return [_venv_python(), script], "Running glove tests…"
@@ -366,6 +544,9 @@ def status_payload() -> dict:
         "mediapipe": _dep_present("mediapipe"),
         "analysis_present": os.path.exists(ANALYSIS_FILE),
         "running": {key: _running(key) for key in TOOLS},
+        # Rides along on the 3 s poll the dashboard already makes, so the
+        # camera chip needs no endpoint of its own to stay in sync.
+        "camera": camera_setting(),
     }
 
 
@@ -412,6 +593,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(dev_env_payload())
         elif route == "/api/glove/status":
             self._send_json(_get_glove().stats())
+        elif route == "/api/glove/imu":
+            # Derived motion readout. Separate from /samples on purpose: the
+            # raw columns already ride in the sample stream at 10 Hz, and this
+            # one runs a small DFT, so the page polls it far less often.
+            self._send_json(_get_glove().imu_summary())
         elif route == "/api/glove/ports":
             from core.glove.serial_io import HAS_PYSERIAL, list_ports
             self._send_json({"pyserial": HAS_PYSERIAL, "ports": list_ports()})
@@ -459,6 +645,11 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = launch_tool(key)
         elif self.path == "/api/stop":
             ok, msg = stop_tool(key)
+        elif route == "/api/camera":
+            ok, msg = set_camera_setting(data.get("camera"))
+            self._send_json({"ok": ok, "message": msg,
+                             "camera": camera_setting()})
+            return
         else:
             self._send_json({"ok": False, "message": "Unknown endpoint"}, code=404)
             return

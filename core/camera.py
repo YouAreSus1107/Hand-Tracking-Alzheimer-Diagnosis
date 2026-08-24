@@ -1,13 +1,19 @@
 """
-Shared camera-source selection (audit A7) — the same prompt every tool uses:
-[1] local webcam (optionally an index) or [2] an IP-camera stream URL.
-Enter defaults to webcam 0 so a bare double-click still works.
+Shared camera-source selection (audit A7).
+
+The source is normally chosen in the launcher UI, which passes it down to the
+tool it spawns through the ``HAND3D_CAMERA`` environment variable — so a
+launched tool never stops to ask. Running a script straight from a terminal
+still gets the interactive prompt: [1] local webcam (optionally an index) or
+[2] an IP-camera stream URL, with Enter defaulting to webcam 0 so a bare
+double-click keeps working.
 """
 
 from __future__ import annotations
 
 import ctypes
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,8 +24,29 @@ import cv2
 # ~1 s of dead time). Runtime state, git-ignored, alongside .launcher.pid.
 _CACHE_PATH = Path(__file__).resolve().parents[1] / ".camera_cache.json"
 
+# Set by launcher.py on the spawned tool's environment. An integer string is a
+# webcam index; anything else is handed to OpenCV as a stream URL.
+ENV_CAMERA = "HAND3D_CAMERA"
+
+
+def preset_camera_source() -> int | str | None:
+    """The source the launcher picked, or None when the tool was run directly."""
+    raw = (os.environ.get(ENV_CAMERA) or "").strip()
+    if not raw:
+        return None
+    return int(raw) if raw.isdigit() else raw
+
+
+def describe_source(source: int | str) -> str:
+    return f"webcam {source}" if isinstance(source, int) else str(source)
+
 
 def select_camera_source() -> int | str:
+    preset = preset_camera_source()
+    if preset is not None:
+        print(f"  Camera source: {describe_source(preset)}"
+              f"  (set in the launcher)\n")
+        return preset
     print("Camera source:")
     print("  [1] Webcam (default)  - or type an index, e.g. 0 / 1 / 2")
     print("  [2] IP stream URL")
@@ -86,7 +113,7 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
     contention spikes that otherwise stall MediaPipe inference (see
     docs/FPS_INVESTIGATION_PLAN.md). Each candidate is verified with a real test
     read, and we fall back gracefully so a camera that works today never
-    regresses:  DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF (no MJPG).
+    regresses:  DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF+MJPG -> MSMF (no MJPG).
 
     Every candidate that has to be tried costs a camera open — a visible LED
     flash plus ~1 s of warm-up — so the combo that succeeds is cached to
@@ -102,10 +129,8 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
         return cap if cap.isOpened() else (cap.release() or None)
 
     if sys.platform.startswith("win"):
-        # MJPG mainly matters on DSHOW; MSMF largely ignores the fourcc, so it
-        # is only worth one attempt.
         candidates = [(cv2.CAP_DSHOW, True), (cv2.CAP_DSHOW, False),
-                      (cv2.CAP_MSMF, False)]
+                      (cv2.CAP_MSMF, True), (cv2.CAP_MSMF, False)]
     else:
         candidates = [(None, True), (None, False)]
 

@@ -30,9 +30,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
+# Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
+# ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core.splash import Splash, IMPORT_STEPS
+_splash = Splash("Finger Tapping Test",
+                 "Modes: Big & Fast (primary) / Paced Rhythm",
+                 IMPORT_STEPS, enabled=__name__ == "__main__")
+
 import cv2
-from core import quiet          # keep above mediapipe: silences its startup log
+_splash.step()               # OpenCV in
+from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
+_splash.step()               # MediaPipe in
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
@@ -46,6 +55,8 @@ from core.tapping.modes import MODES, DEFAULT_MODE, TapMode
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, fade_in_out, lerp
 from core.ui.components import Canvas, draw_hand_skeleton, get_font
+
+_splash.done()   # imports are in; the camera prompt follows immediately
 
 APP_VERSION = "0.2.0"
 MODEL_PATH = str(_REPO_ROOT / "model" / "hand_landmarker.task")
@@ -588,10 +599,7 @@ class App:
 
 
 def main():
-    print("=" * 52)
-    print("  Finger Tapping Test")
-    print("  Modes: Big & Fast (primary) / Paced Rhythm")
-    print("=" * 52)
+    # banner already printed by the splash, above the heavy imports
     source = select_camera_source()
     print("[INFO] Opening camera and loading the hand model - a few seconds...")
     cap = open_capture(source)

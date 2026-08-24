@@ -4,16 +4,22 @@
  * Implements the analog front end and serial protocol specified in
  * docs/GLOVE_FIRMWARE_PLAN.md (sections 3 and 4).
  *
- * Current hardware (build gates 2-3): one FSR402 on A0 and one flex strip on
- * A1, each wired as its own divider against the 3V3 rail:
+ * Current hardware (build gate 3): two FSR402 pads, p0 on A0 and p1 on A2,
+ * each wired as its own divider against the 3V3 rail:
  *     3V3 --- SENSOR --- Ax --- rFixed --- GND
- * The two need *different* low-side resistors (a divider is most sensitive
- * where rFixed is near the sensor's own resistance, and these two parts live in
- * very different resistance bands), so rFixed is per-channel in CHANNELS[]
- * rather than one global. Adding the remaining flex/FSR sensors (and the
- * CD74HC4067 mux) is a table edit, not a rewrite.
+ * Both currently use 10k, but rFixed stays per-channel in CHANNELS[] rather
+ * than one global: a divider is most sensitive where rFixed is near the
+ * sensor's own resistance, and flex strips (when they return, on the odd pins)
+ * sit in a very different resistance band from an FSR. Adding the remaining
+ * sensors, and the CD74HC4067 mux, is a table edit rather than a rewrite.
  *
- * Firmware emits RAW ADC counts only. Conversion to newtons and degrees is a
+ * The onboard IMU (gate 5) rides in the same frame as six extra columns. It is
+ * NOT an analog channel: it never touches the divider maths, and its columns
+ * are declared in the banner with kinds `accel`/`gyro` so the host cannot apply
+ * a resistance curve to an acceleration.
+ *
+ * Firmware emits RAW counts only - ADC counts for the analog channels, and
+ * integer milli-units for the IMU. Conversion to newtons and degrees is a
  * per-user host-side step (plan section 2) so recalibration never needs a
  * reflash. The one exception is the 'D' diagnostic mode, which prints derived
  * millivolts/ohms for bench work and never touches the data frames.
@@ -52,9 +58,65 @@
  */
 #define ADC_MAX ((1L << ADC_BITS) - 1L)
 
+/* ---------- IMU ---------------------------------------------------------- */
+/*
+ * PICK THE LINE THAT MATCHES THE SILKSCREEN ON YOUR BOARD, then re-flash.
+ * The original Nano 33 BLE carries an LSM9DS1; the Rev2 carries a BMI270 +
+ * BMM150, and they need different Arduino libraries (plan section 1.3).
+ * Install the one you pick from the Developer page's toolchain buttons.
+ *
+ * WHY THIS IS AN EXPLICIT SWITCH AND NOT __has_include. That was tried first
+ * and is silently broken: arduino-cli (and the IDE, which uses it) discovers
+ * which libraries a sketch needs by compiling and resolving the *missing
+ * header errors*. __has_include swallows the error, so the resolver never
+ * learns about the dependency and the library is never added to the build.
+ * Measured 2026-08-23: byte-for-byte identical binaries with and without
+ * Arduino_LSM9DS1 installed, and zero mentions of it in a verbose build. An
+ * auto-detecting sketch would therefore have shipped imu=none forever while
+ * looking like it had auto-detected. A plain #include fails loudly instead,
+ * naming the header it cannot find.
+ *
+ * GLOVE_IMU_NONE is a legitimate build: no motion columns, no IMU library
+ * needed, everything else unchanged.
+ */
+#define GLOVE_IMU_LSM9DS1     /* original Nano 33 BLE  */
+//#define GLOVE_IMU_BMI270    /* Nano 33 BLE Rev2      */
+//#define GLOVE_IMU_NONE      /* build without motion  */
+
+#if defined(GLOVE_IMU_BMI270)
+  #include <Arduino_BMI270_BMM150.h>
+  #define HAS_IMU 1
+  #define IMU_LIB_NAME "BMI270_BMM150"
+#elif defined(GLOVE_IMU_LSM9DS1)
+  #include <Arduino_LSM9DS1.h>
+  #define HAS_IMU 1
+  #define IMU_LIB_NAME "LSM9DS1"
+#else
+  #define HAS_IMU 0
+  #define IMU_LIB_NAME "none"
+#endif
+
+#include <math.h>   /* lroundf, for the IMU's float -> milli-unit step */
+
+/*
+ * Transport scale for the IMU columns: values are emitted as integers in
+ * milli-units (milli-g, milli-degrees/second) so the frame stays all-integer
+ * and the host parser needs no float path. The banner publishes this as
+ * `imu_scale=` - do not hardcode 1000 on the host.
+ *
+ * This is a TRANSPORT unit, not a resolution claim. An LSM9DS1 at +/-2000 dps
+ * resolves about 70 mdps per LSB; emitting mdps does not invent precision, it
+ * just avoids a decimal point on the wire.
+ */
+static const int32_t IMU_SCALE = 1000;
+
+/* Column names, in frame order. Kinds are published in the banner's chan=
+ * field so the host routes them away from the divider maths. */
+static const char *IMU_COLS[6] = { "ax", "ay", "az", "gx", "gy", "gz" };
+
 /* ---------- configuration ------------------------------------------------ */
 
-#define FW_VERSION      "0.3.0"
+#define FW_VERSION      "0.5.0"
 /*
  * Frame layout is unchanged from proto 1 by the move to 12-bit: only the value
  * scale moved, and the banner's adc_bits already tells the host about that. So
@@ -116,18 +178,30 @@ struct AnalogChannel {
  * flex strip. Mislabel a channel here and the dev page will print confident
  * newtons for a bending finger.
  *
- * rFixed picks which part of each sensor's range gets the most ADC resolution:
- *   p0  10k  - centres on a moderate press, deliberately kept (plan 5b weighed
- *              lowering it and rejected it: the resolution gained sits above
- *              the part's rated 20 N and costs light-touch resolution).
- *   f0  47k  - a flex strip runs roughly 10k flat to ~110k fully bent, and a
- *              divider is most sensitive near the geometric mean of that span
- *              (~33-47k). The 10k used for the FSR would waste most of the
- *              range. Confirm against the span you actually record at gate 2.
+ * PIN CONVENTION: force sensors live on the EVEN analog pins, so p<n> is on
+ * A(2n) - p0/A0, p1/A2, p2/A4, p3/A6. Odd pins are reserved for flex strips.
+ * Adding the next FSR is one line here plus a flash; nothing on the host or
+ * the dev page changes, because both read the layout from the boot banner.
+ *
+ * ONLY DECLARE PINS THAT ARE PHYSICALLY FITTED. An unconnected analog pin
+ * floats and produces convincing-looking garbage rather than an obvious zero.
+ *
+ * rFixed MUST MATCH THE RESISTOR PHYSICALLY ON THE BOARD, per channel. This is
+ * the most expensive lesson in this file: the flex channel once said 47k while
+ * the bench build used 10k, which made every computed resistance 4.7x too high
+ * (a healthy 34k strip read as 160k) and looked exactly like a broken sensor
+ * for a whole debugging session. The firmware cannot detect this - the divider
+ * maths cannot tell a wrong constant from a wrong sensor, and both produce a
+ * plausible number. If you swap a physical resistor, change it here in the
+ * same breath.
+ *
+ * 10k on an FSR402 centres on a moderate press, deliberately kept: plan 5b
+ * weighed lowering it and rejected it, because the resolution gained sits
+ * above the part's rated 20 N and costs light-touch resolution.
  */
 static const AnalogChannel CHANNELS[] = {
-  { "p0", "fsr",  A0, -1, 10000 },
-  { "f0", "flex", A1, -1, 47000 },
+  { "p0", "fsr", A0, -1, 10000 },
+  { "p1", "fsr", A2, -1, 10000 },
 };
 static const uint8_t N_CHANNELS = sizeof(CHANNELS) / sizeof(CHANNELS[0]);
 
@@ -143,6 +217,18 @@ static bool     g_diag      = false;
 static uint16_t g_sample[sizeof(CHANNELS) / sizeof(CHANNELS[0])];
 static uint16_t g_min[sizeof(CHANNELS) / sizeof(CHANNELS[0])];
 static uint16_t g_max[sizeof(CHANNELS) / sizeof(CHANNELS[0])];
+
+/*
+ * IMU state. g_imuOk is decided at runtime by IMU.begin(): a library that is
+ * installed but cannot talk to the chip must NOT publish six columns of
+ * zeroes, because a flat zero trace is indistinguishable from a still hand.
+ * When it is false the columns are not declared and not emitted, and the
+ * banner says imu=none - the same rule the analog table follows, where only
+ * physically fitted pins are declared.
+ */
+static bool    g_imuOk   = false;
+static int32_t g_imu[6]  = {0, 0, 0, 0, 0, 0};   /* ax..az mg, gx..gz mdps */
+static uint32_t g_imuHeld = 0;   /* frames that reused the previous sample */
 
 /* ---------- acquisition -------------------------------------------------- */
 
@@ -178,6 +264,41 @@ static void sampleAll() {
   }
 }
 
+/*
+ * The IMU runs on its own internal output-data rate (~104-119 Hz on the
+ * LSM9DS1, ~100 Hz on the BMI270) which is NOT locked to our 100 Hz frame
+ * grid. Some frames therefore find no new sample waiting.
+ *
+ * Never block waiting for one - that would stall the sampler and corrupt the
+ * timeline every temporal metric depends on. Reuse the previous value and
+ * count it. A held sample is a repeated sample, and repeated samples flatten
+ * exactly the high-frequency content this sensor is fitted to measure, so the
+ * count is reported in the 'D' diagnostics and the host also detects holds
+ * directly by looking for identical consecutive triples.
+ */
+static void sampleImu() {
+#if HAS_IMU
+  if (!g_imuOk) return;
+  bool fresh = false;
+  float x, y, z;
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(x, y, z);
+    g_imu[0] = (int32_t)lroundf(x * IMU_SCALE);
+    g_imu[1] = (int32_t)lroundf(y * IMU_SCALE);
+    g_imu[2] = (int32_t)lroundf(z * IMU_SCALE);
+    fresh = true;
+  }
+  if (IMU.gyroscopeAvailable()) {
+    IMU.readGyroscope(x, y, z);
+    g_imu[3] = (int32_t)lroundf(x * IMU_SCALE);
+    g_imu[4] = (int32_t)lroundf(y * IMU_SCALE);
+    g_imu[5] = (int32_t)lroundf(z * IMU_SCALE);
+    fresh = true;
+  }
+  if (!fresh) g_imuHeld++;
+#endif
+}
+
 /* ---------- derived values (diagnostics only) ---------------------------- */
 
 static uint16_t adcToMillivolts(uint16_t adc) {
@@ -210,10 +331,25 @@ static void emitBanner() {
   Serial.print(VDIV_SUPPLY_MV);
   Serial.print(F(" r_fixed="));
   Serial.print(R_FIXED_DEFAULT_OHMS);
-  Serial.print(F(" imu=none emg=0 cols=seq,t_us"));
+  /* imu= is the compiled-in library name ONLY if the chip actually answered.
+   * A library that is installed but silent must read as none, or the host
+   * will expect six columns that never arrive. */
+  Serial.print(F(" imu="));
+  Serial.print(g_imuOk ? IMU_LIB_NAME : "none");
+  if (g_imuOk) {
+    Serial.print(F(" imu_scale="));
+    Serial.print(IMU_SCALE);
+  }
+  Serial.print(F(" emg=0 cols=seq,t_us"));
   for (uint8_t i = 0; i < N_CHANNELS; i++) {
     Serial.print(',');
     Serial.print(CHANNELS[i].name);
+  }
+  if (g_imuOk) {
+    for (uint8_t i = 0; i < 6; i++) {
+      Serial.print(',');
+      Serial.print(IMU_COLS[i]);
+    }
   }
   /*
    * Per-channel detail: name:kind:rFixed, comma separated. This is an ADDITIVE
@@ -231,6 +367,16 @@ static void emitBanner() {
     Serial.print(':');
     Serial.print(CHANNELS[i].rFixed);
   }
+  /* IMU entries carry a kind but NO third field: there is no low-side
+   * resistor on an accelerometer, and putting the scale in that slot would
+   * invite a host to read it as ohms. The scale is a separate banner key. */
+  if (g_imuOk) {
+    for (uint8_t i = 0; i < 6; i++) {
+      Serial.print(',');   /* CHANNELS[] is never empty, so a comma always leads */
+      Serial.print(IMU_COLS[i]);
+      Serial.print(i < 3 ? ":accel" : ":gyro");
+    }
+  }
   Serial.println();
 }
 
@@ -241,7 +387,9 @@ static void emitFrame() {
    * on. Drop the frame instead - the seq gap makes the loss auditable on the
    * host, whereas a stalled sampler is invisible.
    */
-  const int NEEDED = 12 + 12 + (N_CHANNELS * 6);
+  /* seq + t_us + analog counts + (when fitted) six signed milli-unit fields,
+   * the widest of which is a gyro reading at +/-2000000. */
+  const int NEEDED = 12 + 12 + (N_CHANNELS * 6) + (g_imuOk ? 6 * 9 : 0);
   if (!Serial) {
     g_missed++;
     return;
@@ -266,6 +414,12 @@ static void emitFrame() {
     Serial.print(',');
     Serial.print(g_sample[i]);
   }
+  if (g_imuOk) {
+    for (uint8_t i = 0; i < 6; i++) {
+      Serial.print(',');
+      Serial.print(g_imu[i]);
+    }
+  }
   Serial.println();
 }
 
@@ -285,6 +439,21 @@ static void emitDiag() {
     Serial.print(g_max[i]);
     Serial.print(F(" missed="));
     Serial.println(g_missed);
+  }
+  if (g_imuOk) {
+    Serial.print(F("#DIAG imu mg="));
+    Serial.print(g_imu[0]); Serial.print(',');
+    Serial.print(g_imu[1]); Serial.print(',');
+    Serial.print(g_imu[2]);
+    Serial.print(F(" mdps="));
+    Serial.print(g_imu[3]); Serial.print(',');
+    Serial.print(g_imu[4]); Serial.print(',');
+    Serial.print(g_imu[5]);
+    /* Held frames reused the previous sample because the IMU's own output
+     * rate had nothing new. High counts mean the effective IMU rate is below
+     * the frame rate, which matters for anything spectral. */
+    Serial.print(F(" held="));
+    Serial.println(g_imuHeld);
   }
 }
 
@@ -309,6 +478,7 @@ static void handleCommand(char c) {
       g_seq     = 0;
       g_epochUs = micros();
       g_missed  = 0;
+      g_imuHeld = 0;
       resetSpans();
       Serial.println(F("#ZERO"));
       break;
@@ -329,6 +499,15 @@ void setup() {
 #endif
 
   for (uint8_t i = 0; i < 4; i++) pinMode(MUX_SEL_PINS[i], OUTPUT);
+
+#if HAS_IMU
+  g_imuOk = IMU.begin();
+  if (!g_imuOk) {
+    /* Say so loudly on the wire. Silence here is how "wrong library for this
+     * board revision" hides for a week. */
+    Serial.println(F("!IMU " IMU_LIB_NAME " begin() failed - no motion columns"));
+  }
+#endif
 
   resetSpans();
   g_epochUs   = micros();
@@ -353,6 +532,7 @@ void loop() {
   }
 
   sampleAll();
+  sampleImu();
   g_seq++;
 
   if (g_streaming) emitFrame();

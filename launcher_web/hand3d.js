@@ -263,16 +263,18 @@ function animate(){
   scanMat.uniforms.uTime.value = now;
   scanMat.uniforms.uAlpha.value = t;
 
-  /* Label */
+  /* Label. `t` is the local scan alpha in this scope, so the translator is
+     reached through window (i18n.js is a classic script; this file is a module). */
   if(label){
+    const tr = s => (window.t ? window.t(s) : s);
     if(morph < 0.01){
-      label.textContent = 'anatomical';
+      label.textContent = tr('anatomical');
       label.classList.remove('digital');
     } else if(morph > 0.99){
-      label.textContent = 'digitalized';
+      label.textContent = tr('digitalized');
       label.classList.add('digital');
     } else {
-      label.textContent = 'morphing\u2026';
+      label.textContent = tr('morphing\u2026');
       label.classList.toggle('digital', morph > 0.5);
     }
     label.style.opacity = (morph > 0.02 && morph < 0.98) ? '0.5' : '0.7';

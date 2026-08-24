@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""
+Build the static, publicly hostable copy of the dashboard.
+
+    python tools/build_web.py        ->  web-build/
+
+launcher_web/ is normally served by launcher.py, which also answers /api/*,
+serves /assets/ and serves the local-only research doc at /analysis. A static
+host does none of that, so this script assembles a build that:
+
+  * copies launcher_web/ to the web root and assets/ to /assets/
+  * injects tools/web_static/static-api.js, which answers /api/* in the page
+    and hides the local-machine-only UI (see that file)
+  * rewrites the footer, which claims "127.0.0.1 / no data leaves this
+    machine" and links to /analysis -- a docs/ file that is deliberately
+    never published
+
+Nothing from results/, docs/ or research/ is copied. Deploy with:
+
+    firebase deploy --only hosting
+
+Stdlib only, matching launcher.py and install.py.
+"""
+
+from __future__ import annotations
+
+import shutil
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+WEB_SRC = REPO / "launcher_web"
+ASSETS_SRC = REPO / "assets"
+SHIM_SRC = REPO / "tools" / "web_static" / "static-api.js"
+OUT = REPO / "web-build"
+
+# Injected ahead of every other script so the fetch wrapper is installed
+# before app.js makes its first /api/status call.
+SHIM_TAG = '<script src="/static-api.js"></script>\n'
+SHIM_ANCHOR = '<script src="/i18n.zh.js"></script>'
+
+# The footer is matched exactly: if index.html changes, fail loudly rather
+# than silently shipping the /analysis link to a public host.
+FOOTER_OLD = """    <div class="footer" data-i18n="home.footer">
+      Local hub &#183; 127.0.0.1 &#183; no data leaves this machine &#183;
+      <a href="/analysis" target="_blank">Full research analysis</a>
+    </div>"""
+
+FOOTER_NEW = """    <div class="footer" data-i18n="home.footer">
+      Online preview &#183; screening tests run in the desktop app &#183;
+      no personal data is stored here
+    </div>"""
+
+FOOTER_ZH = (
+    "\n/* Hosted-preview override, appended by tools/build_web.py. */\n"
+    "window.ZH[\"home.footer\"] = `線上預覽 &#183; 篩檢測驗需要電腦版應用程式 &#183;\n"
+    "      本站不儲存個人資料`;\n"
+)
+
+
+def fail(msg: str) -> None:
+    print(f"build_web: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def clean(out: Path) -> None:
+    """Empty the build directory, deepest entry first.
+
+    Not shutil.rmtree: the repo lives under OneDrive, which keeps a handle on
+    directories it is syncing and makes rmdir fail with WinError 5. Removing
+    the *files* is what actually prevents a stale build; a directory that
+    refuses to go is harmless, since the copy below writes straight into it.
+    """
+    if not out.exists():
+        return
+    for p in sorted(out.rglob("*"), key=lambda q: len(q.parts), reverse=True):
+        try:
+            p.unlink() if p.is_file() or p.is_symlink() else p.rmdir()
+        except OSError:
+            pass
+
+
+def replace_once(text: str, old: str, new: str, what: str) -> str:
+    n = text.count(old)
+    if n != 1:
+        fail(f"expected exactly one {what} in index.html, found {n}. "
+             "The markup changed -- update tools/build_web.py.")
+    return text.replace(old, new)
+
+
+def main() -> None:
+    for p in (WEB_SRC, ASSETS_SRC, SHIM_SRC):
+        if not p.exists():
+            fail(f"missing {p.relative_to(REPO)}")
+
+    clean(OUT)
+    shutil.copytree(WEB_SRC, OUT, dirs_exist_ok=True)
+    shutil.copytree(ASSETS_SRC, OUT / "assets", dirs_exist_ok=True)
+    shutil.copy2(SHIM_SRC, OUT / "static-api.js")
+
+    index = OUT / "index.html"
+    html = index.read_text(encoding="utf-8")
+    html = replace_once(html, SHIM_ANCHOR, SHIM_TAG + SHIM_ANCHOR, "i18n.zh.js script tag")
+    html = replace_once(html, FOOTER_OLD, FOOTER_NEW, "local-hub footer")
+    index.write_text(html, encoding="utf-8")
+
+    zh = OUT / "i18n.zh.js"
+    zh.write_text(zh.read_text(encoding="utf-8") + FOOTER_ZH, encoding="utf-8")
+
+    files = sorted(p for p in OUT.rglob("*") if p.is_file())
+    total = sum(p.stat().st_size for p in files)
+    print(f"build_web: {len(files)} files, {total / 1_048_576:.1f} MB -> {OUT}")
+    print("build_web: next step -> firebase deploy --only hosting")
+
+
+if __name__ == "__main__":
+    main()

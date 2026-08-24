@@ -21,6 +21,7 @@ model/face_landmarker.task
 # Runtime state
 .launcher.pid
 .camera_cache.json
+.launcher_settings.json
 
 # Working material — kept locally, not published
 docs/
@@ -35,3 +36,7 @@ CLAUDE.md
 # OS
 Thumbs.db
 .DS_Store
+
+# Generated static site (tools/build_web.py)
+web-build/
+.firebase/

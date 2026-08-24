@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0E1520">
-<title>Cognitive Screening Suite &#8212; Control Hub</title>
+<title data-i18n="doc.title">Cognitive Screening Suite &#8212; Control Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script type="importmap">{"imports":{
   "three":"https://unpkg.com/three@0.164.0/build/three.module.js",
@@ -18,19 +18,23 @@
 <canvas id="rd-bg"></canvas>
 <div class="app">
   <nav>
-    <button class="logo" onclick="showPage('home')" aria-label="Go to dashboard">
+    <button class="logo" onclick="showPage('home')" aria-label="Go to dashboard" data-i18n-aria="nav.logo.aria">
       <span class="logo-dot"></span>
-      <span class="logo-text">Cognitive Screening Suite</span>
+      <span class="logo-text" data-i18n="nav.logoText">Cognitive Screening Suite</span>
     </button>
     <div class="nav-links">
-      <button class="nav-link active" data-page="home">Dashboard</button>
-      <button class="nav-link" data-page="why">Why This</button>
-      <button class="nav-link" data-page="analysis">Analysis</button>
-      <button class="nav-link" data-page="iiv">Finger Tapping</button>
-      <button class="nav-link" data-page="spiral">Spiral Tracing</button>
-      <button class="nav-link" data-page="oculomotor">Eye Movement</button>
-      <button class="nav-link" data-page="tracking">Hand Tracking</button>
-      <button class="nav-link" data-page="dev">Developer</button>
+      <button class="nav-link active" data-page="home" data-i18n="nav.home">Dashboard</button>
+      <button class="nav-link" data-page="why" data-i18n="nav.why">Why This</button>
+      <button class="nav-link" data-page="analysis" data-i18n="nav.analysis">Analysis</button>
+      <button class="nav-link" data-page="iiv" data-i18n="nav.iiv">Finger Tapping</button>
+      <button class="nav-link" data-page="spiral" data-i18n="nav.spiral">Spiral Tracing</button>
+      <button class="nav-link" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
+      <button class="nav-link" data-page="tracking" data-i18n="nav.tracking">Hand Tracking</button>
+      <button class="nav-link" data-page="dev" data-i18n="nav.dev">Developer</button>
+    </div>
+    <div class="lang-switch" role="group" aria-label="Language / 語言">
+      <button class="lang-btn" data-lang="en" lang="en">EN</button>
+      <button class="lang-btn" data-lang="zh" lang="zh-Hant">繁中</button>
     </div>
   </nav>
   <div class="status-float" id="status"></div>
@@ -38,8 +42,8 @@
   <!-- HOME -->
   <div class="page active" id="page-home">
     <div class="hero">
-      <h1>Camera-Based<br><span class="grad">Cognitive Screening</span></h1>
-      <p class="sub">made by Adam Chung.</p>
+      <h1 data-i18n="home.h1">Camera-Based<br><span class="grad">Cognitive Screening</span></h1>
+      <p class="sub" data-i18n="home.sub">made by Adam Chung.</p>
       <div class="hand-viz" id="hand-viz">
         <canvas id="hand3d"></canvas>
         <div class="hand-state-label" id="hand-label">anatomical</div>
@@ -47,28 +51,28 @@
     </div>
 
     <div class="stats-row reveal">
-      <div class="stat"><div class="stat-num" data-count="2">0</div><div class="stat-label">Sensing Modalities</div></div>
-      <div class="stat"><div class="stat-num" data-count="3">0</div><div class="stat-label">Screening Tools</div></div>
-      <div class="stat"><div class="stat-num" data-count="17">0</div><div class="stat-label">Studies Reviewed</div></div>
-      <div class="stat"><div class="stat-num" data-count="30">0</div><div class="stat-label">FPS Real-Time</div></div>
+      <div class="stat"><div class="stat-num" data-count="2">0</div><div class="stat-label" data-i18n="home.stat.modalities">Sensing Modalities</div></div>
+      <div class="stat"><div class="stat-num" data-count="3">0</div><div class="stat-label" data-i18n="home.stat.tools">Screening Tools</div></div>
+      <div class="stat"><div class="stat-num" data-count="17">0</div><div class="stat-label" data-i18n="home.stat.studies">Studies Reviewed</div></div>
+      <div class="stat"><div class="stat-num" data-count="30">0</div><div class="stat-label" data-i18n="home.stat.fps">FPS Real-Time</div></div>
     </div>
 
     <div class="section">
-      <div class="section-head"><h2>Screening Tools</h2><div class="sh-line"></div><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps.">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
-      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools">
-        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool"></button>
+      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="cam-slot" data-cam></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
+      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
+        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
         <div class="carousel-stage" id="cards"></div>
-        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool"></button>
-        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool"></div>
+        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool" data-i18n-aria="home.carousel.next"></button>
+        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool" data-i18n-aria="home.carousel.dots"></div>
       </div>
     </div>
 
     <div class="section reveal">
-      <div class="section-head"><h2>Research Foundation</h2><div class="sh-line"></div></div>
+      <div class="section-head"><h2 data-i18n="home.sec.research">Research Foundation</h2><div class="sh-line"></div></div>
       <div class="research-grid" id="research-cards"></div>
     </div>
 
-    <div class="footer">
+    <div class="footer" data-i18n="home.footer">
       Local hub &#183; 127.0.0.1 &#183; no data leaves this machine &#183;
       <a href="/analysis" target="_blank">Full research analysis</a>
     </div>
@@ -81,15 +85,15 @@
         <div class="analysis-title">
           <div class="analysis-icon" id="analysis-icon"></div>
           <div>
-            <h1>Longitudinal Analysis</h1>
-            <p>The trend over time matters more than any single result. All data stays on this machine.</p>
+            <h1 data-i18n="analysis.h1">Longitudinal Analysis</h1>
+            <p data-i18n="analysis.intro">The trend over time matters more than any single result. All data stays on this machine.</p>
           </div>
         </div>
       </div>
       <div class="analysis-summary" id="analysis-summary"></div>
-      <div class="seg" id="analysis-filter" role="tablist" aria-label="Filter by test"></div>
+      <div class="seg" id="analysis-filter" role="tablist" aria-label="Filter by test" data-i18n-aria="analysis.filter.aria"></div>
       <div class="analysis-body" id="analysis-body"></div>
-      <p class="analysis-disclaimer">
+      <p class="analysis-disclaimer" data-i18n="analysis.disclaimer">
         Reference bands are <strong>provisional</strong> and shade the chart for context only &#8212;
         they are not clinical cut-offs. This is a screening aid, not a diagnosis.
       </p>
@@ -103,8 +107,8 @@
         <div class="analysis-title">
           <div class="analysis-icon" id="why-icon"></div>
           <div>
-            <h1>How This Compares</h1>
-            <p>At-home cognitive screeners tend to be either self-reported questionnaires or
+            <h1 data-i18n="why.h1">How This Compares</h1>
+            <p data-i18n="why.intro">At-home cognitive screeners tend to be either self-reported questionnaires or
             closed research platforms you can&#8217;t inspect. This one runs locally, shows the
             paper behind each metric, and keeps a history across sessions. A sensor glove
             for measuring grip force alongside the camera is in progress.</p>
@@ -112,14 +116,14 @@
         </div>
       </div>
 
-      <div class="section-head"><h2>The Differentiators</h2><div class="sh-line"></div></div>
+      <div class="section-head"><h2 data-i18n="why.sec.pillars">The Differentiators</h2><div class="sh-line"></div></div>
       <div class="pillar-grid" id="why-pillars"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>How It Compares</h2><div class="sh-line"></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="why.sec.matrix">How It Compares</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="why-legend"></span></div>
       <div class="cmp-wrap"><div id="why-matrix"></div></div>
 
-      <p class="analysis-disclaimer">
+      <p class="analysis-disclaimer" data-i18n="why.disclaimer">
         This is a <strong>screening aid, not a diagnosis</strong>. Scoring bands are
         provisional pending a normative cohort, and validation on patient groups is the
         roadmap&#8217;s decisive next step &#8212; shown honestly in the table above.
@@ -134,52 +138,52 @@
       <div class="detail-hero">
         <div class="detail-icon" id="detail-icon-iiv"></div>
         <div class="detail-info">
-          <h1>Finger Tapping Test</h1>
+          <h1 data-i18n="iiv.h1">Finger Tapping Test</h1>
           <div class="detail-file">screening_tests/finger_tapping.py</div>
-          <p>Tap your index finger to your thumb rhythmically.</p>
+          <p data-i18n="iiv.lede">Tap your index finger to your thumb rhythmically.</p>
           <div class="detail-tags">
-            <span class="detail-tag">Big &amp; Fast (10 s)</span><span class="detail-tag">Paced (30 s)</span>
-            <span class="detail-tag">1 hand</span><span class="detail-tag">CV% headline metric</span>
+            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (10 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
+            <span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span><span class="detail-tag" data-i18n="iiv.tag4">CV% headline metric</span>
           </div>
           <div class="detail-actions" id="iiv-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2>How It Works</h2>
-        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px">Two modes share the same detection engine. Both start with the same calibration. They differ in how you pace the taps.</p>
+      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="iiv.how.intro">Two modes share the same detection engine. Both start with the same calibration. They differ in how you pace the taps.</p>
         <div class="mode-split">
           <div class="mode-col">
-            <div class="mode-col-head"><h3>Big &amp; Fast</h3><span class="mode-badge">10 s &#183; self-paced &#183; primary</span></div>
+            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">10 s &#183; self-paced &#183; primary</span></div>
             <div class="steps">
-              <div class="step"><div class="step-num">1</div><div class="step-content"><h4>Calibrate</h4><p>Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the tap threshold for your hand size.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4>Tap big &amp; fast</h4><p>Tap your index finger to your thumb <strong>as big and as fast as you can for 10 seconds</strong>. The app measures tip-to-tip distance on every frame. Most people top out around 5 to 7 taps per second.</p></div></div>
-              <div class="step"><div class="step-num">3</div><div class="step-content"><h4>Score</h4><p>The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
+              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the tap threshold for your hand size.</p></div></div>
+              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 10 seconds</strong>. The app measures tip-to-tip distance on every frame. Most people top out around 5 to 7 taps per second.</p></div></div>
+              <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode1.s3.h">Score</h4><p data-i18n="iiv.mode1.s3.p">The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
             </div>
           </div>
           <div class="mode-col">
-            <div class="mode-col-head"><h3>Paced Rhythm</h3><span class="mode-badge alt">30 s &#183; 1 Hz metronome</span></div>
+            <div class="mode-col-head"><h3 data-i18n="iiv.mode2.h">Paced Rhythm</h3><span class="mode-badge alt" data-i18n="iiv.mode2.badge">30 s &#183; 1 Hz metronome</span></div>
             <div class="steps">
-              <div class="step"><div class="step-num">1</div><div class="step-content"><h4>Calibrate</h4><p>Same camera setup and the same open-and-close warm-up to set your tap threshold.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4>Warm up to the beat</h4><p>You get 5 seconds of practice with the metronome. Beeps play <strong>200 ms early</strong> to cancel out audio delay. They run on a fixed grid so they never drift.</p></div></div>
-              <div class="step"><div class="step-num">3</div><div class="step-content"><h4>Tap on each beep</h4><p>Tap <strong>once per beep</strong> for 30 seconds, one beep per second. Staying consistent matters more than being perfectly on time.</p></div></div>
-              <div class="step"><div class="step-num">4</div><div class="step-content"><h4>Score</h4><p>The headline score is <strong>CV%</strong>, your rhythm consistency. <strong>Beat-sync SD</strong> shows how close your taps land to each beep. The first 3 warm-up taps are dropped.</p></div></div>
+              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode2.s1.h">Calibrate</h4><p data-i18n="iiv.mode2.s1.p">Same camera setup and the same open-and-close warm-up to set your tap threshold.</p></div></div>
+              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode2.s2.h">Warm up to the beat</h4><p data-i18n="iiv.mode2.s2.p">You get 5 seconds of practice with the metronome. Beeps play <strong>200 ms early</strong> to cancel out audio delay. They run on a fixed grid so they never drift.</p></div></div>
+              <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode2.s3.h">Tap on each beep</h4><p data-i18n="iiv.mode2.s3.p">Tap <strong>once per beep</strong> for 30 seconds, one beep per second. Staying consistent matters more than being perfectly on time.</p></div></div>
+              <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="iiv.mode2.s4.h">Score</h4><p data-i18n="iiv.mode2.s4.p">The headline score is <strong>CV%</strong>, your rhythm consistency. <strong>Beat-sync SD</strong> shows how close your taps land to each beep. The first 3 warm-up taps are dropped.</p></div></div>
             </div>
           </div>
         </div>
       </div>
-      <div class="metrics-section"><h2>Metrics Measured</h2>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
-          <div class="metric-card"><h4>Rhythm variability (CV%)</h4><p>The test captures the Standard Deviation of inter-tap intervals. The scale-invariant prime biomarker.</p><div class="metric-num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite">IIV elevated across neurodegenerative groups &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
-          <div class="metric-card"><h4>Tap frequency (Hz)</h4><p>Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num">Big &amp; Fast expects ~4&#8211;7 Hz</div><div class="metric-cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
-          <div class="metric-card"><h4>Speed decrement (%/s)</h4><p>Slope of the instantaneous tap rate over the trial. This captures fatigue slowdown.</p><div class="metric-num">negative = slowing</div><div class="metric-cite">&#8220;Big &amp; Fast&#8221; decrement measure &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
-          <div class="metric-card"><h4>Amplitude CV (%)</h4><p>Variability of the valley-to-peak opening excursion from tap to tap.</p><div class="metric-num">span-normalized per tap</div><div class="metric-cite">Magnetic-sensor tap amplitude/regularity &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9716461/" target="_blank" rel="noopener">Suzumura 2022</a></div></div>
-          <div class="metric-card"><h4>Beat-sync SD (ms) &#183; paced only</h4><p>Standard Deviation of each tap&#8217;s latency to its nearest beep (matched within a &#177;500 ms window).</p><div class="metric-num">lower = tighter to the beat</div><div class="metric-cite">Project-specific rhythm metric &#8212; no cited normative source.</div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m1.h">Rhythm variability (CV%)</h4><p data-i18n="iiv.m1.p">The test captures the Standard Deviation of inter-tap intervals. The scale-invariant prime biomarker.</p><div class="metric-num" data-i18n="iiv.m1.num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite" data-i18n="iiv.m1.cite">IIV elevated across neurodegenerative groups &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m2.h">Tap frequency (Hz)</h4><p data-i18n="iiv.m2.p">Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num" data-i18n="iiv.m2.num">Big &amp; Fast expects ~4&#8211;7 Hz</div><div class="metric-cite" data-i18n="iiv.m2.cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m3.h">Speed decrement (%/s)</h4><p data-i18n="iiv.m3.p">Slope of the instantaneous tap rate over the trial. This captures fatigue slowdown.</p><div class="metric-num" data-i18n="iiv.m3.num">negative = slowing</div><div class="metric-cite" data-i18n="iiv.m3.cite">&#8220;Big &amp; Fast&#8221; decrement measure &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m4.h">Amplitude CV (%)</h4><p data-i18n="iiv.m4.p">Variability of the valley-to-peak opening excursion from tap to tap.</p><div class="metric-num" data-i18n="iiv.m4.num">span-normalized per tap</div><div class="metric-cite" data-i18n="iiv.m4.cite">Magnetic-sensor tap amplitude/regularity &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9716461/" target="_blank" rel="noopener">Suzumura 2022</a></div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m5.h">Beat-sync SD (ms) &#183; paced only</h4><p data-i18n="iiv.m5.p">Standard Deviation of each tap&#8217;s latency to its nearest beep (matched within a &#177;500 ms window).</p><div class="metric-num" data-i18n="iiv.m5.num">lower = tighter to the beat</div><div class="metric-cite" data-i18n="iiv.m5.cite">Project-specific rhythm metric &#8212; no cited normative source.</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5">A run needs at least <strong>10 taps</strong> </p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="iiv.note">A run needs at least <strong>10 taps</strong> </p>
       </div>
-      <div class="papers-section"><h2>Research Papers</h2>
-        <div class="paper"><h4><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Quantitative Finger Tapping in MCI, Alzheimer's &amp; Parkinson's</a></h4><div class="paper-authors">Roalf et al., 2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087</div><p>They tested 302 people (131 AD, 63 PD, 46 MCI, 62 healthy) with a light-diode finger tapper. Variability in the gaps between taps was higher in every neurodegenerative group, and it separated the groups better than tap count or average speed. We cite it because our headline <strong>CV% / IIV</strong> metric comes from it.</p><div class="paper-foot"><span class="paper-tag">Source of our IIV / CV metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
-        <div class="paper"><h4><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk: Smartphone Motor + Speech Testing Across 20 Devices</a></h4><div class="paper-authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC11496774</div><p>They checked MediaPipe hand tracking against Polhemus electromagnetic sensors across 31 people and 20 phone models. 90.3% of tap-frequency readings landed within &#177;1 Hz of the sensor. We cite it because it shows a plain camera is accurate enough for this test.</p><div class="paper-foot"><span class="paper-tag">Directly validates our approach</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
-        <div class="paper"><h4><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener">TAS Test: Webcam Hand Movements Predict Cognition</a></h4><div class="paper-authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC10809289</div><p>404 adults with no cognitive symptoms did a 10-second webcam tapping test at home. Adding their hand-motor features improved predictions of memory, executive function, and working memory. We cite it because it shows the test works unsupervised at home.</p><div class="paper-foot"><span class="paper-tag">At-home webcam validation</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="iiv.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Quantitative Finger Tapping in MCI, Alzheimer's &amp; Parkinson's</a></h4><div class="paper-authors" data-i18n="iiv.p1.authors">Roalf et al., 2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087</div><p data-i18n="iiv.p1.body">They tested 302 people (131 AD, 63 PD, 46 MCI, 62 healthy) with a light-diode finger tapper. Variability in the gaps between taps was higher in every neurodegenerative group, and it separated the groups better than tap count or average speed. We cite it because our headline <strong>CV% / IIV</strong> metric comes from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p1.tag">Source of our IIV / CV metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="iiv.p2.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk: Smartphone Motor + Speech Testing Across 20 Devices</a></h4><div class="paper-authors" data-i18n="iiv.p2.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC11496774</div><p data-i18n="iiv.p2.body">They checked MediaPipe hand tracking against Polhemus electromagnetic sensors across 31 people and 20 phone models. 90.3% of tap-frequency readings landed within &#177;1 Hz of the sensor. We cite it because it shows a plain camera is accurate enough for this test.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p2.tag">Directly validates our approach</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="iiv.p3.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener">TAS Test: Webcam Hand Movements Predict Cognition</a></h4><div class="paper-authors" data-i18n="iiv.p3.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC10809289</div><p data-i18n="iiv.p3.body">404 adults with no cognitive symptoms did a 10-second webcam tapping test at home. Adding their hand-motor features improved predictions of memory, executive function, and working memory. We cite it because it shows the test works unsupervised at home.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p3.tag">At-home webcam validation</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
     </div>
   </div>
@@ -191,36 +195,36 @@
       <div class="detail-hero">
         <div class="detail-icon" id="detail-icon-spiral"></div>
         <div class="detail-info">
-          <h1>Spiral Tracing Test</h1>
-          <p>Trace a spiral in the air with your fingertip.</p>
+          <h1 data-i18n="spiral.h1">Spiral Tracing Test</h1>
+          <p data-i18n="spiral.lede">Trace a spiral in the air with your fingertip.</p>
           <div class="detail-tags">
-            <span class="detail-tag">40 s test</span><span class="detail-tag">1 hand</span>
-            <span class="detail-tag">On-screen guide</span><span class="detail-tag">Air tracing</span>
+            <span class="detail-tag" data-i18n="spiral.tag1">40 s test</span><span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span>
+            <span class="detail-tag" data-i18n="spiral.tag3">On-screen guide</span><span class="detail-tag" data-i18n="spiral.tag4">Air tracing</span>
           </div>
           <div class="detail-actions" id="spiral-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2>How It Works</h2>
+      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
         <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4>Guide Display</h4><p>A spiral guide appears on screen. Hold your hand in front of the camera with your index finger pointed out.</p></div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-content"><h4>Trace the Spiral</h4><p>Trace the spiral from the center outwards with your fingertip, at whatever pace feels comfortable. There is no dot to chase. The app records your raw fingertip position on every frame.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4>Movement Analysis</h4><p>The app looks at how your speed changed during the trace. It scores how smooth and steady the movement was, not how closely you matched a target.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4>Smoothness Scoring</h4><p>The headline score is a smoothness index called <strong>SPARC</strong>. You also get velocity CV%, normalized jerk, a tremor readout, and how much of the spiral you finished.</p></div></div>
+          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="spiral.s1.h">Guide Display</h4><p data-i18n="spiral.s1.p">A spiral guide appears on screen. Hold your hand in front of the camera with your index finger pointed out.</p></div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="spiral.s2.h">Trace the Spiral</h4><p data-i18n="spiral.s2.p">Trace the spiral from the center outwards with your fingertip, at whatever pace feels comfortable. There is no dot to chase. The app records your raw fingertip position on every frame.</p></div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="spiral.s3.h">Movement Analysis</h4><p data-i18n="spiral.s3.p">The app looks at how your speed changed during the trace. It scores how smooth and steady the movement was, not how closely you matched a target.</p></div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="spiral.s4.h">Smoothness Scoring</h4><p data-i18n="spiral.s4.p">The headline score is a smoothness index called <strong>SPARC</strong>. You also get velocity CV%, normalized jerk, a tremor readout, and how much of the spiral you finished.</p></div></div>
         </div>
       </div>
-      <div class="metrics-section"><h2>Metrics Measured</h2>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
-          <div class="metric-card"><h4>Smoothness Index (SPARC)</h4><p>Spectral Arc Length of the speed profile (Balasubramanian et al. 2015), mapped 0&#8211;100. The headline: higher means smoother, more automatic movement.</p></div>
-          <div class="metric-card"><h4>Velocity CV%</h4><p>Coefficient of variation of movement velocity. Irregular speed profiles are a hallmark of neurodegeneration.</p></div>
-          <div class="metric-card"><h4>Normalized Jerk</h4><p>Smoothness of movement trajectory. Jerkier movements suggest reduced motor automaticity.</p></div>
-          <div class="metric-card"><h4>Completion</h4><p>Percentage of the spiral successfully traced. Lower completion may indicate motor fatigue or difficulty.</p></div>
-          <div class="metric-card"><h4>Active Ratio</h4><p>Proportion of time the finger was actively moving vs. paused. Hesitations can indicate planning difficulty.</p></div>
+          <div class="metric-card"><h4 data-i18n="spiral.m1.h">Smoothness Index (SPARC)</h4><p data-i18n="spiral.m1.p">Spectral Arc Length of the speed profile (Balasubramanian et al. 2015), mapped 0&#8211;100. The headline: higher means smoother, more automatic movement.</p></div>
+          <div class="metric-card"><h4 data-i18n="spiral.m2.h">Velocity CV%</h4><p data-i18n="spiral.m2.p">Coefficient of variation of movement velocity. Irregular speed profiles are a hallmark of neurodegeneration.</p></div>
+          <div class="metric-card"><h4 data-i18n="spiral.m3.h">Normalized Jerk</h4><p data-i18n="spiral.m3.p">Smoothness of movement trajectory. Jerkier movements suggest reduced motor automaticity.</p></div>
+          <div class="metric-card"><h4 data-i18n="spiral.m4.h">Completion</h4><p data-i18n="spiral.m4.p">Percentage of the spiral successfully traced. Lower completion may indicate motor fatigue or difficulty.</p></div>
+          <div class="metric-card"><h4 data-i18n="spiral.m5.h">Active Ratio</h4><p data-i18n="spiral.m5.p">Proportion of time the finger was actively moving vs. paused. Hesitations can indicate planning difficulty.</p></div>
         </div>
       </div>
-      <div class="papers-section"><h2>Research Papers</h2>
-        <div class="paper"><h4>Digitized Archimedes Spiral Drawing Test &#8212; Scoping Review</h4><div class="paper-authors">Wang et al., 2025 &#183; Movement Disorders Clinical Practice</div><p>A review of how the digitized spiral test is used across MS, ataxia, dystonia, cerebellar disease, MCI, and Alzheimer's. We cite it because it confirms spiral tracing is an established, measurable test.</p><span class="paper-tag">Validates the test direction</span></div>
-        <div class="paper"><h4>Spiral + Wave Drawing with Explainable CNN for PD</h4><div class="paper-authors">2024/2025 &#183; Springer</div><p>A deep-learning model classifies Parkinson's from spiral and wave drawings. Its saliency maps show which parts of the drawing drove the call. We cite it as an example of keeping automated scoring explainable.</p><span class="paper-tag">Explainable AI approach</span></div>
-        <div class="paper"><h4>Tapping + Spiral for Tremor Differential Diagnosis</h4><div class="paper-authors">NCT06378619 &#183; ClinicalTrials.gov</div><p>An active trial that combines tapping and spiral drawing with machine learning to tell tremor types apart. We cite it as precedent for combining our own tests into one classifier.</p><span class="paper-tag">Combined test precedent</span></div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="spiral.p1.title">Digitized Archimedes Spiral Drawing Test &#8212; Scoping Review</h4><div class="paper-authors" data-i18n="spiral.p1.authors">Wang et al., 2025 &#183; Movement Disorders Clinical Practice</div><p data-i18n="spiral.p1.body">A review of how the digitized spiral test is used across MS, ataxia, dystonia, cerebellar disease, MCI, and Alzheimer's. We cite it because it confirms spiral tracing is an established, measurable test.</p><span class="paper-tag" data-i18n="spiral.p1.tag">Validates the test direction</span></div>
+        <div class="paper"><h4 data-i18n="spiral.p2.title">Spiral + Wave Drawing with Explainable CNN for PD</h4><div class="paper-authors" data-i18n="spiral.p2.authors">2024/2025 &#183; Springer</div><p data-i18n="spiral.p2.body">A deep-learning model classifies Parkinson's from spiral and wave drawings. Its saliency maps show which parts of the drawing drove the call. We cite it as an example of keeping automated scoring explainable.</p><span class="paper-tag" data-i18n="spiral.p2.tag">Explainable AI approach</span></div>
+        <div class="paper"><h4 data-i18n="spiral.p3.title">Tapping + Spiral for Tremor Differential Diagnosis</h4><div class="paper-authors" data-i18n="spiral.p3.authors">NCT06378619 &#183; ClinicalTrials.gov</div><p data-i18n="spiral.p3.body">An active trial that combines tapping and spiral drawing with machine learning to tell tremor types apart. We cite it as precedent for combining our own tests into one classifier.</p><span class="paper-tag" data-i18n="spiral.p3.tag">Combined test precedent</span></div>
       </div>
     </div>
   </div>
@@ -232,42 +236,42 @@
       <div class="detail-hero">
         <div class="detail-icon" id="detail-icon-oculomotor"></div>
         <div class="detail-info">
-          <h1>Eye Movement Test</h1>
+          <h1 data-i18n="oculo.h1">Eye Movement Test</h1>
           <div class="detail-file">screening_tests/oculomotor_test.py</div>
-          <p>A webcam-only <strong>pro/anti-saccade</strong> task. A dot flashes to the left or right.
+          <p data-i18n="oculo.lede">A webcam-only <strong>pro/anti-saccade</strong> task. A dot flashes to the left or right.
           In Part 1 you look <strong>toward</strong> it. In Part 2 you look <strong>away</strong> from it.
           The headline metric is the <strong>anti-saccade error rate</strong>: how often your eyes get
           pulled to the dot anyway. It measures inhibitory control, and it is one of the earliest signs
           of Alzheimer's that can be measured.</p>
           <div class="detail-tags">
-            <span class="detail-tag">Pro baseline (16 trials)</span><span class="detail-tag">Anti-saccade (24 trials)</span>
-            <span class="detail-tag">3-point gaze calibration</span><span class="detail-tag">Error-rate headline</span>
+            <span class="detail-tag" data-i18n="oculo.tag1">Pro baseline (16 trials)</span><span class="detail-tag" data-i18n="oculo.tag2">Anti-saccade (24 trials)</span>
+            <span class="detail-tag" data-i18n="oculo.tag3">3-point gaze calibration</span><span class="detail-tag" data-i18n="oculo.tag4">Error-rate headline</span>
           </div>
           <div class="detail-actions" id="oculomotor-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2>How It Works</h2>
-        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px">Both blocks share one gaze engine. MediaPipe tracks your iris and measures its position against your eye corners, so small head movements do not throw it off. A short calibration maps that signal to the screen.</p>
+      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="oculo.how.intro">Both blocks share one gaze engine. MediaPipe tracks your iris and measures its position against your eye corners, so small head movements do not throw it off. A short calibration maps that signal to the screen.</p>
         <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4>Calibrate</h4><p>Look at three dots: center, then left, then right. This maps your iris signal to screen positions and sets a center <strong>deadband</strong> from your own tracking noise. Keep your head still and move only your eyes.</p></div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-content"><h4>Part 1 &#8212; Look toward</h4><p>Keep your eyes on the center cross. When a dot appears, look <strong>at</strong> it, then look back. 16 scored trials set your normal saccade speed as a baseline.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4>Part 2 &#8212; Look away</h4><p>When the dot appears, look to the <strong>opposite</strong> side. This is the main block. 24 trials measure how often inhibition fails and how fast the correct looks are.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4>Score</h4><p>The headline score is your <strong>anti-saccade error rate</strong>. <strong>Anti &#8722; Pro latency</strong> cancels out the fixed camera and display delay. You also get the corrected-error rate and data-quality checks. Each block uses a <strong>gap paradigm</strong> and throws out guesses faster than 90 ms.</p></div></div>
+          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="oculo.s1.h">Calibrate</h4><p data-i18n="oculo.s1.p">Look at three dots: center, then left, then right. This maps your iris signal to screen positions and sets a center <strong>deadband</strong> from your own tracking noise. Keep your head still and move only your eyes.</p></div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="oculo.s2.h">Part 1 &#8212; Look toward</h4><p data-i18n="oculo.s2.p">Keep your eyes on the center cross. When a dot appears, look <strong>at</strong> it, then look back. 16 scored trials set your normal saccade speed as a baseline.</p></div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="oculo.s3.h">Part 2 &#8212; Look away</h4><p data-i18n="oculo.s3.p">When the dot appears, look to the <strong>opposite</strong> side. This is the main block. 24 trials measure how often inhibition fails and how fast the correct looks are.</p></div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="oculo.s4.h">Score</h4><p data-i18n="oculo.s4.p">The headline score is your <strong>anti-saccade error rate</strong>. <strong>Anti &#8722; Pro latency</strong> cancels out the fixed camera and display delay. You also get the corrected-error rate and data-quality checks. Each block uses a <strong>gap paradigm</strong> and throws out guesses faster than 90 ms.</p></div></div>
         </div>
       </div>
-      <div class="metrics-section"><h2>Metrics Measured</h2>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
-          <div class="metric-card"><h4>Anti-saccade error rate (%)</h4><p>Share of anti-saccade trials whose first eye movement went toward the dot &#8212; a failure of inhibition.</p><div class="metric-num">&lt;20% typical &#183; 20&#8211;40% monitor &#183; &gt;40% follow-up*</div><div class="metric-cite">Best AD discriminator (SMD 1.59) &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Opwonya 2022</a></div></div>
-          <div class="metric-card"><h4>Anti &#8722; Pro latency (ms)</h4><p>Anti-saccade latency minus the prosaccade baseline. The subtraction cancels the fixed, unknown camera-exposure + display-render offset.</p><div class="metric-num">the robust latency readout</div><div class="metric-cite">Standardised protocol &#8212; <a href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">Antoniades 2013</a></div></div>
-          <div class="metric-card"><h4>Corrected-error rate (%)</h4><p>Anti-saccade errors that the eyes then self-corrected toward the right side within the hold window &#8212; inhibition failure vs error-monitoring.</p><div class="metric-num">counted separately</div><div class="metric-cite">Corrected vs uncorrected errors &#8212; <a href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Crawford 2005</a></div></div>
-          <div class="metric-card"><h4>Latency CV (%) &#183; validity gates</h4><p>Variability of correct-trial latency, plus valid-trial counts and face-visible ratio that decide whether a run is scoreable.</p><div class="metric-num">honest data-quality reporting</div><div class="metric-cite">Excludes express/anticipatory (&lt;90 ms) saccades.</div></div>
+          <div class="metric-card"><h4 data-i18n="oculo.m1.h">Anti-saccade error rate (%)</h4><p data-i18n="oculo.m1.p">Share of anti-saccade trials whose first eye movement went toward the dot &#8212; a failure of inhibition.</p><div class="metric-num" data-i18n="oculo.m1.num">&lt;20% typical &#183; 20&#8211;40% monitor &#183; &gt;40% follow-up*</div><div class="metric-cite" data-i18n="oculo.m1.cite">Best AD discriminator (SMD 1.59) &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Opwonya 2022</a></div></div>
+          <div class="metric-card"><h4 data-i18n="oculo.m2.h">Anti &#8722; Pro latency (ms)</h4><p data-i18n="oculo.m2.p">Anti-saccade latency minus the prosaccade baseline. The subtraction cancels the fixed, unknown camera-exposure + display-render offset.</p><div class="metric-num" data-i18n="oculo.m2.num">the robust latency readout</div><div class="metric-cite" data-i18n="oculo.m2.cite">Standardised protocol &#8212; <a href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">Antoniades 2013</a></div></div>
+          <div class="metric-card"><h4 data-i18n="oculo.m3.h">Corrected-error rate (%)</h4><p data-i18n="oculo.m3.p">Anti-saccade errors that the eyes then self-corrected toward the right side within the hold window &#8212; inhibition failure vs error-monitoring.</p><div class="metric-num" data-i18n="oculo.m3.num">counted separately</div><div class="metric-cite" data-i18n="oculo.m3.cite">Corrected vs uncorrected errors &#8212; <a href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Crawford 2005</a></div></div>
+          <div class="metric-card"><h4 data-i18n="oculo.m4.h">Latency CV (%) &#183; validity gates</h4><p data-i18n="oculo.m4.p">Variability of correct-trial latency, plus valid-trial counts and face-visible ratio that decide whether a run is scoreable.</p><div class="metric-num" data-i18n="oculo.m4.num">honest data-quality reporting</div><div class="metric-cite" data-i18n="oculo.m4.cite">Excludes express/anticipatory (&lt;90 ms) saccades.</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5">A run needs at least <strong>12 valid anti-saccade trials</strong> to be scored. This is a <strong>short screening form</strong> (40 trials vs the clinical 40&#8211;60 per block). A webcam at 30&#8211;60 fps resolves saccade <em>direction</em> robustly but not velocity or trajectory. <strong>*Bands are anchored to published healthy (~6%) and AD (~25%) error rates</strong> (<code>core/gaze/metrics.py</code>) &#8212; not a clinical cut-off. Performance depends on lighting, camera quality, glasses, and attention.</p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="oculo.note">A run needs at least <strong>12 valid anti-saccade trials</strong> to be scored. This is a <strong>short screening form</strong> (40 trials vs the clinical 40&#8211;60 per block). A webcam at 30&#8211;60 fps resolves saccade <em>direction</em> robustly but not velocity or trajectory. <strong>*Bands are anchored to published healthy (~6%) and AD (~25%) error rates</strong> (<code>core/gaze/metrics.py</code>) &#8212; not a clinical cut-off. Performance depends on lighting, camera quality, glasses, and attention.</p>
       </div>
-      <div class="papers-section"><h2>Research Papers</h2>
-        <div class="paper"><h4><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Saccadic Eye Movement in MCI and Alzheimer's &#8212; Meta-Analysis</a></h4><div class="paper-authors">Opwonya et al., 2022 &#183; Neuropsychology Review 32(2):193&#8211;227 &#183; PMC9090874</div><p>A meta-analysis pooling 27 task-condition datasets. The anti-saccade error rate showed a <strong>large</strong> effect separating AD from controls (SMD 1.59) and a moderate one for MCI (0.55), and it beat prosaccade measures at telling patients from controls. We cite it because our headline metric comes from it.</p><div class="paper-foot"><span class="paper-tag">Source of our headline metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
-        <div class="paper"><h4><a href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Inhibitory Control of Saccades and Cognitive Impairment in AD</a></h4><div class="paper-authors">Crawford et al., 2005 &#183; Biological Psychiatry 57(9):1052&#8211;1060 &#183; PMID 15860346</div><p>AD patients left about 10 times more anti-saccade errors uncorrected than controls (25.4% mean), and the error rate tracked dementia severity. We cite it because it anchors the high end of our scoring bands.</p><div class="paper-foot"><span class="paper-tag">Anchors the AD error band</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
-        <div class="paper"><h4><a href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">An Internationally Standardised Antisaccade Protocol</a></h4><div class="paper-authors">Antoniades et al., 2013 &#183; Vision Research 84:1&#8211;5 &#183; PMID 23474300</div><p>The reference protocol for clinical saccade testing. We follow its rules: prosaccade block first, a gap between the cross disappearing and the dot appearing, express saccades excluded, and corrected errors counted apart from uncorrected ones.</p><div class="paper-foot"><span class="paper-tag">Our measurement methodology</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">Read paper <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="oculo.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Saccadic Eye Movement in MCI and Alzheimer's &#8212; Meta-Analysis</a></h4><div class="paper-authors" data-i18n="oculo.p1.authors">Opwonya et al., 2022 &#183; Neuropsychology Review 32(2):193&#8211;227 &#183; PMC9090874</div><p data-i18n="oculo.p1.body">A meta-analysis pooling 27 task-condition datasets. The anti-saccade error rate showed a <strong>large</strong> effect separating AD from controls (SMD 1.59) and a moderate one for MCI (0.55), and it beat prosaccade measures at telling patients from controls. We cite it because our headline metric comes from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="oculo.p1.tag">Source of our headline metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="oculo.p2.title"><a href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Inhibitory Control of Saccades and Cognitive Impairment in AD</a></h4><div class="paper-authors" data-i18n="oculo.p2.authors">Crawford et al., 2005 &#183; Biological Psychiatry 57(9):1052&#8211;1060 &#183; PMID 15860346</div><p data-i18n="oculo.p2.body">AD patients left about 10 times more anti-saccade errors uncorrected than controls (25.4% mean), and the error rate tracked dementia severity. We cite it because it anchors the high end of our scoring bands.</p><div class="paper-foot"><span class="paper-tag" data-i18n="oculo.p2.tag">Anchors the AD error band</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="oculo.p3.title"><a href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">An Internationally Standardised Antisaccade Protocol</a></h4><div class="paper-authors" data-i18n="oculo.p3.authors">Antoniades et al., 2013 &#183; Vision Research 84:1&#8211;5 &#183; PMID 23474300</div><p data-i18n="oculo.p3.body">The reference protocol for clinical saccade testing. We follow its rules: prosaccade block first, a gap between the cross disappearing and the dot appearing, express saccades excluded, and corrected errors counted apart from uncorrected ones.</p><div class="paper-foot"><span class="paper-tag" data-i18n="oculo.p3.tag">Our measurement methodology</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
     </div>
   </div>
@@ -279,32 +283,32 @@
       <div class="detail-hero">
         <div class="detail-icon" id="detail-icon-tracking"></div>
         <div class="detail-info">
-          <h1>Hand Tracking / UDP Broadcast</h1>
+          <h1 data-i18n="track.h1">Hand Tracking / UDP Broadcast</h1>
           <div class="detail-file">core/hand_tracking.py</div>
-          <p>Streams all 21 hand landmarks (x, y, z) in real time over UDP to
+          <p data-i18n="track.lede">Streams all 21 hand landmarks (x, y, z) in real time over UDP to
           <code style="color:var(--brand)">127.0.0.1:5052</code>. It was built for a Unity hand-mirroring
           receiver. It now serves as the raw landmark backbone for the screening tests.</p>
           <div class="detail-tags">
-            <span class="detail-tag">Live stream</span><span class="detail-tag">2 hands</span>
-            <span class="detail-tag">UDP :5052</span><span class="detail-tag">21 landmarks</span>
+            <span class="detail-tag" data-i18n="track.tag1">Live stream</span><span class="detail-tag" data-i18n="track.tag2">2 hands</span>
+            <span class="detail-tag" data-i18n="track.tag3">UDP :5052</span><span class="detail-tag" data-i18n="track.tag4">21 landmarks</span>
           </div>
           <div class="detail-actions" id="tracking-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2>How It Works</h2>
+      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
         <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4>Camera Selection</h4><p>A console window asks for your camera source. Choose a local webcam or paste an IP camera stream URL.</p></div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-content"><h4>Landmark Detection</h4><p>MediaPipe detects up to 2 hands at once. It returns 21 3D landmarks per hand on every frame.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4>UDP Broadcast</h4><p>Every frame, the pixel-scaled coordinates are packed as <code style="color:var(--brand)">L:[x1,y1,z1,...]</code> and sent over UDP. One packet per detected hand.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4>Live Visualization</h4><p>An OpenCV window shows the camera feed with the hand skeleton drawn on top. Press <code style="color:var(--brand)">q</code> to quit.</p></div></div>
+          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="track.s1.h">Camera Selection</h4><p data-i18n="track.s1.p">A console window asks for your camera source. Choose a local webcam or paste an IP camera stream URL.</p></div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="track.s2.h">Landmark Detection</h4><p data-i18n="track.s2.p">MediaPipe detects up to 2 hands at once. It returns 21 3D landmarks per hand on every frame.</p></div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="track.s3.h">UDP Broadcast</h4><p data-i18n="track.s3.p">Every frame, the pixel-scaled coordinates are packed as <code style="color:var(--brand)">L:[x1,y1,z1,...]</code> and sent over UDP. One packet per detected hand.</p></div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="track.s4.h">Live Visualization</h4><p data-i18n="track.s4.p">An OpenCV window shows the camera feed with the hand skeleton drawn on top. Press <code style="color:var(--brand)">q</code> to quit.</p></div></div>
         </div>
       </div>
-      <div class="metrics-section"><h2>Data Output</h2>
+      <div class="metrics-section"><h2 data-i18n="track.sec.data">Data Output</h2>
         <div class="metrics-grid">
-          <div class="metric-card"><h4>21 Landmarks</h4><p>Wrist, thumb (4), index (4), middle (4), ring (4), pinky (4) &#8212; full hand skeleton per the MediaPipe topology.</p></div>
-          <div class="metric-card"><h4>3D Coordinates</h4><p>Each landmark has x, y (pixel-scaled) and z (relative depth). One-Euro filtering smooths x/y; z is left raw.</p></div>
-          <div class="metric-card"><h4>UDP Format</h4><p>Newline-delimited packets: <code>L:[x1,y1,z1,x2,y2,z2,...]</code> per hand, broadcast to localhost:5052.</p></div>
-          <div class="metric-card"><h4>Preprocessing</h4><p>CLAHE + sharpening via <code>preprocess_for_mediapipe</code> improves detection in challenging lighting.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d1.h">21 Landmarks</h4><p data-i18n="track.d1.p">Wrist, thumb (4), index (4), middle (4), ring (4), pinky (4) &#8212; full hand skeleton per the MediaPipe topology.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d2.h">3D Coordinates</h4><p data-i18n="track.d2.p">Each landmark has x, y (pixel-scaled) and z (relative depth). One-Euro filtering smooths x/y; z is left raw.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d3.h">UDP Format</h4><p data-i18n="track.d3.p">Newline-delimited packets: <code>L:[x1,y1,z1,x2,y2,z2,...]</code> per hand, broadcast to localhost:5052.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d4.h">Preprocessing</h4><p data-i18n="track.d4.p">CLAHE + sharpening via <code>preprocess_for_mediapipe</code> improves detection in challenging lighting.</p></div>
         </div>
       </div>
     </div>
@@ -317,43 +321,51 @@
         <div class="analysis-title">
           <div class="analysis-icon" id="dev-icon"></div>
           <div>
-            <h1>Developer &#8212; Sensor Glove</h1>
-            <p>Build tooling and a live scope for the wearable glove&#8217;s analog channels.
+            <h1 data-i18n="dev.h1">Developer &#8212; Sensor Glove</h1>
+            <p data-i18n="dev.intro">Build tooling and a live scope for the wearable glove&#8217;s analog channels.
             The board streams raw ADC frames over USB serial; this page checks the toolchain,
-            flashes firmware, and plots what the sensors are actually doing. Spec:
+            flashes firmware, and plots what the sensors and the onboard IMU are actually doing. Spec:
             <code>docs/GLOVE_FIRMWARE_PLAN.md</code>.</p>
           </div>
         </div>
       </div>
 
-      <div class="section-head"><h2>Toolchain</h2><div class="sh-line"></div>
+      <div class="section-head"><h2 data-i18n="dev.sec.toolchain">Toolchain</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="dev-env-note"></span></div>
       <div class="dev-pills" id="dev-env"></div>
       <div class="dev-warn" id="dev-env-warn" style="display:none"></div>
       <div class="dev-actions" id="dev-tasks"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>Connection</h2><div class="sh-line"></div></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.conn">Connection</h2><div class="sh-line"></div></div>
       <div class="dev-conn" id="dev-conn"></div>
       <div class="dev-banner" id="dev-banner"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>Live Signal</h2><div class="sh-line"></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.signal">Live Signal</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="dev-scope-tools"></span></div>
       <div class="dev-legend" id="dev-legend"></div>
-      <div class="dev-scope-wrap"><canvas id="dev-scope" aria-label="Live sensor trace"></canvas>
-        <div class="dev-scope-empty" id="dev-scope-empty">Not connected &#8212; no signal.</div></div>
+      <div class="dev-scope-wrap"><canvas id="dev-scope" aria-label="Live sensor trace" data-i18n-aria="dev.scope.aria"></canvas>
+        <div class="dev-scope-empty" id="dev-scope-empty" data-i18n="dev.scope.empty">Not connected &#8212; no signal.</div></div>
       <div class="dev-chan-grid" id="dev-channels"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>Stream Health</h2><div class="sh-line"></div></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.motion">Motion &#8212; Onboard IMU</h2><div class="sh-line"></div>
+        <span class="cmp-legend" data-i18n="dev.motion.legend">accelerometer + gyroscope, 100 Hz</span></div>
+      <p class="dev-note" data-i18n="dev.motion.note">The camera says <em>where</em> the hand is, at ~30 fps and only while it stays
+        in frame. The IMU sits on the hand and says <em>how it is moving</em>, at 100 Hz, through
+        occlusion and out of frame &#8212; which is what a 4&#8211;12 Hz tremor band needs.
+        Spec: <code>docs/GLOVE_FIRMWARE_PLAN.md</code> &#167;5d.</p>
+      <div class="dev-imu" id="dev-imu"></div>
+
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.health">Stream Health</h2><div class="sh-line"></div></div>
       <div class="dev-health" id="dev-health"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>Board Commands</h2><div class="sh-line"></div></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.cmds">Board Commands</h2><div class="sh-line"></div></div>
       <div class="dev-actions" id="dev-cmds"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2>Serial Console</h2><div class="sh-line"></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.console">Serial Console</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="dev-console-tools"></span></div>
       <pre class="dev-console" id="dev-console" tabindex="0"></pre>
 
-      <p class="analysis-disclaimer">
+      <p class="analysis-disclaimer" data-i18n="dev.disclaimer">
         Only one program may hold a COM port at a time &#8212; close the Arduino Serial Monitor
         and <code>press_test.ps1</code> before connecting here. Uploading firmware
         releases this page&#8217;s connection automatically.
@@ -362,13 +374,15 @@
   </div>
 </div>
 
-<div class="disclaimer-bar">
+<div class="disclaimer-bar" data-i18n="bar.disclaimer">
   Screening tool, <strong>not an official medical diagnosis</strong> &#8212; consult a healthcare professional.
   &#160;&#183;&#160;
 </div>
 
 <div class="toast" id="toast"></div>
 
+<script src="/i18n.zh.js"></script>
+<script src="/i18n.js"></script>
 <script src="/background.js"></script>
 <script src="/app.js"></script>
 <script src="/dev.js"></script>

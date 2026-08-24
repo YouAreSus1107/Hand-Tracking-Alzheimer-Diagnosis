@@ -24,6 +24,8 @@ const I = {
   lock: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   layers: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
   shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>',
+  camera: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  chevron: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
 };
 
 const TOOLS = [
@@ -33,7 +35,10 @@ const TOOLS = [
   { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py", icon:"spiral",
     tags:["40 s test","1 hand","On-screen guide","Air tracing"] },
   { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py", icon:"eye",
-    tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"] },
+    tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"],
+    // This clip is a capture of the test UI, which already dims its own camera
+    // feed; the idle veil on top of that leaves it unreadable. Play it bright.
+    video:"/assets/eye-movement.mp4", dimPreview:false },
   { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py", icon:"broadcast",
     tags:["Live stream","2 hands","UDP :5052","21 landmarks"],
     video:"/assets/hand-tracking.mp4" },
@@ -96,11 +101,14 @@ const WHY_MATRIX = [
 let currentRunning = {};
 let cardsBuilt = false;
 let carousel = null;
+// A language switch rebuilds the cards, so initCarousel runs again; its
+// window-level listeners are torn down with this rather than stacking up.
+let carouselAbort = null;
 let whyBuilt = false;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* ── Inject SVG icons into detail pages + research cards ─────────── */
-(function(){
+function renderStaticBits(){
   // Detail page icons
   const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", tracking:"broadcast"};
   for(const [k,v] of Object.entries(map)){
@@ -109,7 +117,7 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
   }
   // Back buttons
   document.querySelectorAll(".detail-back").forEach(b=>{
-    b.innerHTML = I.arrowLeft + " Back to Dashboard";
+    b.innerHTML = I.arrowLeft + " " + t("Back to Dashboard");
   });
   // Analysis header icon
   const ai = document.getElementById("analysis-icon");
@@ -121,20 +129,21 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
   const rc = document.getElementById("research-cards");
   if(rc) rc.innerHTML = RESEARCH.map(r => `<div class="r-card">
     <div class="r-content">
-      <h4>${I[r.icon]} ${r.title}</h4>
-      <p>${r.text}</p>
-      <div class="r-cite">${r.cite}</div>
+      <h4>${I[r.icon]} ${t(r.title)}</h4>
+      <p>${t(r.text)}</p>
+      <div class="r-cite">${t(r.cite)}</div>
     </div>
     <div class="r-peel">
       <div class="peel-layer peel-l1"></div>
       <div class="peel-layer peel-l2"></div>
       <div class="peel-layer peel-l3"></div>
       <div class="peel-layer peel-cover">
-        <div class="peel-face">${I[r.icon]}<span>${r.title}</span></div>
+        <div class="peel-face">${I[r.icon]}<span>${t(r.title)}</span></div>
       </div>
     </div>
   </div>`).join("");
-})();
+}
+renderStaticBits();
 
 /* ── Page navigation ─────────────────────────────────────────────── */
 function showPage(id){
@@ -145,7 +154,7 @@ function showPage(id){
   });
   document.querySelectorAll(".nav-link").forEach(n =>
     n.classList.toggle("active", n.dataset.page===id));
-  if(TOOLS.find(t=>t.key===id)) renderDetailActions(id);
+  if(TOOLS.find(tool=>tool.key===id)) renderDetailActions(id);
   if(id==="analysis") loadAnalysis();
   if(id==="why") renderWhy();
   // dev.js owns a ~100 ms poll; it must only run while its page is on screen.
@@ -159,24 +168,26 @@ const cardsEl = document.getElementById("cards");
 
 function buildCards(){
   cardsEl.innerHTML = "";
-  TOOLS.forEach((t,i) => {
-    const on = !!currentRunning[t.key];
+  // `tool`, not `t` — `t` is the translator (i18n.js).
+  TOOLS.forEach((tool,i) => {
+    const on = !!currentRunning[tool.key];
     const card = document.createElement("div");
     card.className = "card";
-    card.setAttribute("data-key", t.key);
+    card.setAttribute("data-key", tool.key);
     card.setAttribute("data-index", i);
-    const tagsHtml = t.tags.map(x=>`<span class="card-tag">${x}</span>`).join("");
+    const title = t(tool.title);
+    const tagsHtml = tool.tags.map(x=>`<span class="card-tag">${t(x)}</span>`).join("");
     card.innerHTML = `
       <div class="card-glow"></div>
       <div class="card-body">
-        <div class="card-header"><div class="card-icon">${I[t.icon]}</div><div class="card-tags">${tagsHtml}</div></div>
-        <h3>${t.title}</h3>
-        <div class="live-badge ${on?"on":""}"><span class="live-pulse"></span>Running &#8212; check the camera window</div>
-        <div class="card-video${t.video?" has-video":""}">${t.video?`<video muted loop autoplay playsinline preload="auto" src="${t.video}"></video>`:""}</div>
+        <div class="card-header"><div class="card-icon">${I[tool.icon]}</div><div class="card-tags">${tagsHtml}</div></div>
+        <h3>${title}</h3>
+        <div class="live-badge ${on?"on":""}"><span class="live-pulse"></span>${t("Running — check the camera window")}</div>
+        <div class="card-video${tool.video?" has-video":""}${tool.dimPreview===false?" no-veil":""}">${tool.video?`<video muted loop autoplay playsinline preload="auto" src="${tool.video}"></video>`:""}</div>
         <div class="card-actions">
-          <button class="btn btn-primary" data-go="${t.key}" ${on?"disabled":""} aria-label="Launch ${t.title}">${on?"Running...":I.play+" Launch"}</button>
-          <button class="btn btn-danger" data-stop="${t.key}" ${on?"":"disabled"} aria-label="Stop ${t.title}">${I.stop} Stop</button>
-          <button class="card-more" data-detail="${t.key}" aria-label="View details for ${t.title}">Details ${I.arrowRight}</button>
+          <button class="btn btn-primary" data-go="${tool.key}" ${on?"disabled":""} aria-label="${t("Launch {name}",{name:title})}">${on?t("Running..."):I.play+" "+t("Launch")}</button>
+          <button class="btn btn-danger" data-stop="${tool.key}" ${on?"":"disabled"} aria-label="${t("Stop {name}",{name:title})}">${I.stop} ${t("Stop")}</button>
+          <button class="card-more" data-detail="${tool.key}" aria-label="${t("View details for {name}",{name:title})}">${t("Details")} ${I.arrowRight}</button>
         </div>
       </div>`;
     card.addEventListener("mousemove", e=>{
@@ -217,6 +228,9 @@ function initCarousel(){
   const prevBtn = document.getElementById("carousel-prev");
   const nextBtn = document.getElementById("carousel-next");
   if(!wrap) return;
+  if(carouselAbort) carouselAbort.abort();
+  carouselAbort = new AbortController();
+  const sig = {signal: carouselAbort.signal};
   prevBtn.innerHTML = I.arrowLeft;
   nextBtn.innerHTML = I.arrowRight;
 
@@ -234,7 +248,7 @@ function initCarousel(){
     const d = document.createElement("button");
     d.className = "carousel-dot";
     d.setAttribute("role","tab");
-    d.setAttribute("aria-label", TOOLS[i] ? TOOLS[i].title : "Tool "+(i+1));
+    d.setAttribute("aria-label", TOOLS[i] ? t(TOOLS[i].title) : t("Tool {n}",{n:i+1}));
     d.onclick = () => { poke(); goTo(i); };
     dotsEl.appendChild(d);
     return d;
@@ -313,8 +327,8 @@ function initCarousel(){
       const dx = e.clientX - downX;
       if(Math.abs(dx) > STEP){ go(dx > 0 ? -1 : 1); stepped = true; }  // one card max
     }
-  });
-  window.addEventListener("pointerup", () => { downX = downY = null; });
+  }, sig);
+  window.addEventListener("pointerup", () => { downX = downY = null; }, sig);
   // Click a non-active card's body to bring it forward. Buttons handle their own
   // clicks via the guard in buildCards; a drag (moved) suppresses the recenter.
   stage.addEventListener("click", e => {
@@ -325,7 +339,7 @@ function initCarousel(){
 
   wrap.addEventListener("mouseenter", stopAuto);
   wrap.addEventListener("mouseleave", () => { if(downX === null) startAuto(); });
-  window.addEventListener("resize", layout);
+  window.addEventListener("resize", layout, sig);
 
   layout();
   startAuto();
@@ -339,17 +353,17 @@ function initCarousel(){
 
 function updateCardStates(running){
   currentRunning = running || {};
-  TOOLS.forEach(t => {
-    const card = cardsEl.querySelector(`[data-key="${t.key}"]`);
+  TOOLS.forEach(tool => {
+    const card = cardsEl.querySelector(`[data-key="${tool.key}"]`);
     if(!card) return;
-    const on = !!running[t.key];
+    const on = !!running[tool.key];
     card.querySelector(".live-badge").classList.toggle("on", on);
     const goBtn = card.querySelector("[data-go]");
     goBtn.disabled = on;
-    goBtn.innerHTML = on ? "Running..." : I.play + " Launch";
+    goBtn.innerHTML = on ? t("Running...") : I.play + " " + t("Launch");
     card.querySelector("[data-stop]").disabled = !on;
   });
-  TOOLS.forEach(t => renderDetailActions(t.key));
+  TOOLS.forEach(tool => renderDetailActions(tool.key));
 }
 
 function renderDetailActions(key){
@@ -357,8 +371,127 @@ function renderDetailActions(key){
   if(!el) return;
   const on = !!currentRunning[key];
   el.innerHTML = `
-    <button class="btn btn-primary" onclick="act('launch','${key}')" ${on?"disabled":""} aria-label="Launch test">${on?"Running...":I.play+" Launch Test"}</button>
-    <button class="btn btn-danger" onclick="act('stop','${key}')" ${on?"":"disabled"} aria-label="Stop test">${I.stop} Stop</button>`;
+    <button class="btn btn-primary" onclick="act('launch','${key}')" ${on?"disabled":""} aria-label="${t("Launch test")}">${on?t("Running..."):I.play+" "+t("Launch Test")}</button>
+    <button class="btn btn-danger" onclick="act('stop','${key}')" ${on?"":"disabled"} aria-label="${t("Stop test")}">${I.stop} ${t("Stop")}</button>
+    <span class="cam-slot" data-cam></span>`;
+  renderCamChips();
+}
+
+/* ── Camera-source chip ───────────────────────────────────────────────
+   The tools used to stop at a console prompt asking for a camera; the
+   choice is made here instead and travels to the spawned process as an
+   env var (launcher.py `_camera_env`). Deliberately a small chip that
+   reads as status — "which camera will be used" — and only unfolds the
+   inputs when clicked, since almost nobody changes it. One shared
+   setting rendered into every `[data-cam]` slot: the dashboard section
+   head and each test page's action row. */
+let camState = {mode:"webcam", index:0, url:"", label:"Webcam 0"};
+let camSeq = 0;   // radio groups need a unique name per instance
+
+const esc = s => String(s??"").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function camChipText(){
+  return camState.mode === "stream" ? t("IP stream")
+                                    : t("Webcam {n}", {n: camState.index});
+}
+
+function buildCamChip(root){
+  const stream = camState.mode === "stream";
+  const name = "cam-mode-" + (++camSeq);
+  const tip = t("Camera the tests will use") + (stream && camState.url ? " — " + camState.url : "");
+  // The index/URL inputs sit outside their <label> on purpose: nested inside,
+  // a click on them is ambiguous with the label activating its radio.
+  root.innerHTML = `
+    <button class="cam-chip" type="button" aria-expanded="false" aria-haspopup="dialog"
+            title="${esc(tip)}">
+      ${I.camera}<span class="cam-chip-text">${esc(camChipText())}</span>${I.chevron}
+    </button>
+    <div class="cam-pop" role="dialog" aria-label="${t("Camera source")}" hidden>
+      <div class="cam-pop-title">${t("Camera source")}</div>
+      <div class="cam-row">
+        <label class="cam-opt">
+          <input type="radio" name="${name}" value="webcam" ${stream?"":"checked"}>
+          <span>${t("Webcam")}</span>
+        </label>
+        <input class="cam-idx" type="number" min="0" max="9" step="1"
+               value="${camState.index}" aria-label="${t("Webcam index")}">
+      </div>
+      <div class="cam-row">
+        <label class="cam-opt">
+          <input type="radio" name="${name}" value="stream" ${stream?"checked":""}>
+          <span>${t("IP stream")}</span>
+        </label>
+      </div>
+      <input class="cam-url" type="url" placeholder="http://192.168.1.5:8080/video"
+             value="${esc(camState.url||"")}" aria-label="${t("Stream URL")}">
+      <div class="cam-foot">
+        <span class="cam-note">${t("Applies to the next launch.")}</span>
+        <button class="cam-save btn-mini" type="button">${t("Save")}</button>
+      </div>
+    </div>`;
+  root.querySelector(".cam-chip").addEventListener("click", e => {
+    e.stopPropagation();
+    toggleCam(root, !root.classList.contains("open"));
+  });
+  // Editing a field implies the mode it belongs to — saves the classic
+  // "typed the URL, forgot to tick IP stream" mistake.
+  const pick = v => root.querySelector(`input[value='${v}']`).checked = true;
+  root.querySelector(".cam-idx").addEventListener("input", () => pick("webcam"));
+  root.querySelector(".cam-url").addEventListener("input", () => pick("stream"));
+  root.querySelector(".cam-save").addEventListener("click", () => saveCam(root));
+  root.addEventListener("click", e => e.stopPropagation());
+  root.addEventListener("keydown", e => {
+    if(e.key === "Escape"){ toggleCam(root, false); root.querySelector(".cam-chip").focus(); }
+    if(e.key === "Enter" && e.target.tagName === "INPUT"){ e.preventDefault(); saveCam(root); }
+  });
+}
+
+function renderCamChips(){
+  // Signature covers the setting *and* its rendered text, so a language
+  // switch rebuilds but the 3 s status poll does not churn the DOM.
+  const sig = [camState.mode, camState.index, camState.url||"", camChipText()].join("|");
+  document.querySelectorAll("[data-cam]").forEach(root => {
+    // Never rebuild a chip the user has open — it would wipe what they typed.
+    if(root.classList.contains("open") || root.dataset.camSig === sig) return;
+    buildCamChip(root);
+    root.dataset.camSig = sig;
+  });
+}
+
+function toggleCam(root, open){
+  if(open) closeCamChips();                       // one open at a time
+  root.classList.toggle("open", open);
+  root.querySelector(".cam-pop").hidden = !open;
+  root.querySelector(".cam-chip").setAttribute("aria-expanded", String(open));
+  if(open) root.querySelector(".cam-idx").focus();
+}
+
+function closeCamChips(){
+  document.querySelectorAll("[data-cam].open").forEach(r => toggleCam(r, false));
+}
+document.addEventListener("click", closeCamChips);
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeCamChips(); });
+
+async function saveCam(root){
+  const mode = root.querySelector("input[value='stream']").checked ? "stream" : "webcam";
+  const body = {camera:{
+    mode,
+    index: parseInt(root.querySelector(".cam-idx").value, 10) || 0,
+    url: root.querySelector(".cam-url").value.trim(),
+  }};
+  try{
+    const r = await fetch("/api/camera", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    toast(tMsg(data.message) || t(data.ok?"Done":"Failed"), data.ok?"ok":"fail");
+    if(!data.ok) return;                          // leave it open to be fixed
+    camState = data.camera;
+    closeCamChips();
+    renderCamChips();
+  }catch(e){ toast(t("Request failed"),"fail"); }
 }
 
 /* ── "Why This" page render (build once) ─────────────────────────── */
@@ -368,24 +501,24 @@ function renderWhy(){
   const pillars = document.getElementById("why-pillars");
   if(pillars) pillars.innerHTML = WHY_PILLARS.map(p => `<div class="pillar">
     <div class="pillar-ic">${I[p.icon]}</div>
-    <h4>${p.title}</h4><p>${p.text}</p></div>`).join("");
+    <h4>${t(p.title)}</h4><p>${t(p.text)}</p></div>`).join("");
 
   const legend = document.getElementById("why-legend");
   if(legend) legend.innerHTML = ["yes","partial","planned","no"].map(k => {
     const s = CMP_STATES[k];
-    return `<span class="cmp-key ${s.cls}">${I[s.icon]}${s.word}</span>`;
+    return `<span class="cmp-key ${s.cls}">${I[s.icon]}${t(s.word)}</span>`;
   }).join("");
 
   const matrix = document.getElementById("why-matrix");
   if(matrix){
-    const head = `<tr><th scope="col" class="cmp-cap-h">Capability</th>${
-      CMP_COLS.map((c,i) => `<th scope="col"${i===0?' class="cmp-own"':''}>${c}</th>`).join("")}</tr>`;
-    const rows = WHY_MATRIX.map(r => `<tr><th scope="row">${r.cap}</th>${
+    const head = `<tr><th scope="col" class="cmp-cap-h">${t("Capability")}</th>${
+      CMP_COLS.map((c,i) => `<th scope="col"${i===0?' class="cmp-own"':''}>${t(c)}</th>`).join("")}</tr>`;
+    const rows = WHY_MATRIX.map(r => `<tr><th scope="row">${t(r.cap)}</th>${
       r.cells.map((state,i) => {
-        const s = CMP_STATES[state];
+        const s = CMP_STATES[state], w = t(s.word);
         return `<td${i===0?' class="cmp-own"':''}>
-          <span class="cmp-cell ${s.cls}" aria-label="${s.word}" title="${s.word}">
-            ${I[s.icon]}<span>${s.word}</span></span></td>`;
+          <span class="cmp-cell ${s.cls}" aria-label="${w}" title="${w}">
+            ${I[s.icon]}<span>${w}</span></span></td>`;
       }).join("")}</tr>`).join("");
     matrix.innerHTML = `<table class="cmp"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
   }
@@ -414,12 +547,16 @@ function renderStatus(s){
   if(!statusBuilt){
     let html = "";
     html += pill(true, "Python", s.python);
-    html += pill(s.model_present, "Hand model", s.model_present ? "Ready" : "Missing");
-    html += pill(s.face_model_present, "Face model", s.face_model_present ? "Ready" : "Missing");
-    html += pill(s.opencv, "OpenCV", s.opencv ? "OK" : "Missing");
-    html += pill(s.mediapipe, "MediaPipe", s.mediapipe ? "OK" : "Missing");
+    html += pill(s.model_present, t("Hand model"), t(s.model_present ? "Ready" : "Missing"));
+    html += pill(s.face_model_present, t("Face model"), t(s.face_model_present ? "Ready" : "Missing"));
+    html += pill(s.opencv, "OpenCV", t(s.opencv ? "OK" : "Missing"));
+    html += pill(s.mediapipe, "MediaPipe", t(s.mediapipe ? "OK" : "Missing"));
     statusEl.innerHTML = html;
     statusBuilt = true;
+  }
+  if(s.camera){
+    camState = s.camera;
+    renderCamChips();
   }
   if(!cardsBuilt){
     currentRunning = s.running || {};
@@ -459,10 +596,11 @@ async function act(kind, key){
       body: JSON.stringify({test:key})
     });
     const data = await r.json();
-    toast(data.message || (data.ok?"Done":"Failed"), data.ok?"ok":"fail");
+    // Server text is English; tMsg maps the known strings (i18n.zh.js).
+    toast(tMsg(data.message) || t(data.ok?"Done":"Failed"), data.ok?"ok":"fail");
     if(data.running) updateCardStates(data.running);
     setTimeout(refresh, 400);
-  }catch(e){ toast("Request failed","fail"); }
+  }catch(e){ toast(t("Request failed"),"fail"); }
 }
 
 /* ── Animated counter ────────────────────────────────────────────── */
@@ -569,10 +707,10 @@ function fmtNum(v){
   return v.toFixed(2);
 }
 function fmtDate(iso){
-  return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  return new Date(iso).toLocaleDateString(i18nLocale(),{month:"short",day:"numeric"});
 }
 function fmtDateTime(iso){
-  return new Date(iso).toLocaleString(undefined,
+  return new Date(iso).toLocaleString(i18nLocale(),
     {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 }
 function bandFor(v, bands){
@@ -584,7 +722,7 @@ function bandFor(v, bands){
 async function loadAnalysis(){
   const body = document.getElementById("analysis-body");
   if(!body) return;
-  if(!analysisSessions) body.innerHTML = `<div class="analysis-empty">Loading sessions…</div>`;
+  if(!analysisSessions) body.innerHTML = `<div class="analysis-empty">${t("Loading sessions…")}</div>`;
   try{
     const r = await fetch("/api/sessions");
     analysisSessions = (await r.json()).sessions || [];
@@ -605,17 +743,16 @@ function renderAnalysis(){
   if(!sessions.length){
     body.innerHTML = `<div class="analysis-empty">
       <div class="analysis-empty-icon">${I.chart}</div>
-      <h3>No sessions logged yet</h3>
-      <p>Run a screening test from the dashboard. Each session is saved locally, and
-      its metrics will chart here so you can watch the trend over time.</p>
-      <button class="btn btn-primary" onclick="showPage('home')">${I.play} Go to tests</button>
+      <h3>${t("No sessions logged yet")}</h3>
+      <p>${t("Run a screening test from the dashboard. Each session is saved locally, and its metrics will chart here so you can watch the trend over time.")}</p>
+      <button class="btn btn-primary" onclick="showPage('home')">${I.play} ${t("Go to tests")}</button>
     </div>`;
     return;
   }
   const show = TREND_ORDER.filter(k =>
     (analysisFilter==="all" || analysisFilter===k) && byTest[k].length);
   if(!show.length){
-    body.innerHTML = `<div class="analysis-empty"><p>No sessions for this test yet.</p></div>`;
+    body.innerHTML = `<div class="analysis-empty"><p>${t("No sessions for this test yet.")}</p></div>`;
     return;
   }
   body.innerHTML = show.map(k => trendCard(k, byTest[k])).join("");
@@ -630,9 +767,9 @@ function renderAnalysisSummary(sessions, byTest){
     span = a===b ? a : `${a} – ${b}`;
   }
   const tiles = [
-    ["Total sessions", sessions.length],
-    ["Tests tracked", `${withData} / ${TREND_ORDER.length}`],
-    ["Date range", span],
+    [t("Total sessions"), sessions.length],
+    [t("Tests tracked"), `${withData} / ${TREND_ORDER.length}`],
+    [t("Date range"), span],
   ];
   el.innerHTML = tiles.map(([l,v]) =>
     `<div class="sum-tile"><div class="sum-val">${v}</div><div class="sum-label">${l}</div></div>`
@@ -641,8 +778,8 @@ function renderAnalysisSummary(sessions, byTest){
 
 function renderAnalysisFilter(byTest){
   const el = document.getElementById("analysis-filter");
-  const opts = [["all","All tests"]].concat(
-    TREND_ORDER.filter(k=>byTest[k].length).map(k=>[k, TREND[k].label]));
+  const opts = [["all",t("All tests")]].concat(
+    TREND_ORDER.filter(k=>byTest[k].length).map(k=>[k, t(TREND[k].label)]));
   el.innerHTML = opts.map(([k,label]) =>
     `<button class="seg-btn ${analysisFilter===k?"active":""}" role="tab"
        aria-selected="${analysisFilter===k}" data-filter="${k}">${label}</button>`).join("");
@@ -661,10 +798,10 @@ function trendCard(key, allSessions){
     const m = cfg.modes.find(x => x.key===active) || cfg.modes[0];
     sessions = allSessions.filter(s => s.mode === active);
     supporting = m.supporting || cfg.supporting;
-    modeBar = `<div class="trend-modes" role="tablist" aria-label="Test type">${cfg.modes.map(md =>
+    modeBar = `<div class="trend-modes" role="tablist" aria-label="${t("Test type")}">${cfg.modes.map(md =>
       `<button class="seg-btn seg-sm ${md.key===active?"active":""}" role="tab"
         aria-selected="${md.key===active}"
-        onclick="setTrendMode('${key}','${md.key}')">${md.label}</button>`).join("")}</div>`;
+        onclick="setTrendMode('${key}','${md.key}')">${t(md.label)}</button>`).join("")}</div>`;
   }
 
   // Scoreable points only, chronological.
@@ -675,16 +812,17 @@ function trendCard(key, allSessions){
 
   const head = `<div class="trend-head">
       <div class="trend-title"><span class="trend-ic">${I[cfg.icon]}</span>
-        <div><h3>${cfg.label}</h3>
-          <div class="trend-metric">${h.name}${h.unit?` (${h.unit})`:""}</div></div>
+        <div><h3>${t(cfg.label)}</h3>
+          <div class="trend-metric">${t(h.name)}${h.unit?` (${h.unit})`:""}</div></div>
       </div>
-      <button class="trend-open" onclick="showPage('${cfg.page}')">Details ${I.arrowRight}</button>
+      <button class="trend-open" onclick="showPage('${cfg.page}')">${t("Details")} ${I.arrowRight}</button>
     </div>`;
 
   if(!pts.length){
     return `<div class="trend-card">${head}${modeBar}
-      <div class="analysis-note">${sessions.length} session(s) logged${cfg.modes?" for this type":""},
-      but none were scoreable for this metric yet.</div></div>`;
+      <div class="analysis-note">${cfg.modes
+        ? t("{n} session(s) logged for this type, but none were scoreable for this metric yet.",{n:sessions.length})
+        : t("{n} session(s) logged, but none were scoreable for this metric yet.",{n:sessions.length})}</div></div>`;
   }
 
   const latest = pts[pts.length-1], prev = pts.length>1 ? pts[pts.length-2] : null;
@@ -692,18 +830,18 @@ function trendCard(key, allSessions){
   const readout = `<div class="trend-readout">
       <div class="trend-now"><span class="trend-now-val">${fmtNum(latest.v)}</span>
         <span class="trend-now-unit">${h.unit}</span></div>
-      <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${st.word}</span>
+      <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${t(st.word)}</span>
       ${prev ? deltaChip(latest.v, prev.v, h.lowerBetter) : ""}
     </div>`;
 
   const dateSpan = pts.length>1
-    ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${pts.length} sessions`
-    : `1 session · a trend line appears after your next`;
+    ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${t("{n} sessions",{n:pts.length})}`
+    : t("1 session · a trend line appears after your next");
 
   const legend = h.bands ? `<div class="trend-legend">
-      <span><i style="background:${ST.ok.dot}"></i>Typical</span>
-      <span><i style="background:${ST.warn.dot}"></i>Monitor</span>
-      <span><i style="background:${ST.bad.dot}"></i>Follow-up</span>
+      <span><i style="background:${ST.ok.dot}"></i>${t(ST.ok.word)}</span>
+      <span><i style="background:${ST.warn.dot}"></i>${t(ST.warn.word)}</span>
+      <span><i style="background:${ST.bad.dot}"></i>${t(ST.bad.word)}</span>
     </div>` : "";
 
   const support = `<div class="trend-support">${supporting.map(m =>
@@ -732,11 +870,11 @@ function setTrendMode(key, mode){ analysisModes[key] = mode; renderAnalysis(); }
 
 function deltaChip(cur, prev, lowerBetter){
   const d = cur - prev;
-  if(Math.abs(d) < 1e-9) return `<span class="delta delta-flat">no change</span>`;
+  if(Math.abs(d) < 1e-9) return `<span class="delta delta-flat">${t("no change")}</span>`;
   const improved = lowerBetter ? d < 0 : d > 0;
   const arrow = d > 0 ? I.up : I.down;
   const cls = improved ? "delta-good" : "delta-bad";
-  return `<span class="delta ${cls}">${arrow}${fmtNum(Math.abs(d))} vs last</span>`;
+  return `<span class="delta ${cls}">${arrow}${fmtNum(Math.abs(d))} ${t("vs last")}</span>`;
 }
 
 /* ── SVG line chart with status bands ─────────────────────────────── */
@@ -753,7 +891,7 @@ function trendSvg(pts, h){
   const clampY = v => Math.max(padT, Math.min(padT+ih, y(v)));
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
-    aria-label="${h.name} across ${pts.length} sessions">`;
+    aria-label="${t("{metric} across {n} sessions",{metric:t(h.name),n:pts.length})}">`;
 
   // Status bands (value ranges → clamped rects).
   if(h.bands){
@@ -790,7 +928,7 @@ function trendSvg(pts, h){
     const last = i===pts.length-1, r = last?6:4.5;
     if(last) svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r+4}" fill="${ST[pt.status].dot}" opacity=".22"/>`;
     svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r}" fill="${ST[pt.status].dot}" stroke="#0E1520" stroke-width="${last?2.5:2}">`
-      + `<title>${fmtDateTime(pt.iso)} — ${fmtNum(pt.v)}${h.unit} (${ST[pt.status].word})</title></circle>`;
+      + `<title>${fmtDateTime(pt.iso)} — ${fmtNum(pt.v)}${h.unit} (${t(ST[pt.status].word)})</title></circle>`;
   });
 
   // Direct label on the latest value.
@@ -813,10 +951,10 @@ function supportTile(sessions, m){
     .map(s => s.metrics ? s.metrics[m.key] : null)
     .filter(v => v!=null && isFinite(v));
   if(!series.length)
-    return `<div class="sup-tile"><div class="sup-name">${m.name}</div><div class="sup-val">—</div></div>`;
+    return `<div class="sup-tile"><div class="sup-name">${t(m.name)}</div><div class="sup-val">—</div></div>`;
   const cur = series[series.length-1];
   return `<div class="sup-tile">
-    <div class="sup-name">${m.name}</div>
+    <div class="sup-name">${t(m.name)}</div>
     <div class="sup-row"><span class="sup-val">${fmtNum(cur)}<span class="sup-unit">${m.unit}</span></span>
     ${miniSpark(series)}</div></div>`;
 }
@@ -832,6 +970,18 @@ function miniSpark(vals){
     <path d="${d}" fill="none" stroke="${LINE_C}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="${x(vals.length-1)}" cy="${y(vals[vals.length-1])}" r="2.2" fill="${LINE_C}"/></svg>`;
 }
+
+/* ── Language switch ──────────────────────────────────────────────────
+   Almost everything on these pages is built from JS, so a switch has to ask
+   each builder to run again. The "built once" flags are cleared first. */
+onLang(() => {
+  renderStaticBits();
+  cardsBuilt = false; whyBuilt = false; statusBuilt = false;
+  buildCards();
+  renderWhy();
+  refresh();
+  if(analysisSessions) renderAnalysis();
+});
 
 /* ── Init ─────────────────────────────────────────────────────────── */
 refresh();

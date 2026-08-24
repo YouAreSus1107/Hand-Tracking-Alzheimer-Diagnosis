@@ -22,11 +22,13 @@ from core.glove.flex import (MIN_SPAN_RATIO, NOMINAL_BENT_OHM,
                              NOMINAL_FLAT_OHM, FlexSpan, bend_fraction,
                              bend_percent, bend_range, default_span,
                              flex_model, is_calibrated, span_from_ohms)
-from core.glove.protocol import (KIND_FLEX, KIND_FSR, KIND_UNKNOWN,
-                                 PROTO_SUPPORTED, ChannelMeta,
-                                 FrameAccumulator, adc_to_mv, kind_from_name,
-                                 parse_banner, parse_frame, sensor_ohms,
-                                 seq_gap, us_delta)
+from core.glove.imu import (MIN_WINDOW_S, TREMOR_BAND, band_power,
+                            held_fraction, magnitude, rms, tilt, to_units)
+from core.glove.protocol import (IMU_COLS, KIND_ACCEL, KIND_FLEX, KIND_FSR,
+                                 KIND_GYRO, KIND_UNKNOWN, PROTO_SUPPORTED,
+                                 ChannelMeta, FrameAccumulator, adc_to_mv,
+                                 kind_from_name, parse_banner, parse_frame,
+                                 sensor_ohms, seq_gap, us_delta)
 
 # Captured verbatim from the Nano 33 BLE on COM10, 2026-07-26.
 REAL_BANNER = ("#GLOVE fw=0.1.0 proto=1 board=nano33ble rate=100 adc_bits=10 "
@@ -38,6 +40,20 @@ TWO_CHANNEL_BANNER = (
     "#GLOVE fw=0.3.0 proto=1 board=nano33ble rate=100 adc_bits=12 "
     "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=none emg=0 "
     "cols=seq,t_us,p0,f0 chan=p0:fsr:10000,f0:flex:47000")
+
+
+# Firmware 0.5.0: two FSRs plus the onboard IMU's six motion columns (gate 5).
+IMU_BANNER = (
+    "#GLOVE fw=0.5.0 proto=1 board=nano33ble rate=100 adc_bits=12 "
+    "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=BMI270_BMM150 "
+    "imu_scale=1000 emg=0 cols=seq,t_us,p0,p1,ax,ay,az,gx,gy,gz "
+    "chan=p0:fsr:10000,p1:fsr:10000,ax:accel,ay:accel,az:accel,"
+    "gx:gyro,gy:gyro,gz:gyro")
+
+
+def _sine(hz, amp, n, fs, offset=0.0):
+    import math
+    return [offset + amp * math.sin(2 * math.pi * hz * i / fs) for i in range(n)]
 
 
 def test_banner_parses_all_fields():
@@ -308,6 +324,26 @@ def test_banner_parses_per_channel_kind_and_resistor():
     assert b.adc_max == 4095
 
 
+def test_banner_parses_two_force_channels():
+    # fw 0.4.0 bench layout: force sensors on the EVEN analog pins, p<n> on
+    # A(2n). The host must carry both channels with the right kind and
+    # resistor, since the whole point of the layout is that adding a sensor is
+    # a firmware table edit with no host change.
+    b = parse_banner(
+        "#GLOVE fw=0.4.0 proto=1 board=nano33ble rate=100 adc_bits=12 "
+        "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=none emg=0 "
+        "cols=seq,t_us,p0,p1 chan=p0:fsr:10000,p1:fsr:10000")
+    assert b is not None and b.supported
+    assert b.channels == ("p0", "p1")
+    metas = b.channel_meta
+    assert len(metas) == 2
+    assert all(m.kind == KIND_FSR and m.r_fixed == 10000 for m in metas)
+    # A frame must carry exactly one value per declared channel, or the host
+    # would map readings onto the wrong sensor.
+    assert parse_frame("G,7,1703,120,2048", n_values=len(b.channels)) is not None
+    assert parse_frame("G,7,1703,120", n_values=len(b.channels)) is None
+
+
 def test_banner_without_chan_field_falls_back_to_naming_convention():
     # Firmware 0.2.0 and earlier emit no chan= at all. Every channel must still
     # come back with a kind and a resistor, or the dev page shifts its readouts.
@@ -365,7 +401,10 @@ def test_kind_from_name_follows_the_plan_convention():
     assert kind_from_name("f4") == KIND_FLEX
     assert kind_from_name("p0") == KIND_FSR
     assert kind_from_name("p5") == KIND_FSR
-    for name in ("", "emg", "ax", "gz", "x1"):
+    # ax/gz became IMU columns in fw 0.5.0 and are covered by
+    # test_kind_from_name_separates_imu_columns_from_sensors; everything else
+    # with no declared kind must still fall through to unknown.
+    for name in ("", "emg", "x1", "a", "g"):
         assert kind_from_name(name) == KIND_UNKNOWN, name
 
 
@@ -478,6 +517,163 @@ def test_flex_channel_carries_the_signal_that_stops_the_force_curve():
     ohm = sensor_ohms(2048, 3300, 3300, flex.r_fixed, 12)
     assert force_newtons(ohm) is not None
     assert isinstance(flex, ChannelMeta)
+
+
+# -- onboard IMU (gate 5) ---------------------------------------------------
+
+def test_imu_banner_declares_columns_scale_and_kinds():
+    b = parse_banner(IMU_BANNER)
+    assert b is not None and b.supported
+    assert b.imu == "BMI270_BMM150" and b.imu_present
+    assert b.imu_scale == 1000
+    assert b.channels == ("p0", "p1") + IMU_COLS
+    metas = {m.name: m for m in b.channel_meta}
+    assert metas["ax"].kind == KIND_ACCEL and metas["gz"].kind == KIND_GYRO
+    assert metas["p0"].kind == KIND_FSR
+    # One entry per column, in order, or the page indexes off the end.
+    assert len(b.channel_meta) == len(b.channels)
+
+
+def test_imu_channels_are_never_divider_sensors():
+    # The guard this branch exists for, the motion counterpart of the
+    # flex/force split: an accelerometer has no low-side resistor, and any
+    # resistance computed for one is a number with no meaning.
+    b = parse_banner(IMU_BANNER)
+    for name in IMU_COLS:
+        meta = next(m for m in b.channel_meta if m.name == name)
+        assert meta.is_imu
+    assert not next(m for m in b.channel_meta if m.name == "p0").is_imu
+
+
+def test_imu_absent_is_reported_as_absent():
+    # Firmware whose IMU.begin() failed writes imu=none AND omits the columns,
+    # so six flat zeroes can never masquerade as a still hand.
+    b = parse_banner(TWO_CHANNEL_BANNER)
+    assert not b.imu_present
+    assert b.imu_index() == {}
+
+
+def test_imu_index_refuses_a_partial_column_set():
+    partial = IMU_BANNER.replace(",gy,gz", "")
+    b = parse_banner(partial)
+    # Better to report nothing than to guess an offset and read a flex strip
+    # as an accelerometer.
+    assert b.imu_index() == {}
+
+
+def test_imu_index_is_by_name_not_by_position():
+    b = parse_banner(IMU_BANNER)
+    idx = b.imu_index()
+    assert idx["ax"] == 2 and idx["gz"] == 7
+
+
+def test_kind_from_name_separates_imu_columns_from_sensors():
+    assert kind_from_name("ax") == KIND_ACCEL
+    assert kind_from_name("gy") == KIND_GYRO
+    # The single-letter fallback must not start claiming kinds for names the
+    # firmware never emits.
+    assert kind_from_name("f0") == KIND_FLEX
+    assert kind_from_name("p3") == KIND_FSR
+    assert kind_from_name("a") == KIND_UNKNOWN
+    assert kind_from_name("gyro") == KIND_UNKNOWN
+
+
+def test_frame_accepts_signed_imu_values():
+    b = parse_banner(IMU_BANNER)
+    line = "G,42,1000000,2048,900,-16,-30,1012,-1500,20,-7"
+    f = parse_frame(line, len(b.channels))
+    assert f is not None
+    assert f.values[2] == -16 and f.values[5] == -1500
+    assert to_units(f.values[4], b.imu_scale) == 1.012
+
+
+def test_to_units_uses_the_banner_scale():
+    assert to_units(1000, 1000) == 1.0
+    assert to_units(-2500, 1000) == -2.5
+    assert to_units(1000, 0) is None
+
+
+def test_tilt_reads_gravity_and_flips_sign():
+    # Gate 5 in one assertion: flat on a desk reads about 1 g on one axis, and
+    # flipping the board flips it.
+    flat = tilt(0.0, 0.0, 1.0)
+    assert flat["static"] and abs(flat["magnitude_g"] - 1.0) < 1e-9
+    assert abs(flat["pitch_deg"]) < 1e-6 and abs(flat["roll_deg"]) < 1e-6
+    flipped = tilt(0.0, 0.0, -1.0)
+    assert abs(abs(flipped["roll_deg"]) - 180.0) < 1e-6
+    on_edge = tilt(1.0, 0.0, 0.0)
+    assert abs(on_edge["pitch_deg"] + 90.0) < 1e-6
+
+
+def test_tilt_refuses_to_claim_an_angle_while_moving():
+    # 2 g means the hand is accelerating, so the vector is not gravity alone
+    # and an angle read off it would be a guess.
+    assert tilt(0.0, 0.0, 2.0)["static"] is False
+    assert tilt(0.0, 0.0, 1.0)["static"] is True
+
+
+def test_magnitude_and_rms():
+    assert magnitude(3.0, 4.0, 0.0) == 5.0
+    assert magnitude(1.0, None, 0.0) is None
+    assert rms([1.0, 1.0, 1.0]) == 0.0     # gravity alone is not movement
+    assert rms([1.0]) is None
+
+
+def test_band_power_finds_a_planted_tremor():
+    fs, n = 100.0, 300
+    sig = _sine(6.0, 0.05, n, fs, offset=1.0)   # 6 Hz wobble riding on gravity
+    out = band_power(sig, fs)
+    assert out is not None
+    assert abs(out["peak_hz"] - 6.0) < 0.5
+    assert out["band_frac"] > 0.9
+    assert out["band"] == list(TREMOR_BAND)
+
+
+def test_band_power_ignores_slow_voluntary_motion():
+    # A 1 Hz sweep is someone moving their hand, not tremor. Four times the
+    # amplitude of the test above, and it must still not land in the band.
+    out = band_power(_sine(1.0, 0.2, 300, 100.0, offset=1.0), 100.0)
+    assert out is not None and out["band_frac"] < 0.05
+
+
+def test_band_power_refuses_windows_that_cannot_support_a_claim():
+    fs = 100.0
+    short = _sine(6.0, 0.05, int(MIN_WINDOW_S * fs) - 10, fs)
+    assert band_power(short, fs) is None
+    # A rate that cannot resolve the band must return None, never a number:
+    # the camera path makes the same refusal in core/spiral/metrics.py.
+    assert band_power(_sine(2.0, 0.05, 300, 6.0), 6.0) is None
+    assert band_power([1.0] * 300, 100.0) is None    # perfectly flat
+
+
+def test_band_power_clamps_the_upper_edge_to_nyquist():
+    # 20 Hz sampling can only resolve to 10 Hz, below the band's 12 Hz top.
+    out = band_power(_sine(5.0, 0.05, 200, 20.0), 20.0)
+    assert out is not None and out["band"][1] <= 10.0
+
+
+def test_held_fraction_counts_repeated_imu_samples():
+    fresh = [(1, 2, 3), (1, 2, 4), (1, 2, 5), (1, 2, 6)]
+    assert held_fraction(fresh) == 0.0
+    held = [(1, 2, 3), (1, 2, 3), (1, 2, 4), (1, 2, 4)]
+    assert abs(held_fraction(held) - 2 / 3) < 1e-9
+    assert held_fraction([(1, 2, 3)]) is None
+
+
+def test_derived_routes_motion_away_from_the_divider_maths():
+    # End to end through the reader: an accelerometer column must come back as
+    # g, with no resistance, no force and no bend anywhere in the payload.
+    import tempfile
+    from core.glove.serial_io import GloveReader
+    reader = GloveReader(tempfile.gettempdir())
+    reader._acc.feed(IMU_BANNER)
+    out = reader.derived(-2000, "ax")
+    assert out["kind"] == KIND_ACCEL
+    assert out["value"] == -2.0 and out["unit"] == "g"
+    assert out["ohm"] is None and out["newtons"] is None and out["bend_pct"] is None
+    # And a force channel on the same board still gets its curve.
+    fsr = reader.derived(2048, "p0")
+    assert fsr["kind"] == KIND_FSR and fsr["ohm"] is not None
 
 
 if __name__ == "__main__":

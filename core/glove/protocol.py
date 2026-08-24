@@ -35,7 +35,25 @@ _MAX_SANE_GAP = 1_000_000
 #: apply the wrong curve and print a confident, wrong number.
 KIND_FSR = "fsr"
 KIND_FLEX = "flex"
+#: Onboard IMU channels. Deliberately *not* divider sensors: they carry no
+#: ``r_fixed``, and running them through :func:`sensor_ohms` would produce a
+#: confident resistance for an acceleration. Values arrive as integer
+#: milli-units (see :attr:`GloveBanner.imu_scale`).
+KIND_ACCEL = "accel"
+KIND_GYRO = "gyro"
 KIND_UNKNOWN = "unknown"
+
+#: Kinds the host knows are motion, not resistance.
+IMU_KINDS = (KIND_ACCEL, KIND_GYRO)
+
+#: Kinds a banner may declare. Anything else is carried through as unknown.
+KNOWN_KINDS = (KIND_FSR, KIND_FLEX, KIND_ACCEL, KIND_GYRO)
+
+#: IMU column names in frame order, matching the firmware's ``IMU_COLS``.
+IMU_COLS = ("ax", "ay", "az", "gx", "gy", "gz")
+
+#: Milli-units per physical unit when the banner omits ``imu_scale``.
+IMU_SCALE_DEFAULT = 1000
 
 
 def kind_from_name(name: str) -> str:
@@ -43,11 +61,19 @@ def kind_from_name(name: str) -> str:
 
     The fallback for firmware older than the banner's ``chan=`` field. The
     naming convention predates that field and is stable: ``f0..f4`` are flex,
-    ``p0..p5`` are pressure (GLOVE_FIRMWARE_PLAN.md §4.1).
+    ``p0..p5`` are pressure (GLOVE_FIRMWARE_PLAN.md §4.1), and the six IMU
+    columns are named exactly ``ax..gz``.
+
+    The IMU names are matched in full, before the single-letter rule: ``f0`` is
+    a flex strip but ``fx`` is nothing, and a prefix rule on ``g``/``a`` would
+    start claiming kinds for column names that do not exist yet.
     """
     if not name:
         return KIND_UNKNOWN
-    head = name[0].lower()
+    lowered = name.lower()
+    if lowered in IMU_COLS:
+        return KIND_ACCEL if lowered.startswith("a") else KIND_GYRO
+    head = lowered[0]
     if head == "f":
         return KIND_FLEX
     if head == "p":
@@ -68,6 +94,11 @@ class ChannelMeta:
     name: str
     kind: str = KIND_UNKNOWN
     r_fixed: int = 10000
+
+    @property
+    def is_imu(self) -> bool:
+        """True for motion channels, where ``r_fixed`` is meaningless."""
+        return self.kind in IMU_KINDS
 
 
 @dataclass(frozen=True)
@@ -94,6 +125,7 @@ class GloveBanner:
     vdiv_mv: int = 3300
     r_fixed: int = 10000
     imu: str = "none"
+    imu_scale: int = IMU_SCALE_DEFAULT
     emg: int = 0
     cols: tuple[str, ...] = ()
     chan: tuple[ChannelMeta, ...] = ()
@@ -127,6 +159,26 @@ class GloveBanner:
         if 0 <= index < len(metas):
             return metas[index]
         return None
+
+    @property
+    def imu_present(self) -> bool:
+        """Did the board's IMU actually initialise?
+
+        The firmware writes ``imu=none`` when ``IMU.begin()`` fails *and* omits
+        the six columns, so this and the column list can never disagree.
+        """
+        return bool(self.imu) and self.imu.lower() != "none"
+
+    def imu_index(self) -> dict[str, int]:
+        """Column index of each IMU channel, by name — ``{}`` when none.
+
+        Looked up by name rather than assumed to be the last six columns: the
+        analog table is expected to grow to eleven channels, and an offset
+        guess would silently read a flex strip as an accelerometer.
+        """
+        names = self.channels
+        found = {n: i for i, n in enumerate(names) if n.lower() in IMU_COLS}
+        return found if len(found) == len(IMU_COLS) else {}
 
     @property
     def supported(self) -> bool:
@@ -172,7 +224,7 @@ def _parse_chan(text: str, default_r: int) -> tuple[ChannelMeta, ...]:
         if not name:
             continue
         kind = parts[1].strip().lower() if len(parts) > 1 and parts[1].strip() else kind_from_name(name)
-        if kind not in (KIND_FSR, KIND_FLEX):
+        if kind not in KNOWN_KINDS:
             kind = KIND_UNKNOWN
         r_fixed = _to_int(parts[2], default_r) if len(parts) > 2 else default_r
         # A non-positive resistor would divide by zero downstream and is never
@@ -210,6 +262,7 @@ def parse_banner(line: str) -> GloveBanner | None:
         vdiv_mv=_to_int(kv.get("vdiv_mv", "3300"), 3300),
         r_fixed=default_r,
         imu=kv.get("imu", "none"),
+        imu_scale=_to_int(kv.get("imu_scale", ""), IMU_SCALE_DEFAULT) or IMU_SCALE_DEFAULT,
         emg=_to_int(kv.get("emg", "0")),
         cols=cols,
         chan=_parse_chan(kv.get("chan", ""), default_r),
@@ -243,6 +296,9 @@ def parse_frame(line: str, n_values: int | None = None) -> GloveFrame | None:
     except ValueError:
         return None
 
+    # Channel values are deliberately NOT range-checked: ADC counts are
+    # non-negative but IMU milli-units are signed, and a check here would have
+    # to know the column layout. Only the housekeeping fields are validated.
     if seq < 0 or t_us < 0:
         return None
     return GloveFrame(seq=seq, t_us=t_us, values=values)

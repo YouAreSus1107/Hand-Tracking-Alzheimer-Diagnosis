@@ -35,17 +35,29 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import path
 
+# Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
+# ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core.splash import Splash, IMPORT_STEPS
+_splash = Splash("Hand Detection 3D - Data Inspector",
+                 "Live landmark inspector + UDP broadcast",
+                 IMPORT_STEPS, enabled=__name__ == "__main__")
+
 import cv2
-from core import quiet          # keep above mediapipe: silences its startup log
+_splash.step()               # OpenCV in
+from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
+_splash.step()               # MediaPipe in
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
-from core.camera import open_capture
+from core.camera import (open_capture, preset_camera_source,
+                         describe_source)
 from core.tapping.detector import TapDetector, thumb_index_distance
 from core.ui import theme
 from core.ui.anim import ease_out_cubic, lerp
 from core.ui.components import Canvas, draw_hand_skeleton
+
+_splash.done()   # imports are in; the camera prompt follows immediately
 
 MODEL_PATH = str(_REPO_ROOT / "model" / "hand_landmarker.task")
 
@@ -283,6 +295,11 @@ class Inspector:
 
 
 def _select_source():
+    preset = preset_camera_source()      # chosen in the launcher UI
+    if preset is not None:
+        print(f"  Camera source: {describe_source(preset)}"
+              f"  (set in the launcher)\n")
+        return preset
     print("\n--- Camera Selection ---")
     print("1. Default Laptop/USB Camera")
     print("2. Phone Camera (via IP Webcam app or similar)")
@@ -303,8 +320,6 @@ def main():
               "Please check your connection.")
         sys.exit(1)
 
-    print("=" * 52)
-    print("  Hand Detection 3D - Data Inspector")
     print("=" * 52)
     print(f"  Broadcasting UDP landmarks to {UDP_IP}:{UDP_PORT}")
     print("  Keys:  q quit   c reset counters   r toggle raw readout")

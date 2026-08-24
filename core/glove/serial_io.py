@@ -21,9 +21,11 @@ from datetime import datetime
 from .flex import bend_percent, bend_range, default_span, flex_model
 from .force import (conductance_us, force_model, force_newtons, force_range,
                     grams_force)
-from .protocol import (KIND_FLEX, KIND_FSR, PROTO_SUPPORTED, ChannelMeta,
-                       FrameAccumulator, GloveFrame, adc_to_mv, kind_from_name,
-                       sensor_ohms)
+from .imu import (MIN_WINDOW_S, TREMOR_BAND, band_power, held_fraction,
+                  magnitude, rms, tilt, to_units)
+from .protocol import (KIND_ACCEL, KIND_FLEX, KIND_FSR, KIND_GYRO,
+                       PROTO_SUPPORTED, ChannelMeta, FrameAccumulator,
+                       GloveFrame, adc_to_mv, kind_from_name, sensor_ohms)
 
 serial = None       # type: ignore[assignment]
 _list_ports = None  # type: ignore[assignment]
@@ -299,6 +301,10 @@ class GloveReader:
                 # Same contract for bend: the span lives on the server so the
                 # page never carries its own copy of a calibration.
                 "flex_model": flex_model(default_span()),
+                # And for motion: the tremor band is defined in core/glove/imu.py
+                # (matching core/spiral/metrics.py), never in the frontend.
+                "imu_model": {"tremor_band": list(TREMOR_BAND),
+                              "min_window_s": MIN_WINDOW_S},
                 "banner": {
                     "fw": banner.fw,
                     "proto": banner.proto,
@@ -309,6 +315,8 @@ class GloveReader:
                     "vdiv_mv": banner.vdiv_mv,
                     "r_fixed": banner.r_fixed,
                     "imu": banner.imu,
+                    "imu_scale": banner.imu_scale,
+                    "imu_present": banner.imu_present,
                     "emg": banner.emg,
                     "cols": list(banner.cols),
                     "channels": list(banner.channels),
@@ -348,6 +356,19 @@ class GloveReader:
         bits = b.adc_bits if b else 10
         meta = self._meta_for(b, channel)
 
+        # Motion channels never touch the divider maths: there is no resistor
+        # in the path, and sensor_ohms() would happily return a plausible
+        # resistance for an acceleration.
+        if meta.is_imu:
+            scale = b.imu_scale if b else 1000
+            value = to_units(adc, scale)
+            return {"channel": meta.name, "kind": meta.kind, "r_fixed": None,
+                    "mv": None, "ohm": None, "us": None, "newtons": None,
+                    "gramsf": None, "bend_pct": None,
+                    "value": value,
+                    "unit": "g" if meta.kind == KIND_ACCEL else "deg/s",
+                    "range": "imu"}
+
         ohm = sensor_ohms(adc, ref, vdiv, meta.r_fixed, bits)
         out = {
             "channel": meta.name,
@@ -371,6 +392,96 @@ class GloveReader:
             out["gramsf"] = grams_force(newtons)
             out["range"] = force_range(newtons)
         return out
+
+    def imu_summary(self, window_s: float = 3.0) -> dict:
+        """Derived motion readout for the Developer page's Motion card.
+
+        Everything the IMU is fitted for, in one poll: orientation from
+        gravity, how hard the hand is moving, and the tremor content of the
+        acceleration magnitude.
+
+        **Magnitude, not a single axis.** ||a|| is independent of how the board
+        happens to be mounted on the glove, so the tremor figure does not
+        change meaning when the glove is re-donned — which is exactly the
+        failure mode listed for the flex strips in GLOVE_FIRMWARE_PLAN.md §8.
+
+        Every field that cannot be computed comes back as ``None`` with a
+        ``note`` saying why, rather than as a zero that reads like a
+        measurement of stillness.
+        """
+        with self._lock:
+            banner = self._acc.banner
+            frames = [f for f, _ts in self._frames]
+            measured_hz = self._acc.rate_hz
+
+        if banner is None:
+            return {"present": False, "note": "No banner yet — connect the board."}
+        if not banner.imu_present:
+            return {"present": False, "imu": banner.imu,
+                    "note": "This firmware reports no IMU. Install "
+                            "Arduino_LSM9DS1 or Arduino_BMI270_BMM150 to match "
+                            "the board revision, then re-flash."}
+        idx = banner.imu_index()
+        if not idx:
+            # Declared but not in the columns: refuse rather than guess an
+            # offset, which would read a flex strip as an accelerometer.
+            return {"present": False, "imu": banner.imu,
+                    "note": "Banner declares an IMU but the six motion columns "
+                            "are missing from cols=."}
+
+        # The device's own measured rate is authoritative over the banner's
+        # nominal one: spectral results scale directly with it.
+        fs = measured_hz if measured_hz > 1 else float(banner.rate or 100)
+        want = max(4, int(round(window_s * fs)))
+        recent = frames[-want:]
+        scale = banner.imu_scale
+
+        def col(name: str, frame) -> float | None:
+            i = idx[name]
+            return to_units(frame.values[i], scale) if i < len(frame.values) else None
+
+        accel = [(col("ax", f), col("ay", f), col("az", f)) for f in recent]
+        gyro = [(col("gx", f), col("gy", f), col("gz", f)) for f in recent]
+        accel = [t for t in accel if None not in t]
+        gyro = [t for t in gyro if None not in t]
+        if not accel:
+            return {"present": True, "imu": banner.imu,
+                    "note": "No motion samples in the buffer yet."}
+
+        # Tilt from a short average, not a single sample: one frame of ADC-
+        # scale noise swings the angle by a degree or two and makes a resting
+        # readout look jittery when the board is not moving at all.
+        tail = accel[-min(len(accel), max(2, int(fs // 10))):]
+        avg = tuple(sum(t[i] for t in tail) / len(tail) for i in range(3))
+        orientation = tilt(*avg)
+
+        a_mag = [magnitude(*t) for t in accel]
+        g_mag = [magnitude(*t) for t in gyro] if gyro else []
+        tremor = band_power(a_mag, fs)
+
+        return {
+            "present": True,
+            "imu": banner.imu,
+            "scale": scale,
+            "fs": round(fs, 2),
+            "n": len(accel),
+            "window_s": round(len(accel) / fs, 2) if fs else None,
+            "accel": {"x": accel[-1][0], "y": accel[-1][1], "z": accel[-1][2],
+                      "magnitude": a_mag[-1]},
+            "gyro": ({"x": gyro[-1][0], "y": gyro[-1][1], "z": gyro[-1][2],
+                      "magnitude": g_mag[-1]} if gyro else None),
+            "tilt": orientation,
+            # Motion RMS on ||a|| about its own mean: gravity cancels out, so
+            # this is movement only, in g.
+            "motion_rms_g": rms(a_mag),
+            "gyro_rms_dps": rms(g_mag) if g_mag else None,
+            # Measured, not trusted from a counter — see imu.held_fraction.
+            "held_frac": held_fraction(accel),
+            "tremor": tremor,
+            "tremor_note": None if tremor else (
+                f"Needs at least {MIN_WINDOW_S:.0f} s of samples at a rate that "
+                f"resolves {TREMOR_BAND[0]}–{TREMOR_BAND[1]} Hz."),
+        }
 
     def _meta_for(self, banner, channel: int | str | None) -> ChannelMeta:
         """Channel details for an index or name, with a safe fallback.
