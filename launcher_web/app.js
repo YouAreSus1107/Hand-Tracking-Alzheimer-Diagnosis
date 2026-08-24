@@ -147,6 +147,9 @@ renderStaticBits();
 
 /* ── Page navigation ─────────────────────────────────────────────── */
 function showPage(id){
+  // The report drawer belongs to the Analysis page; leaving it open over
+  // another page would be a dialog with nothing behind it.
+  window.closeReport?.();
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   requestAnimationFrame(()=>{
     document.getElementById("page-"+id).classList.add("active");
@@ -159,6 +162,8 @@ function showPage(id){
   if(id==="why") renderWhy();
   // dev.js owns a ~100 ms poll; it must only run while its page is on screen.
   if(id==="dev") window.startDev?.(); else window.stopDev?.();
+  // remote.js owns a 10 s poll; same rule as dev.js.
+  if(id==="remote") window.startRemote?.(); else window.stopRemote?.();
 }
 document.querySelectorAll(".nav-link").forEach(n =>
   n.addEventListener("click", ()=> showPage(n.dataset.page)));
@@ -542,6 +547,7 @@ function addRipple(btn, e){
 /* ── Status pills ────────────────────────────────────────────────── */
 const statusEl = document.getElementById("status");
 let statusBuilt = false;
+let wasRunning = false;
 
 function renderStatus(s){
   if(!statusBuilt){
@@ -564,6 +570,11 @@ function renderStatus(s){
   } else {
     updateCardStates(s.running);
   }
+  // A test that just stopped has written its session to results/; refetch so
+  // the readings strip shows it without a reload.
+  const busy = Object.values(s.running || {}).some(Boolean);
+  if(wasRunning && !busy) loadVitals(true);
+  wasRunning = busy;
 }
 
 function pill(ok, label, value){
@@ -593,7 +604,9 @@ async function act(kind, key){
   try{
     const r = await fetch("/api/"+kind, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({test:key})
+      // The language rides along so a switch made a moment ago cannot lose
+      // the race against the /api/lang POST that persists it.
+      body: JSON.stringify({test:key, lang:getLang()})
     });
     const data = await r.json();
     // Server text is English; tMsg maps the known strings (i18n.zh.js).
@@ -603,32 +616,10 @@ async function act(kind, key){
   }catch(e){ toast(t("Request failed"),"fail"); }
 }
 
-/* ── Animated counter ────────────────────────────────────────────── */
-function animateCounters(){
-  if(reducedMotion){
-    document.querySelectorAll("[data-count]").forEach(el =>
-      el.textContent = el.dataset.count);
-    return;
-  }
-  document.querySelectorAll("[data-count]").forEach(el=>{
-    const target = parseInt(el.dataset.count);
-    const start = performance.now();
-    function tick(now){
-      const t = Math.min((now-start)/1200, 1);
-      el.textContent = Math.round(target * (1 - Math.pow(1-t, 3)));
-      if(t<1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  });
-}
-
 /* ── Scroll reveal ───────────────────────────────────────────────── */
 const observer = new IntersectionObserver((entries)=>{
   entries.forEach(e=>{
-    if(e.isIntersecting){
-      e.target.classList.add("visible");
-      if(e.target.querySelector("[data-count]")) animateCounters();
-    }
+    if(e.isIntersecting) e.target.classList.add("visible");
   });
 }, {threshold:.15});
 document.querySelectorAll(".reveal").forEach(el=>observer.observe(el));
@@ -718,6 +709,16 @@ function bandFor(v, bands){
   for(const b of bands){ if(v <= b.max) return b.status; }
   return "none";
 }
+// Every test scores its own recording and stores that verdict on the session
+// (core/*/metrics.py). Prefer it: it is the same judgement the test showed the
+// person at the time, and it exists for the spiral, which has no chart bands.
+// Older records without one still fall back to the provisional bands.
+const VERDICT = {success:"ok", warning:"warn", danger:"bad", info:"none"};
+function statusOf(session, h){
+  const m = session.metrics || {};
+  if(m.status && VERDICT[m.status]) return VERDICT[m.status];
+  return bandFor(m[h.key], h.bands);
+}
 
 async function loadAnalysis(){
   const body = document.getElementById("analysis-body");
@@ -804,10 +805,12 @@ function trendCard(key, allSessions){
         onclick="setTrendMode('${key}','${md.key}')">${t(md.label)}</button>`).join("")}</div>`;
   }
 
-  // Scoreable points only, chronological.
+  // Scoreable points only, chronological. `id` is what the report drawer opens.
   const pts = sessions
     .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
-                 status:bandFor(s.metrics ? s.metrics[h.key] : null, h.bands) }))
+                 id:s.session_id, mode:s.mode,
+                 label:s.metrics ? s.metrics.label : null,
+                 status:statusOf(s, h) }))
     .filter(p => p.v!=null && isFinite(p.v));
 
   const head = `<div class="trend-head">
@@ -833,23 +836,29 @@ function trendCard(key, allSessions){
       <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${t(st.word)}</span>
       ${prev ? deltaChip(latest.v, prev.v, h.lowerBetter) : ""}
     </div>`;
+  // The sentence the test itself showed at the end of that recording.
+  const verdict = latest.label
+    ? `<div class="trend-verdict vs-${latest.status}">${t(latest.label)}</div>` : "";
 
   const dateSpan = pts.length>1
     ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${t("{n} sessions",{n:pts.length})}`
     : t("1 session · a trend line appears after your next");
 
-  const legend = h.bands ? `<div class="trend-legend">
+  const legend = `<div class="trend-legend">
       <span><i style="background:${ST.ok.dot}"></i>${t(ST.ok.word)}</span>
       <span><i style="background:${ST.warn.dot}"></i>${t(ST.warn.word)}</span>
       <span><i style="background:${ST.bad.dot}"></i>${t(ST.bad.word)}</span>
-    </div>` : "";
+      <span class="trend-legend-note">${t("colour is the verdict the test gave that session")}</span>
+    </div>`;
 
   const support = `<div class="trend-support">${supporting.map(m =>
     supportTile(sessions, m)).join("")}</div>`;
 
-  return `<div class="trend-card">${head}${modeBar}${readout}
+  return `<div class="trend-card">${head}${modeBar}${readout}${verdict}
     <div class="trend-span">${dateSpan}</div>
     <div class="trend-chart">${trendSvg(pts, h)}</div>
+    <div class="trend-hint">${I.info}${t("Open any session for its full report — click a point above, or one below")}</div>
+    ${sessionStrip(pts, h)}
     ${legend}${support}</div>`;
 }
 
@@ -923,12 +932,20 @@ function trendSvg(pts, h){
     svg += `<path d="${line}" fill="none" stroke="${LINE_C}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
 
-  // Dots (status-coloured) with hover titles; latest emphasised.
+  // Dots (status-coloured), each a button that opens that session's report.
+  // The generous transparent circle underneath is the real hit target - a 4.5px
+  // dot is not one. `fill="transparent"`, not "none": "none" takes no pointer.
   pts.forEach((pt,i)=>{
     const last = i===pts.length-1, r = last?6:4.5;
-    if(last) svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r+4}" fill="${ST[pt.status].dot}" opacity=".22"/>`;
-    svg += `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r}" fill="${ST[pt.status].dot}" stroke="#0E1520" stroke-width="${last?2.5:2}">`
-      + `<title>${fmtDateTime(pt.iso)} — ${fmtNum(pt.v)}${h.unit} (${t(ST[pt.status].word)})</title></circle>`;
+    const title = `${fmtDateTime(pt.iso)} — ${fmtNum(pt.v)}${h.unit} (${t(ST[pt.status].word)})`;
+    svg += `<g class="pt" ${pt.id?`data-sid="${pt.id}" tabindex="0" role="button"`:""}`
+      + ` aria-label="${t("Open the report for {when}",{when:title})}">`
+      + `<title>${title} — ${t("click for the full report")}</title>`
+      + `<circle cx="${x(i)}" cy="${y(pt.v)}" r="15" fill="transparent"/>`
+      + `<circle class="pt-ring" cx="${x(i)}" cy="${y(pt.v)}" r="${r+4}" fill="${ST[pt.status].dot}"`
+      + ` opacity="${last?".22":"0"}"/>`
+      + `<circle cx="${x(i)}" cy="${y(pt.v)}" r="${r}" fill="${ST[pt.status].dot}"`
+      + ` stroke="#0E1520" stroke-width="${last?2.5:2}"/></g>`;
   });
 
   // Direct label on the latest value.
@@ -945,6 +962,33 @@ function trendSvg(pts, h){
   return svg + `</svg>`;
 }
 function latestVal(pts){ return pts[pts.length-1].v; }
+
+/* One pill per session under the chart. The dots are precise but small and
+   easy to miss; this row is the obvious way in, and it is a real <button>, so
+   it tabs and it reads. Chronological, matching the chart left to right. */
+function sessionStrip(pts, h){
+  return `<div class="sess-strip" aria-label="${t("Sessions in this chart")}">${pts.map(p =>
+    `<button class="sess-pill vs-${p.status}"${p.id?` data-sid="${p.id}"`:""}
+       title="${p.label ? t(p.label) : t(ST[p.status].word)}">
+       <span class="sess-dot"></span>
+       <span class="sess-date">${fmtDate(p.iso)}</span>
+       <span class="sess-val">${fmtNum(p.v)}<span class="sess-unit">${h.unit}</span></span>
+     </button>`).join("")}</div>`;
+}
+
+/* One listener for the whole page: charts and strips are re-rendered on every
+   filter change, so per-element handlers would have to be re-bound each time.
+   openReport lives in report.js, which loads after this file. */
+const analysisBodyEl = document.getElementById("analysis-body");
+if(analysisBodyEl){
+  const open = el => { if(el && el.dataset.sid) window.openReport?.(el.dataset.sid); };
+  analysisBodyEl.addEventListener("click", e => open(e.target.closest("[data-sid]")));
+  analysisBodyEl.addEventListener("keydown", e => {
+    if(e.key!=="Enter" && e.key!==" ") return;
+    const el = e.target.closest("[data-sid]");
+    if(el){ e.preventDefault(); open(el); }
+  });
+}
 
 function supportTile(sessions, m){
   const series = sessions
@@ -971,18 +1015,143 @@ function miniSpark(vals){
     <circle cx="${x(vals.length-1)}" cy="${y(vals[vals.length-1])}" r="2.2" fill="${LINE_C}"/></svg>`;
 }
 
+/* ── Readings strip (home) ─────────────────────────────
+   The dashboard's headline row: each test's latest headline metric, its band,
+   and a spark of the sessions behind it — the same TREND config the Analysis
+   page charts, so the two can never disagree. Nothing logged yet still says
+   what the tile will measure, which is what a fresh install sees. */
+
+async function loadVitals(force){
+  if(force || !analysisSessions){
+    try{
+      const r = await fetch("/api/sessions");
+      analysisSessions = (await r.json()).sessions || [];
+    }catch(e){ analysisSessions = analysisSessions || []; }
+  }
+  renderVitals();
+}
+
+function renderVitals(){
+  const el = document.getElementById("vitals");
+  if(!el) return;
+  const byTest = {};
+  TREND_ORDER.forEach(k => byTest[k] = []);
+  (analysisSessions || []).forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
+  el.innerHTML = TREND_ORDER.map(k => vitalTile(k, byTest[k])).join("");
+}
+
+function vitalTile(key, sessions){
+  const cfg = TREND[key], h = cfg.headline;
+  const pts = sessions
+    .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
+                 status:bandFor(s.metrics ? s.metrics[h.key] : null, h.bands) }))
+    .filter(p => p.v!=null && isFinite(p.v));
+  const head = `<span class="vital-ic">${I[cfg.icon]}</span><span class="vital-test">${t(cfg.label)}</span>`;
+  const name = `<div class="vital-name">${t(h.name)}${h.unit?` <span class="vital-unit-i">(${h.unit})</span>`:""}</div>`;
+
+  if(!pts.length){
+    return `<button class="vital vital-idle" onclick="showPage('${cfg.page}')">
+      <div class="vital-head">${head}<span class="vital-wait">${t("Not run yet")}</span></div>
+      <div class="vital-val vital-dim">—</div>
+      ${name}
+      <div class="vital-spark">${idleSpark()}</div>
+      <div class="vital-foot"><span>${t("Run it once to set your baseline")}</span>
+        <span class="vital-go">${I.arrowRight}</span></div>
+    </button>`;
+  }
+
+  const latest = pts[pts.length-1], prev = pts.length>1 ? pts[pts.length-2] : null;
+  const st = ST[latest.status];
+  const count = pts.length===1 ? t("first reading") : t("{n} sessions",{n:pts.length});
+  return `<button class="vital" onclick="showPage('analysis')">
+    <div class="vital-head">${head}
+      <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${t(st.word)}</span></div>
+    <div class="vital-val">${fmtNum(latest.v)}<span class="vital-unit">${h.unit}</span></div>
+    ${name}
+    <div class="vital-spark">${vitalSpark(pts, h, key)}</div>
+    <div class="vital-foot"><span>${count} · ${fmtDate(latest.iso)}</span>
+      ${prev ? deltaChip(latest.v, prev.v, h.lowerBetter) : ""}</div>
+  </button>`;
+}
+
+// Spark for one tile: status bands behind, the last few sessions as a line,
+// each dot coloured by its band. Same band geometry as trendSvg, no axes.
+function vitalSpark(all, h, key){
+  const pts = all.slice(-14);
+  const W=280, H=64, pad=7;
+  const vals = pts.map(p=>p.v);
+  let lo=Math.min(...vals), hi=Math.max(...vals);
+  if(h.bands) h.bands.forEach(b=>{ if(isFinite(b.max)){ lo=Math.min(lo,b.max); hi=Math.max(hi,b.max);} });
+  if(lo===hi){ const e=Math.abs(lo)*0.15||1; lo-=e; hi+=e; }
+  const m=(hi-lo)*0.15; lo-=m; hi+=m;
+  const x=i=>pad+(pts.length===1 ? (W-2*pad)/2 : (W-2*pad)*i/(pts.length-1));
+  const y=v=>pad+(H-2*pad)*(1-(v-lo)/(hi-lo));
+  const clampY=v=>Math.max(0, Math.min(H, y(v)));
+  const gid = `vspark-${key}`;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
+    + `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${LINE_C}" stop-opacity=".26"/>
+        <stop offset="1" stop-color="${LINE_C}" stop-opacity="0"/></linearGradient></defs>`;
+
+  if(h.bands){
+    let prevMax = -Infinity;
+    for(const b of h.bands){
+      const top = clampY(isFinite(b.max)? b.max : hi);
+      const bot = clampY(isFinite(prevMax)? prevMax : lo);
+      if(bot-top > 0.5) svg += `<rect x="0" y="${top}" width="${W}" height="${bot-top}" fill="${ST[b.status].band}"/>`;
+      prevMax = b.max;
+    }
+  }
+  if(pts.length>1){
+    const line = pts.map((p,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+    svg += `<path d="${line} L${x(pts.length-1).toFixed(1)},${H} L${x(0).toFixed(1)},${H} Z" fill="url(#${gid})"/>`;
+    svg += `<path d="${line}" fill="none" stroke="${LINE_C}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  pts.forEach((p,i)=>{
+    const last = i===pts.length-1;
+    if(last) svg += `<circle cx="${x(i)}" cy="${y(p.v)}" r="7" fill="${ST[p.status].dot}" opacity=".24"/>`;
+    svg += `<circle cx="${x(i)}" cy="${y(p.v)}" r="${last?4:2.8}" fill="${ST[p.status].dot}"`
+      + ` stroke="#0E1520" stroke-width="${last?2:1.5}"/>`;
+  });
+  return svg + `</svg>`;
+}
+
+function idleSpark(){
+  const W=280, H=64;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <line x1="7" y1="${H/2}" x2="${W-7}" y2="${H/2}" stroke="${GRID}" stroke-width="2"
+      stroke-linecap="round" stroke-dasharray="3 9"/></svg>`;
+}
+
 /* ── Language switch ──────────────────────────────────────────────────
    Almost everything on these pages is built from JS, so a switch has to ask
    each builder to run again. The "built once" flags are cleared first. */
-onLang(() => {
+onLang(lang => {
   renderStaticBits();
   cardsBuilt = false; whyBuilt = false; statusBuilt = false;
   buildCards();
   renderWhy();
   refresh();
+  renderVitals();
   if(analysisSessions) renderAnalysis();
+  saveLang(lang);
 });
+
+/* The switch also picks the language of the OpenCV overlays. The hub stores it
+   so a tool started straight from a terminal follows the same choice; it takes
+   effect at launch, so a switch mid-run applies to the next start. */
+async function saveLang(lang){
+  try{
+    await fetch("/api/lang", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({lang})
+    });
+  }catch(e){ /* hub not reachable: the page still switches, the tools don't */ }
+}
 
 /* ── Init ─────────────────────────────────────────────────────────── */
 refresh();
+loadVitals();
+saveLang(getLang());   // onLang only fires on a change; seed the stored value
 setInterval(refresh, 3000);

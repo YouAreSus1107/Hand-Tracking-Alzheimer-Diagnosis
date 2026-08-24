@@ -26,6 +26,7 @@
       <button class="nav-link active" data-page="home" data-i18n="nav.home">Dashboard</button>
       <button class="nav-link" data-page="why" data-i18n="nav.why">Why This</button>
       <button class="nav-link" data-page="analysis" data-i18n="nav.analysis">Analysis</button>
+      <button class="nav-link" data-page="remote" data-i18n="nav.remote">Remote</button>
       <button class="nav-link" data-page="iiv" data-i18n="nav.iiv">Finger Tapping</button>
       <button class="nav-link" data-page="spiral" data-i18n="nav.spiral">Spiral Tracing</button>
       <button class="nav-link" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
@@ -80,11 +81,15 @@
         </div>
       </div>
     </div>
-    <div class="stats-row reveal">
-      <div class="stat"><div class="stat-num" data-count="2">0</div><div class="stat-label" data-i18n="home.stat.modalities">Sensing Modalities</div></div>
-      <div class="stat"><div class="stat-num" data-count="3">0</div><div class="stat-label" data-i18n="home.stat.tools">Screening Tools</div></div>
-      <div class="stat"><div class="stat-num" data-count="17">0</div><div class="stat-label" data-i18n="home.stat.studies">Studies Reviewed</div></div>
-      <div class="stat"><div class="stat-num" data-count="30">0</div><div class="stat-label" data-i18n="home.stat.fps">FPS Real-Time</div></div>
+
+    <!-- Live readings strip. One tile per test, drawn from the sessions on
+         this machine (/api/sessions) - the same headline metric the Analysis
+         page charts. With nothing logged yet each tile states the metric it
+         will show, so the strip is informative on a fresh install too. -->
+    <div class="section vitals-sec reveal">
+      <div class="section-head"><h2 data-i18n="home.sec.vitals">Your Readings</h2><div class="sh-line"></div>
+        <button class="sh-link" onclick="showPage('analysis')" data-i18n="home.vitals.link">Full trend &#8594;</button></div>
+      <div class="vitals" id="vitals"></div>
     </div>
 
     <div class="section">
@@ -157,6 +162,46 @@
         This is a <strong>screening aid, not a diagnosis</strong>. Scoring bands are
         provisional pending a normative cohort, and validation on patient groups is the
         roadmap&#8217;s decisive next step &#8212; shown honestly in the table above.
+      </p>
+    </div>
+  </div>
+
+  <!-- REMOTE SESSIONS -->
+  <div class="page" id="page-remote">
+    <div class="why">
+      <div class="analysis-head">
+        <div class="analysis-title">
+          <div class="analysis-icon" id="remote-icon"></div>
+          <div>
+            <h1 data-i18n="remote.h1">Remote Sessions</h1>
+            <p data-i18n="remote.intro">Send a link to someone who is not here. They open it on a phone or
+            iPad, run the test in their browser, and the measurements come back to this machine and
+            appear in <strong>Analysis</strong> alongside everything run locally. The camera video
+            never leaves their device &#8212; only the numbers travel. Plan:
+            <code>docs/REMOTE_SESSION_PLAN.md</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="rs-note" id="remote-stage"></div>
+
+      <div class="section-head"><h2 data-i18n="remote.sec.invite">Create a Link</h2><div class="sh-line"></div>
+        <span class="cmp-legend" data-i18n="remote.invite.legend">expires by default in 48 hours, single use</span></div>
+      <div class="rs-form" id="remote-form"></div>
+
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="remote.sec.links">Links You Have Sent</h2><div class="sh-line"></div>
+        <span class="cmp-legend" id="remote-links-note"></span></div>
+      <div class="rs-list" id="remote-links"></div>
+
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="remote.sec.inbox">Inbox</h2><div class="sh-line"></div>
+        <span class="cmp-legend" data-i18n="remote.inbox.legend">results waiting in the relay</span></div>
+      <div class="rs-inbox" id="remote-inbox"></div>
+
+      <p class="analysis-disclaimer" data-i18n="remote.disclaimer">
+        A remote session is <strong>not identity-verified</strong> &#8212; the name on it is
+        whatever the participant typed. Nobody is in the room to fix lighting or framing, so the
+        test refuses to score a recording that falls below its quality gate rather than reporting
+        a number it does not trust.
       </p>
     </div>
   </div>
@@ -411,11 +456,19 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Session report drawer (report.js). Opened by clicking a point or a session
+     pill on the Analysis page; empty until then. -->
+<div class="report-backdrop" id="report-backdrop" hidden></div>
+<aside class="report" id="report" hidden role="dialog" aria-modal="true"
+       aria-labelledby="report-title"></aside>
+
 <script src="/i18n.zh.js"></script>
 <script src="/i18n.js"></script>
 <script src="/background.js"></script>
 <script src="/app.js"></script>
 <script src="/dev.js"></script>
+<script src="/remote.js"></script>
+<script src="/report.js"></script>
 <script type="module" src="/hand3d.js"></script>
 </body>
 </html>

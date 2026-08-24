@@ -43,6 +43,7 @@ from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
 _splash.step()               # MediaPipe in
 
+from core import i18n
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
 from core.camera import (select_camera_source, open_capture,
@@ -201,19 +202,25 @@ class App:
         pw = min(520, w - 2 * theme.SAFE_MARGIN)
         px, py, ph = (w - pw) // 2, h // 2 - 130, 236
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 36, "Finger Tapping Test", role="h1", anchor="mm")
-        c.text(w // 2, py + 74, "Measures motor rhythm and speed -", role="body",
-               color="text-muted", anchor="mm")
-        c.text(w // 2, py + 98, "markers studied in early cognitive decline.",
+        c.text(w // 2, py + 36, i18n.t("Finger Tapping Test"), role="h1",
+               anchor="mm")
+        c.text(w // 2, py + 74, i18n.t("Measures motor rhythm and speed -"),
+               role="body", color="text-muted", anchor="mm")
+        c.text(w // 2, py + 98,
+               i18n.t("markers studied in early cognitive decline."),
                role="body", color="text-muted", anchor="mm")
         bw = pw - 2 * theme.SPACE[4]
         b1 = c.button(px + theme.SPACE[4], py + 128, bw, 48,
-                      f"Start {MODES['big_and_fast'].title} ({MODES['big_and_fast'].duration_s:.0f} s)",
+                      i18n.t("Start {mode} ({secs} s)",
+                             mode=i18n.t(MODES["big_and_fast"].title),
+                             secs=f"{MODES['big_and_fast'].duration_s:.0f}"),
                       variant="primary",
                       hovered=self.hover(px + theme.SPACE[4], py + 128, bw, 48),
                       icon="play")
         b2 = c.button(px + theme.SPACE[4], py + 184, bw, 40,
-                      f"{MODES['paced'].title} ({MODES['paced'].duration_s:.0f} s, with metronome)",
+                      i18n.t("{mode} ({secs} s, with metronome)",
+                             mode=i18n.t(MODES["paced"].title),
+                             secs=f"{MODES['paced'].duration_s:.0f}"),
                       variant="ghost",
                       hovered=self.hover(px + theme.SPACE[4], py + 184, bw, 40))
         c.disclaimer()
@@ -226,21 +233,25 @@ class App:
 
     def screen_instruction(self, c: Canvas, now: float):
         w, h = c.w, c.h
-        lines = self.mode.instructions
+        # Chinese needs its own line breaks, so the block is keyed rather
+        # than translated line by line -- the line counts differ.
+        lines = i18n.tk(f"tap.{self.mode.key}.instructions",
+                        self.mode.instructions)
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 34, f"{self.mode.title} - Your Task", role="h2",
-               anchor="mm", color="brand")
+        c.text(w // 2, py + 34,
+               i18n.t("{mode} - Your Task", mode=i18n.t(self.mode.title)),
+               role="h2", anchor="mm", color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
         c.text(w // 2, py + 84 + len(lines) * 30,
-               "Next: a quick warm-up so we can calibrate to your hand.",
+               i18n.t("Next: a quick warm-up so we can calibrate to your hand."),
                role="caption", color="text-muted", anchor="mm")
         bw = 200
         bx, by = w // 2 - bw // 2, py + ph - 64
-        b = c.button(bx, by, bw, 48, "I'm Ready", variant="success",
+        b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
         if self.hit(b):
@@ -254,18 +265,21 @@ class App:
         pw = min(520, w - 2 * theme.SAFE_MARGIN)
         px, py, ph = (w - pw) // 2, h - 190, 118
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 28, "Warm-up: open and close your hand",
+        c.text(w // 2, py + 28, i18n.t("Warm-up: open and close your hand"),
                role="body_l", anchor="mm")
-        c.text(w // 2, py + 54, "Touch index finger to thumb, then open wide - a few times.",
+        c.text(w // 2, py + 54,
+               i18n.t("Touch index finger to thumb, then open wide - a few times."),
                role="caption", color="text-muted", anchor="mm")
         c.progress_bar(px + theme.SPACE[4], py + 84, pw - 2 * theme.SPACE[4],
                        self.calibrator.progress, color="warning",
                        label=f"{int(self.calibrator.progress * 100)} %")
         if landmarks is None:
-            self.toasts.show("Show your hand to the camera", "warning", now=now)
+            self.toasts.show(i18n.t("Show your hand to the camera"), "warning",
+                             now=now)
         elif self.calibrator.timed_out(now) and not self.calibrator.done:
-            self.toasts.show("Having trouble? Move a little closer to the camera",
-                             "info", hold=3.0, now=now)
+            self.toasts.show(
+                i18n.t("Having trouble? Move a little closer to the camera"),
+                "info", hold=3.0, now=now)
         if self.calibrator.done:
             self.d_closed, self.d_open = self.calibrator.result()
             self.goto(COUNTDOWN, now)
@@ -289,7 +303,8 @@ class App:
         c.draw.text((w // 2, h // 2), str(remaining),
                     font=get_font("bold", px_size),
                     fill=theme.rgba("text", 1.0), anchor="mm")
-        c.text(w // 2, h // 2 - 100, "Get ready...", role="h2", anchor="mm",
+        c.text(w // 2, h // 2 - 100, i18n.t("Get ready..."), role="h2",
+               anchor="mm",
                color="text-muted")
         if int(elapsed) != getattr(self, "_last_tick", -1):
             self._last_tick = int(elapsed)
@@ -364,15 +379,17 @@ class App:
         pw = min(480, w - 2 * theme.SAFE_MARGIN)
         px, py = (w - pw) // 2, h - 160
         c.panel(px, py, pw, 88)
-        c.text(w // 2, py + 26, "Practice - not scored yet", role="body_l",
-               anchor="mm", color="warning")
-        c.text(w // 2, py + 52, f"Scored test begins in {remaining:.0f} s",
+        c.text(w // 2, py + 26, i18n.t("Practice - not scored yet"),
+               role="body_l", anchor="mm", color="warning")
+        c.text(w // 2, py + 52,
+               i18n.t("Scored test begins in {secs} s", secs=f"{remaining:.0f}"),
                role="body", color="text-muted", anchor="mm")
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        elapsed / self.mode.warmup_s, color="warning",
-                       label="warm-up")
+                       label=i18n.t("warm-up"))
         if landmarks is None:
-            self.toasts.show("Keep your hand in the frame", "warning", now=now)
+            self.toasts.show(i18n.t("Keep your hand in the frame"), "warning",
+                             now=now)
 
     def screen_recording(self, c: Canvas, now: float, landmarks, d):
         w, h = c.w, c.h
@@ -394,9 +411,13 @@ class App:
             if len(recent) >= 2 and recent[-1] > recent[0] else 0.0
         c.panel(theme.SAFE_MARGIN, 60, 168, 76, alpha=0.75, radius=12,
                 shadow=False)
-        c.text(theme.SAFE_MARGIN + 14, 76, f"Taps  {taps}", role="body_sb",
-               mono=True)
-        c.text(theme.SAFE_MARGIN + 14, 104, f"Rate  {rate:.1f} Hz", role="body_sb",
+        # label and value are drawn apart: the label is translated, the value
+        # keeps the mono face so the digits stay tabular as it counts up.
+        val_x = theme.SAFE_MARGIN + 154
+        c.text(theme.SAFE_MARGIN + 14, 76, i18n.t("Taps"), role="body_sb")
+        c.text(val_x, 76, f"{taps}", role="body_sb", anchor="ra", mono=True)
+        c.text(theme.SAFE_MARGIN + 14, 104, i18n.t("Rate"), role="body_sb")
+        c.text(val_x, 104, f"{rate:.1f} Hz", role="body_sb", anchor="ra",
                mono=True)
 
         # sparkline of the distance signal with tap dots (§5)
@@ -407,9 +428,10 @@ class App:
 
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        elapsed / self.mode.duration_s, color="success",
-                       label=f"{remaining:.0f} s left")
+                       label=i18n.t("{secs} s left", secs=f"{remaining:.0f}"))
         if landmarks is None:
-            self.toasts.show("Keep your hand in the frame", "warning", now=now)
+            self.toasts.show(i18n.t("Keep your hand in the frame"), "warning",
+                             now=now)
 
     def _finish(self, now: float):
         visible_ratio = (self.visible_frames / self.hand_frames
@@ -474,22 +496,17 @@ class App:
             btn_off = (saved_off if self.saved_path else note_off) + 26
         else:
             reason = r["reason"] or "Something went wrong - please try again."
-            words, lines, cur = reason.split(), [], ""
-            for word in words:
-                if len(cur) + len(word) + 1 > 48:
-                    lines.append(cur)
-                    cur = word
-                else:
-                    cur = f"{cur} {word}".strip()
-            lines.append(cur)
-            lines = lines[:3]
+            # i18n.wrap, not split(): Chinese has no spaces, so splitting on
+            # whitespace returns one unbreakable token that runs off the panel.
+            lines = i18n.wrap(i18n.t(reason), 48)[:3]
             btn_off = 108 + len(lines) * 26 + 12
         ph = btn_off + bh + 14
 
         px, py = (w - pw) // 2, max(56, (h - ph) // 2)
         c.panel(px, py, pw, ph, alpha=0.9)
-        c.text(w // 2, py + 30, f"{self.mode.title} - Results", role="h2",
-               anchor="mm")
+        c.text(w // 2, py + 30,
+               i18n.t("{mode} - Results", mode=i18n.t(self.mode.title)),
+               role="h2", anchor="mm")
 
         if r["scoreable"]:
             cv_val = self.countup.value(now) if self.countup else r["cv_pct"]
@@ -497,33 +514,38 @@ class App:
             c.draw.text((w // 2, py + 90), f"{cv_val:.1f}%",
                         font=get_font("mono", 56),
                         fill=theme.rgba(r["status"], 1.0), anchor="mm")
-            c.text(w // 2, py + 126, "Rhythm variability (CV of tap intervals)",
+            c.text(w // 2, py + 126,
+                   i18n.t("Rhythm variability (CV of tap intervals)"),
                    role="caption", color="text-muted", anchor="mm")
-            c.badge(w // 2, py + 140, r["label"], r["status"])
+            c.badge(w // 2, py + 140, i18n.t(r["label"]), r["status"])
             col_w = (pw - 3 * theme.SPACE[4]) // 2
             for i, (label, val) in enumerate(rows):
                 rx = px + theme.SPACE[4] + (i % 2) * (col_w + theme.SPACE[4])
                 ry = py + 190 + (i // 2) * 24
-                c.text(rx, ry, label, role="caption", color="text-muted")
+                c.text(rx, ry, i18n.t(label), role="caption",
+                       color="text-muted")
                 c.text(rx + col_w, ry, val, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
-                   f"Typical < {self.mode.cv_typical:.0f}% | monitor "
-                   f"{self.mode.cv_typical:.0f}-{self.mode.cv_monitor:.0f}% | "
-                   f"elevated > {self.mode.cv_monitor:.0f}%",
+                   i18n.t("Typical < {typical}% | monitor {typical}-{monitor}% "
+                          "| elevated > {monitor}%",
+                          typical=f"{self.mode.cv_typical:.0f}",
+                          monitor=f"{self.mode.cv_monitor:.0f}"),
                    role="caption", color="text-muted", anchor="mm")
             if self.saved_path:
                 c.text(w // 2, py + saved_off,
-                       f"Saved: results/{self.saved_path.name}",
+                       i18n.t("Saved: results/{name}",
+                              name=self.saved_path.name),
                        role="caption", color="text-muted", anchor="mm")
         else:
-            c.badge(w // 2, py + 52, "Couldn't score this run", "warning")
+            c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
+                    "warning")
             for i, line in enumerate(lines):
                 c.text(w // 2, py + 108 + i * 26, line, role="body",
                        color="text-muted", anchor="mm")
 
         bw = 160
         bx, by = w // 2 - bw // 2, py + btn_off
-        b = c.button(bx, by, bw, bh, "Try Again", variant="primary",
+        b = c.button(bx, by, bw, bh, i18n.t("Try Again"), variant="primary",
                      hovered=self.hover(bx, by, bw, bh))
         c.disclaimer()
         if self.hit(b):
@@ -559,11 +581,12 @@ class App:
 
             c = Canvas(frame)
             # persistent status bar (§5): hand + FPS quality + mode
-            chips = [("Hand detected", "success") if landmarks is not None
-                     else ("Show your hand", "warning")]
+            chips = [(i18n.t("Hand detected"), "success")
+                     if landmarks is not None
+                     else (i18n.t("Show your hand"), "warning")]
             if self.fps < 24:
                 chips.append((f"{self.fps:.0f} fps", "warning"))
-            c.status_bar(chips, self.mode.title)
+            c.status_bar(chips, i18n.t(self.mode.title))
 
             if self.state == IDLE:
                 self.screen_idle(c, now)

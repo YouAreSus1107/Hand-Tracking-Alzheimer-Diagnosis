@@ -36,6 +36,10 @@ import build_release  # noqa: E402 -- needs the path set above
 REPO = Path(__file__).resolve().parents[1]
 WEB_SRC = REPO / "launcher_web"
 ASSETS_SRC = REPO / "assets"
+# The participant's page (docs/REMOTE_SESSION_PLAN.md). Served at /s/<token>;
+# firebase.json rewrites every /s/** path onto its index.html, which reads the
+# token out of location.pathname.
+PARTICIPANT_SRC = REPO / "participant"
 SHIM_SRC = REPO / "tools" / "web_static" / "static-api.js"
 OUT = REPO / "web-build"
 
@@ -94,14 +98,24 @@ def replace_once(text: str, old: str, new: str, what: str) -> str:
 
 
 def main() -> None:
-    for p in (WEB_SRC, ASSETS_SRC, SHIM_SRC):
+    for p in (WEB_SRC, ASSETS_SRC, SHIM_SRC, PARTICIPANT_SRC):
         if not p.exists():
             fail(f"missing {p.relative_to(REPO)}")
 
     clean(OUT)
     shutil.copytree(WEB_SRC, OUT, dirs_exist_ok=True)
-    shutil.copytree(ASSETS_SRC, OUT / "assets", dirs_exist_ok=True)
+    # assets/fonts/ is the bundled CJK subset for the OpenCV overlays; the
+    # site never draws with it, so it stays out of the published build.
+    shutil.copytree(ASSETS_SRC, OUT / "assets", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("fonts"))
     shutil.copy2(SHIM_SRC, OUT / "static-api.js")
+
+    # Participant page -> /s/. Its tests/ and package.json are development
+    # files and must not ship; vectors.json alone is 71 KB of fixtures.
+    if PARTICIPANT_SRC.exists():
+        shutil.copytree(
+            PARTICIPANT_SRC, OUT / "s", dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("tests", "package.json", "*.md"))
 
     index = OUT / "index.html"
     html = index.read_text(encoding="utf-8")
@@ -117,7 +131,10 @@ def main() -> None:
     files = sorted(p for p in OUT.rglob("*") if p.is_file())
     total = sum(p.stat().st_size for p in files)
     print(f"build_web: {len(files)} files, {total / 1_048_576:.1f} MB -> {OUT}")
-    print("build_web: next step -> firebase deploy --only hosting")
+    if not (OUT / "s" / "index.html").exists():
+        fail("participant page did not reach web-build/s/")
+    print("build_web: participant page -> /s/<token>")
+    print("build_web: next step -> firebase deploy --only hosting,firestore:rules")
 
 
 if __name__ == "__main__":

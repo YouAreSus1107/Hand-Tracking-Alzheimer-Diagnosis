@@ -28,7 +28,12 @@ _INDEX_FIELDS = [
     "sparc", "smoothness_index", "vel_cv_pct", "norm_jerk",
     "tremor_power_frac", "tremor_dominant_hz", "mean_dev_pct",
     "vel_mean_px_s", "completion_pct", "active_ratio_pct",
+    # provenance — "local" for a test run on this machine, "remote" for one
+    # that arrived from a participant's phone (REMOTE_SESSION_PLAN.md §3.4).
+    "source", "participant",
 ]
+
+LOCAL, REMOTE = "local", "remote"
 
 
 def _migrate_index(index: Path) -> None:
@@ -50,23 +55,41 @@ def _round(v, nd=2):
 
 
 def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
-                 device: dict, metrics: dict, raw: dict) -> Path:
-    """Write one session JSON + append the CSV index row. Returns the JSON path."""
+                 device: dict, metrics: dict, raw: dict,
+                 source: str = LOCAL, participant: str = "",
+                 session_id: str | None = None,
+                 timestamp: datetime | None = None) -> Path:
+    """Write one session JSON + append the CSV index row. Returns the JSON path.
+
+    `source`/`participant`/`session_id`/`timestamp` exist for remote sessions
+    (REMOTE_SESSION_PLAN.md §3.4): a record that arrives from a participant's
+    phone already has its own id and its own clock, and overwriting either
+    would break de-duplication on a retried upload. Local callers pass none of
+    them and get the old behaviour.
+    """
     RESULTS_DIR.mkdir(exist_ok=True)
-    ts = datetime.now()
+    ts = timestamp or datetime.now()
     record = {
-        "session_id": str(uuid.uuid4()),
+        "session_id": session_id or str(uuid.uuid4()),
         "timestamp": ts.isoformat(timespec="seconds"),
         "test": test,
         "mode": mode,
         "hand": hand,
         "duration_s": _round(duration_s),
+        "source": source,
+        "participant": participant,
         "device": device,
         "metrics": {k: _round(v) for k, v in metrics.items()},
         "raw": raw,
     }
 
-    path = RESULTS_DIR / f"{ts:%Y%m%d_%H%M%S}_{test}_{mode}.json"
+    stem = f"{ts:%Y%m%d_%H%M%S}_{test}_{mode}"
+    if source != LOCAL:
+        # A remote record carries the participant's clock, so two of them can
+        # land on the same second and silently overwrite each other. The id is
+        # what actually distinguishes them, so part of it goes in the name.
+        stem = f"{stem}_{source}_{record['session_id'][:8]}"
+    path = RESULTS_DIR / f"{stem}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(record, f, indent=1)
 
@@ -80,7 +103,8 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
             w.writeheader()
         row = {"session_id": record["session_id"], "timestamp": record["timestamp"],
                "test": test, "mode": mode, "hand": hand,
-               "duration_s": record["duration_s"]}
+               "duration_s": record["duration_s"],
+               "source": source, "participant": participant}
         row.update({k: _round(metrics.get(k)) for k in _INDEX_FIELDS
                     if k in metrics})
         w.writerow(row)

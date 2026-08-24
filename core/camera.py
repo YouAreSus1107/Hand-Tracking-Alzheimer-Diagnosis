@@ -111,9 +111,9 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
     For integer webcam sources on Windows we prefer the DirectShow backend over
     OpenCV's default (MSMF): measured lower read latency and no MSMF decode-thread
     contention spikes that otherwise stall MediaPipe inference (see
-    docs/FPS_INVESTIGATION_PLAN.md). Each candidate is verified with a real test
-    read, and we fall back gracefully so a camera that works today never
-    regresses:  DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF+MJPG -> MSMF (no MJPG).
+    docs/FPS_FINDINGS.md). Each candidate is verified with a real test read, and
+    we fall back gracefully so a camera that works today never regresses:
+    DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF+MJPG -> MSMF (no MJPG).
 
     Every candidate that has to be tried costs a camera open — a visible LED
     flash plus ~1 s of warm-up — so the combo that succeeds is cached to

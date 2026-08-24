@@ -173,14 +173,18 @@
 
     show(document.getElementById("status"), live);
 
-    show(document.querySelector('.nav-link[data-page="dev"]'), live);
-
-    var devPage = document.getElementById("page-dev");
-    if (devPage && !live && devPage.classList.contains("active") &&
-        typeof window.showPage === "function") {
-      // Never strand the visitor on a page they can no longer reach.
-      window.showPage("home");
-    }
+    // Pages that only mean something with a hub behind them: Developer (glove
+    // over a serial port) and Remote (mints invite links against this
+    // machine's ledger, and files what comes back into results/).
+    ["dev", "remote"].forEach(function (page) {
+      show(document.querySelector('.nav-link[data-page="' + page + '"]'), live);
+      var node = document.getElementById("page-" + page);
+      if (node && !live && node.classList.contains("active") &&
+          typeof window.showPage === "function") {
+        // Never strand the visitor on a page they can no longer reach.
+        window.showPage("home");
+      }
+    });
 
     /* The generated cards call act() through an inline onclick, so swapping
        the global is what turns Launch into an explanation while offline. */

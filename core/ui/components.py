@@ -14,46 +14,187 @@ compose everything from these components + theme tokens.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from .. import i18n
 from . import theme
 
 _ASSET_FONTS = Path(__file__).resolve().parents[2] / "assets" / "fonts"
-_WIN_FONTS = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
 
-# Preference order per weight: bundled Inter → Segoe UI → Arial (guide §3).
+# Where each OS keeps its fonts. The suite installs on whatever laptop it lands
+# on, so naming a Windows path and stopping there would draw tofu everywhere
+# else — PIL does no per-glyph fallback (docs/OVERLAY_I18N_PLAN.md).
+if sys.platform == "win32":
+    _SYS_FONTS = [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"]
+elif sys.platform == "darwin":
+    _SYS_FONTS = [Path("/System/Library/Fonts"),
+                  Path("/System/Library/Fonts/Supplemental"),
+                  Path("/Library/Fonts"),
+                  Path.home() / "Library" / "Fonts"]
+else:
+    _SYS_FONTS = [Path("/usr/share/fonts"), Path("/usr/local/share/fonts"),
+                  Path.home() / ".fonts", Path.home() / ".local/share/fonts"]
+
+# Linux nests fonts under the roots above (/usr/share/fonts/opentype/noto/…),
+# so that branch needs a search rather than a direct hit. Bounded so a huge
+# font tree cannot stall startup.
+_RECURSIVE_ROOTS = sys.platform not in ("win32", "darwin")
+_DIR_SCAN_LIMIT = 4000
+
+# Preference order per weight: bundled Inter → Segoe UI → Arial (guide §3),
+# with DejaVu/Helvetica so macOS and Linux resolve something real rather than
+# falling through to PIL's bitmap default.
 _FONT_FILES = {
-    "regular":  ["Inter-Regular.ttf", "segoeui.ttf", "arial.ttf"],
-    "semibold": ["Inter-SemiBold.ttf", "seguisb.ttf", "segoeuib.ttf", "arialbd.ttf"],
-    "bold":     ["Inter-Bold.ttf", "segoeuib.ttf", "arialbd.ttf"],
+    "regular":  ["Inter-Regular.ttf", "segoeui.ttf", "Helvetica.ttc",
+                 "DejaVuSans.ttf", "arial.ttf"],
+    "semibold": ["Inter-SemiBold.ttf", "seguisb.ttf", "segoeuib.ttf",
+                 "HelveticaNeue.ttc", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+    "bold":     ["Inter-Bold.ttf", "segoeuib.ttf", "HelveticaNeue.ttc",
+                 "DejaVuSans-Bold.ttf", "arialbd.ttf"],
     # Tabular figures for live numbers so digits don't jitter (guide §3).
-    "mono":     ["JetBrainsMono-Regular.ttf", "consola.ttf", "cour.ttf"],
+    # Every mono call site draws a numeric value, so this stack is never asked
+    # for Chinese and stays Latin in both languages.
+    "mono":     ["JetBrainsMono-Regular.ttf", "consola.ttf", "Menlo.ttc",
+                 "DejaVuSansMono.ttf", "cour.ttf"],
 }
 
+# CJK faces, tried ahead of the Latin stack when the run is in Chinese. A name
+# proves nothing about coverage, so whatever is found here is still probed.
+_CJK_FILES = {
+    "regular":  ["NotoSansTC-Subset-Regular.ttf",     # bundled, phase 1
+                 "msjh.ttc",                          # Windows: MS JhengHei
+                 "PingFang.ttc",                      # macOS
+                 "NotoSansCJKtc-Regular.otf", "NotoSansCJK-Regular.ttc",
+                 "NotoSansTC-Regular.otf", "NotoSansTC-VF.ttf",
+                 "Hiragino Sans GB.ttc", "STHeiti Light.ttc",
+                 "wqy-microhei.ttc", "mingliu.ttc"],
+    "semibold": ["NotoSansTC-Subset-Bold.ttf", "msjhbd.ttc", "PingFang.ttc",
+                 "NotoSansCJKtc-Bold.otf", "NotoSansCJK-Bold.ttc",
+                 "NotoSansTC-Bold.otf", "NotoSansTC-VF.ttf",
+                 "Hiragino Sans GB.ttc", "STHeiti Medium.ttc",
+                 "wqy-microhei.ttc", "mingliub.ttc"],
+}
+_CJK_FILES["bold"] = _CJK_FILES["semibold"]
+
 _font_cache: dict[tuple[str, int], ImageFont.FreeTypeFont] = {}
+_path_cache: dict[str, Path | None] = {}
+
+
+def _find_font(name: str) -> Path | None:
+    """Locate a font file by name across the bundled and system directories."""
+    if name in _path_cache:
+        return _path_cache[name]
+    found = None
+    for base in [_ASSET_FONTS, *_SYS_FONTS]:
+        if not base.is_dir():
+            continue
+        direct = base / name
+        if direct.exists():
+            found = direct
+            break
+        if _RECURSIVE_ROOTS:
+            found = _search(base, name)
+            if found:
+                break
+    _path_cache[name] = found
+    return found
+
+
+def _search(base: Path, name: str) -> Path | None:
+    """Bounded walk under a root. Only Linux needs it, and only on a miss —
+    which is the expensive case, hence the directory cap."""
+    scanned = 0
+    try:
+        for root, _dirs, files in os.walk(base):
+            if name in files:
+                return Path(root) / name
+            scanned += 1
+            if scanned > _DIR_SCAN_LIMIT:
+                return None
+    except OSError:
+        pass
+    return None
+
+
+def _load(name: str, px: int):
+    """Open a font file. `.ttc` collections need an explicit face index."""
+    path = _find_font(name)
+    if path is None:
+        return None
+    try:
+        return ImageFont.truetype(str(path), px, index=0)
+    except OSError:
+        return None
+
+
+def _covers_cjk(font) -> bool:
+    """Whether `font` really has Chinese glyphs.
+
+    A font name is not evidence — Segoe UI happily "renders" 測 as a .notdef
+    box. Draw the probe character and compare it against U+FFFE, which is
+    permanently unassigned and therefore always .notdef: an identical bitmap
+    means there is no glyph. Costs two small renders, once per process.
+    """
+    def bitmap(ch: str) -> bytes:
+        img = Image.new("L", (48, 48), 0)
+        ImageDraw.Draw(img).text((4, 4), ch, font=font, fill=255)
+        return img.tobytes()
+
+    try:
+        return bitmap(i18n.PROBE_CHAR) != bitmap("\ufffe")
+    except Exception:                       # a broken face is simply no good
+        return False
 
 
 def get_font(weight: str, px: int):
     key = (weight, px)
     if key not in _font_cache:
+        names = list(_FONT_FILES.get(weight, _FONT_FILES["regular"]))
+        if i18n.is_zh() and weight in _CJK_FILES:
+            names = _CJK_FILES[weight] + names
         font = None
-        for name in _FONT_FILES.get(weight, _FONT_FILES["regular"]):
-            for base in (_ASSET_FONTS, _WIN_FONTS):
-                p = base / name
-                if p.exists():
-                    try:
-                        font = ImageFont.truetype(str(p), px)
-                        break
-                    except OSError:
-                        continue
+        for name in names:
+            font = _load(name, px)
             if font:
                 break
         _font_cache[key] = font or ImageFont.load_default()
     return _font_cache[key]
+
+
+def cjk_available() -> bool:
+    """Resolve a CJK face once and tell core.i18n whether Chinese can render.
+
+    Called at import time so the decision is made before any string is
+    translated: a missing font has to degrade the whole run to English rather
+    than paint a screenful of tofu.
+    """
+    for name in _CJK_FILES["regular"]:
+        font = _load(name, 28)
+        if font and _covers_cjk(font):
+            return True
+    return False
+
+
+def font_diagnostics() -> dict:
+    """What actually resolved — for the unit tests and for reporting a miss."""
+    return {
+        "lang_requested": i18n.requested_lang(),
+        "lang_active": i18n.active_lang(),
+        "cjk": {n: str(_find_font(n)) for n in _CJK_FILES["regular"]
+                if _find_font(n)},
+        "roots": [str(p) for p in [_ASSET_FONTS, *_SYS_FONTS] if p.is_dir()],
+    }
+
+
+# Decide up front, so t() is already gated by the time anything is drawn.
+if i18n.requested_lang() != "en" and not cjk_available():
+    i18n.set_render_capable(
+        False, "no font with Traditional Chinese glyphs found on this system")
 
 
 def font_for_role(role: str, mono: bool = False):
@@ -126,6 +267,9 @@ class Canvas:
              color: str = "text", anchor: str = "la", mono: bool = False) -> None:
         if not s:
             return
+        # The mono stack is Latin-only (tabular figures are the point of it), so
+        # a translated label routed through it would draw tofu. Numbers keep it.
+        mono = mono and not i18n.has_wide(s)
         self._dirty = True
         self.draw.text((x, y), s, font=font_for_role(role, mono=mono),
                        fill=theme.rgba(color, 1.0), anchor=anchor)
@@ -259,7 +403,8 @@ class Canvas:
         self.draw.line([(0, h), (self.w, h)], fill=theme.rgba("border", 1.0), width=1)
         # brand mark
         self.draw.ellipse([16, h // 2 - 6, 28, h // 2 + 6], fill=theme.rgba("brand", 1.0))
-        self.text(38, h // 2, "Motor Screening", role="body_sb", anchor="lm")
+        self.text(38, h // 2, i18n.t("Motor Screening"), role="body_sb",
+                  anchor="lm")
         # chips right-to-left
         x = self.w - 16
         for label, status in reversed(chips):
@@ -278,8 +423,8 @@ class Canvas:
         y = self.h - h
         self._dirty = True
         self.draw.rectangle([0, y, self.w, self.h], fill=theme.rgba("surface", 0.85))
-        self.text(self.w // 2, y + h // 2, theme.DISCLAIMER, role="caption",
-                  color="text-muted", anchor="mm")
+        self.text(self.w // 2, y + h // 2, i18n.t(theme.DISCLAIMER),
+                  role="caption", color="text-muted", anchor="mm")
 
     def metric(self, x: int, y: int, value: str, unit: str, label: str, *,
                color: str = "text") -> None:

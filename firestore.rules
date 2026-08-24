@@ -1,0 +1,78 @@
+rules_version = '2';
+
+// Security rules for the remote-session relay (docs/REMOTE_SESSION_PLAN.md §3).
+//
+// Two parties reach this database and they are not equals:
+//
+//   * The participant's phone, signed in anonymously. It may READ one invite
+//     (to check the link is still good) and CREATE one result against it. It
+//     may never list, update, delete, or read anybody's results — including
+//     its own, which it already has on the device.
+//   * The helper's laptop, signed in as a real user. It owns the invites it
+//     minted and reads the results addressed to it.
+//
+// The rules are the enforcement. The page is not: a browser page can be
+// modified by whoever is holding it, so anything the consent screen promises
+// has to be true here too.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function invite(token) {
+      return get(/databases/$(database)/documents/invites/$(token)).data;
+    }
+
+    function inviteUsable(token) {
+      let inv = invite(token);
+      return inv != null
+          && inv.revoked != true
+          && inv.uses_left is int && inv.uses_left > 0
+          && inv.expires_at is timestamp && inv.expires_at > request.time;
+    }
+
+    match /invites/{token} {
+      // The participant reads exactly the invite whose token they hold. There
+      // is no list rule on purpose: without one, the collection cannot be
+      // enumerated, so a token is only useful to someone who was sent it.
+      allow get: if signedIn();
+      allow list: if false;
+
+      // Only the helper who owns an invite may mint or change it.
+      allow create: if signedIn()
+                    && request.resource.data.helper_uid == request.auth.uid;
+      allow update, delete: if signedIn()
+                            && resource.data.helper_uid == request.auth.uid;
+    }
+
+    match /remote_results/{docId} {
+      // Create-only, against a live invite, and never carrying media.
+      // §4: metrics only — no video, no per-frame landmark arrays.
+      allow create: if signedIn()
+                    && inviteUsable(request.resource.data.invite_token)
+                    && request.resource.data.keys().hasOnly(
+                         ['invite_token', 'helper_uid', 'session', 'uploaded_at'])
+                    && request.resource.data.session.keys().hasOnly(
+                         ['session_id', 'timestamp', 'test', 'mode', 'hand',
+                          'duration_s', 'participant', 'device', 'metrics'])
+                    && request.resource.data.helper_uid
+                       == invite(request.resource.data.invite_token).helper_uid;
+
+      // The participant cannot read back, amend, or withdraw an upload; the
+      // helper reads what is addressed to them and clears it once filed.
+      allow get, list: if signedIn()
+                       && resource.data.helper_uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if signedIn()
+                    && resource.data.helper_uid == request.auth.uid;
+    }
+
+    // Nothing else in this project is reachable from a browser.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

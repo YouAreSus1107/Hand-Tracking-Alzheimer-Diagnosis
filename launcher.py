@@ -23,7 +23,8 @@ The one exception is the Developer page, whose serial reader needs ``pyserial``;
 that import is lazy and optional, so the hub runs identically without it and
 the page simply reports the dependency as missing.
 The frontend lives as plain static files in ``launcher_web/`` (index.html,
-styles.css, app.js, dev.js, background.js, hand3d.js), served straight off disk.
+styles.css, app.js, dev.js, report.js, background.js, hand3d.js), served straight off
+disk.
 
 Run:   python launcher.py
 Quit:  press Ctrl+C in this console, or close the window.
@@ -180,16 +181,52 @@ def set_camera_setting(raw) -> tuple[bool, str]:
     return True, f"Camera set to {label}."
 
 
-def _camera_env() -> dict:
-    """Process environment for a spawned tool, carrying the camera choice."""
+# ── Overlay language ───────────────────────────────────────────────────────
+# The dashboard's English / 繁體中文 switch also decides what language the
+# OpenCV overlays are drawn in. Same rails as the camera: persisted here, sent
+# down on /api/status, handed to the tool through core.i18n.ENV_LANG at launch.
+# It therefore applies at launch — switching mid-run affects the next start.
+ENV_LANG = "HAND3D_LANG"
+_LANGS = ("en", "zh")
+_DEFAULT_LANG = "en"
+
+
+def lang_setting() -> str:
+    value = _read_settings().get("lang")
+    return value if value in _LANGS else _DEFAULT_LANG
+
+
+def set_lang_setting(raw) -> tuple[bool, str]:
+    lang = str(raw or "").strip().lower()
+    if lang not in _LANGS:
+        return False, f"Unknown language: {raw}"
+    with _settings_lock:
+        data = _read_settings()
+        data["lang"] = lang
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError as exc:
+            return False, f"Could not save the language choice: {exc}"
+    return True, "Test language set."
+
+
+def _tool_env(lang: str | None = None) -> dict:
+    """Process environment for a spawned tool: camera source + overlay language.
+
+    `lang` overrides the stored setting when the launch request carried one, so
+    a switch made a moment before Launch cannot lose the race against the POST
+    that persists it.
+    """
     cam = camera_setting()
     env = os.environ.copy()
     env[ENV_CAMERA] = cam["url"] if cam["mode"] == "stream" else str(cam["index"])
+    env[ENV_LANG] = lang if lang in _LANGS else lang_setting()
     return env
 _procs_lock = threading.Lock()
 
 
-# ── Remote control (hosted dashboard) ────────────────────────────────────
+# ── Remote control (hosted dashboard) ──────────────────────────────────────
 # The dashboard is also published as a static site (tools/build_web.py). That
 # page cannot run the tests itself — they are Python — so it drives *this* hub
 # instead, cross-origin. Two gates stand in front of that:
@@ -268,7 +305,7 @@ def _running(key: str) -> bool:
         return False
 
 
-def launch_tool(key: str) -> tuple[bool, str]:
+def launch_tool(key: str, lang: str | None = None) -> tuple[bool, str]:
     """Spawn the tool's script in its own console. Returns (ok, message)."""
     if key not in TOOLS:
         return False, f"Unknown tool: {key}"
@@ -296,7 +333,7 @@ def launch_tool(key: str) -> tuple[bool, str]:
         proc = subprocess.Popen(
             [sys.executable, script_path],
             cwd=BASE_DIR,
-            env=_camera_env(),      # the tool reads its source from here
+            env=_tool_env(lang),    # camera source + overlay language
             creationflags=creationflags,
         )
     except OSError as exc:
@@ -591,6 +628,169 @@ def sessions_payload() -> dict:
     return {"sessions": sessions}
 
 
+def session_payload(session_id: str) -> dict | None:
+    """One session by id, ``raw`` included — what the report drawer draws.
+
+    The id is matched against the ``session_id`` *inside* each file rather than
+    used to build a path: the query string is attacker-controlled on the
+    published dashboard, and a filename built from it would be a traversal.
+    Returns None when nothing matches.
+    """
+    if not session_id or not os.path.isdir(RESULTS_DIR):
+        return None
+    for name in sorted(os.listdir(RESULTS_DIR)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(RESULTS_DIR, name), "r", encoding="utf-8") as fh:
+                rec = json.load(fh)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if rec.get("session_id") == session_id:
+            return rec
+    return None
+
+
+# ── Remote sessions ────────────────────────────────────────────────────────
+# The helper mints a link here, sends it, and the results come back
+# (REMOTE_SESSION_PLAN.md). The participant's page is the hosted build, so the
+# link points at the same origin the hosted dashboard is served from.
+#
+# Imports are local to each function, matching how the glove stack is pulled
+# in: the hub must keep starting even if one of these modules is mid-edit.
+
+def participant_base_url() -> str:
+    """Where the participant's page lives. Overridable for a local
+    `firebase serve` via the same env var the origin allowlist uses."""
+    extra = os.environ.get("HAND3D_ALLOW_ORIGIN", "").strip().rstrip("/")
+    return extra or _HOSTED_ORIGINS[0]
+
+
+def remote_state_payload() -> dict:
+    from core.remote import invites as inv_mod
+    from core.remote import relay, store
+
+    base = participant_base_url()
+    items = [inv_mod.summarise(i, base) for i in store.list_invites()]
+    return {
+        "invites": items,
+        "relay": relay.status(),
+        "base_url": base,
+        "tests": {k: {"label": spec["label"], "modes": list(spec["modes"])}
+                  for k, spec in inv_mod.TESTS.items()},
+        "defaults": {"ttl_hours": inv_mod.DEFAULT_TTL_HOURS,
+                     "uses": inv_mod.DEFAULT_USES,
+                     "max_ttl_hours": inv_mod.MAX_TTL_HOURS,
+                     "max_uses": inv_mod.MAX_USES},
+    }
+
+
+def _remote_create(data: dict) -> tuple[bool, str, dict]:
+    from core.remote import invites as inv_mod
+    from core.remote import relay, store
+
+    try:
+        invite = inv_mod.make_invite(
+            test=str(data.get("test", "")),
+            mode=str(data.get("mode", "")),
+            lang=str(data.get("lang", "en")),
+            participant=str(data.get("participant", "")),
+            ttl_hours=data.get("ttl_hours", inv_mod.DEFAULT_TTL_HOURS),
+            uses=data.get("uses", inv_mod.DEFAULT_USES),
+            helper=str(data.get("helper", "")),
+        )
+    except ValueError as exc:
+        return False, str(exc), {}
+
+    store.add(invite)
+    # Publishing to the relay is best-effort: the link exists locally either
+    # way, and an unconfigured relay must not block minting one.
+    published, note = (relay.publish_invite(invite)
+                       if relay.status()["configured"] else (False, ""))
+    message = "Link created." if published or not note else f"Link created. {note}"
+    return True, message, {"invite": inv_mod.summarise(invite, participant_base_url())}
+
+
+def _remote_submit(data: dict) -> tuple[bool, str, dict]:
+    """The return channel, exercised locally.
+
+    A participant's phone posts to Firestore, not here — the hub is behind NAT
+    (plan §1). This endpoint is how the same ingest path is driven with a
+    canned session JSON before any test is ported (plan §7), and it is what
+    the relay poll hands each pulled record to.
+    """
+    from core.remote import ingest, invites as inv_mod, store
+
+    token = str(data.get("token", ""))
+    if not inv_mod.valid_token_shape(token):
+        return False, "That link is not valid.", {}
+    invite = store.get(token)
+    refused = inv_mod.refusal(invite)
+    if refused:
+        return False, refused, {}
+
+    ok, message, record = ingest.accept(data.get("session"), invite)
+    if ok and record and record.get("filed"):
+        store.replace(inv_mod.spend(invite, record["session_id"]))
+    return ok, message, {}
+
+
+def _remote_pull() -> tuple[bool, str, dict]:
+    """Poll the relay and file whatever has arrived into results/."""
+    from core.remote import ingest, invites as inv_mod, relay, store
+
+    ok, message, docs = relay.pull_results()
+    if not ok:
+        return False, message, {}
+
+    filed = skipped = 0
+    for doc in docs:
+        invite = store.get(str(doc.get("invite_token", "")))
+        if invite is None or inv_mod.refusal(invite) is not None:
+            skipped += 1
+            continue
+        accepted, _msg, record = ingest.accept(doc.get("session"), invite)
+        if not accepted or not record:
+            skipped += 1
+            continue
+        # A duplicate is still cleared from the relay — the helper already has
+        # it — but it must not cost the invite another use.
+        if record.get("filed"):
+            store.replace(inv_mod.spend(invite, record["session_id"]))
+            filed += 1
+        else:
+            skipped += 1
+        relay.delete_result(str(doc.get("_id", "")))
+
+    if not filed and not skipped:
+        return True, "No new results.", {"filed": 0}
+    note = f"Filed {filed} result(s)."
+    if skipped:
+        note += f" {skipped} skipped."
+    return True, note, {"filed": filed, "skipped": skipped}
+
+
+def remote_post(route: str, data: dict) -> tuple[bool, str, dict]:
+    from core.remote import relay, store
+
+    if route == "/api/remote/invite":
+        return _remote_create(data)
+    if route == "/api/remote/revoke":
+        ok, msg = store.revoke(str(data.get("token", "")))
+        return ok, msg, {}
+    if route == "/api/remote/submit":
+        return _remote_submit(data)
+    if route == "/api/remote/pull":
+        return _remote_pull()
+    if route == "/api/remote/relay":
+        cfg = data.get("relay")
+        if not isinstance(cfg, dict):
+            return False, "No settings supplied.", {}
+        store.set_relay_config({k: str(v) for k, v in cfg.items()})
+        return True, "Remote inbox settings saved.", {"relay": relay.status()}
+    return False, f"Unknown endpoint: {route}", {}
+
+
 def status_payload() -> dict:
     return {
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
@@ -603,6 +803,8 @@ def status_payload() -> dict:
         # Rides along on the 3 s poll the dashboard already makes, so the
         # camera chip needs no endpoint of its own to stay in sync.
         "camera": camera_setting(),
+        # Which language the next launched tool will draw its overlay in.
+        "lang": lang_setting(),
     }
 
 
@@ -624,7 +826,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    # ── Cross-origin gate ──────────────────────────────────────────
+    # ── Cross-origin gate ──────────────────────────────────────────────
     # Everything below serves the hosted dashboard (tools/web_static/
     # static-api.js). Local, same-origin use sends no Origin header and is
     # untouched by any of it.
@@ -728,6 +930,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status_payload())
         elif self.path == "/api/sessions":
             self._send_json(sessions_payload())
+        elif route == "/api/session":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            rec = session_payload(q.get("id", [""])[0])
+            if rec is None:
+                self._send_json({"ok": False, "message": "Session not found"}, 404)
+            else:
+                self._send_json(rec)
+        elif route == "/api/remote/state":
+            self._send_json(remote_state_payload())
         elif route == "/api/dev/env":
             self._send_json(dev_env_payload())
         elif route == "/api/glove/status":
@@ -782,14 +993,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg})
             return
 
+        # ── Remote sessions (REMOTE_SESSION_PLAN.md) ───────────────────
+        if route.startswith("/api/remote/"):
+            ok, msg, extra = remote_post(route, data)
+            payload = {"ok": ok, "message": msg}
+            payload.update(extra or {})
+            self._send_json(payload)
+            return
+
         if self.path == "/api/launch":
-            ok, msg = launch_tool(key)
+            ok, msg = launch_tool(key, data.get("lang"))
         elif self.path == "/api/stop":
             ok, msg = stop_tool(key)
         elif route == "/api/camera":
             ok, msg = set_camera_setting(data.get("camera"))
             self._send_json({"ok": ok, "message": msg,
                              "camera": camera_setting()})
+            return
+        elif route == "/api/lang":
+            ok, msg = set_lang_setting(data.get("lang"))
+            self._send_json({"ok": ok, "message": msg, "lang": lang_setting()})
             return
         else:
             self._send_json({"ok": False, "message": "Unknown endpoint"}, code=404)
