@@ -34,6 +34,7 @@ reference/
 # Local tool settings
 .claude/
 CLAUDE.md
+AGENTS.md
 
 # OS
 Thumbs.db
