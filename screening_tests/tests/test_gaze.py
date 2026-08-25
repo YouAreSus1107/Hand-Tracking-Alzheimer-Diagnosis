@@ -18,7 +18,10 @@ from core.gaze.calibrate import GazeCalibrator, GazeMap, STAGES, STAGE_FRAMES
 from core.gaze.detector import SaccadeTrial, MIN_LATENCY_MS
 from core.gaze.fixation import (FixationAnalyzer, bcea, jitter_band,
                                 JITTER_TYPICAL, JITTER_MONITOR, SETTLE_S)
-from core.gaze.metrics import compute_metrics, band, block_stats
+from core.gaze.metrics import (compute_metrics, band, block_stats,
+                               MIN_GAZE_RATIO)
+from core.gaze.openness import (OpennessGate, ABS_FLOOR, BLINK_FRAC,
+                                NARROW_BASELINE, VERTICAL_FRAC)
 from core.gaze.tasks import build_directions
 
 
@@ -286,6 +289,97 @@ def test_jitter_band_thresholds():
 
 
 # ── task schedule ────────────────────────────────────────────────────────────
+
+# ── adaptive lid-openness gate ────────────────────────────────────────────
+def _feed_gate(gate, values, t0=100.0):
+    """Feed a sequence of per-frame openness values; return the last state."""
+    st = None
+    for i, v in enumerate(values):
+        st = gate.update(t0 + i * DT, v)
+    return st
+
+
+def test_narrow_eyes_stay_open():
+    """The bug this gate exists for: a narrow palpebral fissure sits below the
+    old fixed 0.14 threshold, and every frame of the run was thrown away."""
+    gate = OpennessGate()
+    st = _feed_gate(gate, [0.12] * 120)
+    assert st.open, "a steadily narrow eye must not read as a blink"
+    assert st.vertical_ok
+    assert st.narrow, "it should still be flagged as a narrow aperture"
+    assert st.open_frac > 0.9
+
+
+def test_wide_eyes_open_and_not_flagged_narrow():
+    gate = OpennessGate()
+    st = _feed_gate(gate, [0.32] * 120)
+    assert st.open and st.vertical_ok
+    assert not st.narrow
+    assert st.baseline > NARROW_BASELINE
+
+
+def test_blink_detected_for_narrow_and_wide_eyes():
+    """A blink is a collapse relative to that person's own baseline, so it is
+    caught at both ends of the anatomical range."""
+    for base in (0.12, 0.32):
+        gate = OpennessGate()
+        _feed_gate(gate, [base] * 120)
+        t = 100.0 + 120 * DT
+        st = gate.update(t, base * 0.2)          # mid-blink
+        assert not st.open, f"blink missed at baseline {base}"
+        st = gate.update(t + DT, 0.005)          # fully shut
+        assert not st.open
+
+
+def test_partial_squint_blocks_vertical_but_not_horizontal():
+    """A lowered lid crops the iris from above: iris-y goes first, and the
+    horizontal saccade signal should survive it."""
+    gate = OpennessGate()
+    _feed_gate(gate, [0.30] * 120)
+    t = 100.0 + 120 * DT
+    frac = (BLINK_FRAC + VERTICAL_FRAC) / 2
+    st = gate.update(t, 0.30 * frac)
+    assert st.open, "horizontal gaze should survive a partial squint"
+    assert not st.vertical_ok, "the vertical proxy should not"
+
+
+def test_short_squint_stays_closed_long_one_is_adopted():
+    """The baseline must not chase a blink or a brief squint. A squint that
+    holds for several seconds *is* adopted — the person's new resting aperture
+    should be measured noisily rather than produce nothing for the rest of the
+    run — but the vertical proxy stays gated and the frames stay counted."""
+    gate = OpennessGate()
+    _feed_gate(gate, [0.30] * 120)
+    t1 = 100.0 + 120 * DT
+    st = _feed_gate(gate, [0.30 * 0.4] * 60, t0=t1)          # 1 s
+    assert not st.open, "a 1 s squint must still read as closed"
+    st = _feed_gate(gate, [0.30 * 0.4] * 480, t0=t1 + 60 * DT)   # 8 s more
+    assert st.open, "a held aperture should be adopted rather than blank the run"
+    assert st.baseline < 0.30
+
+
+def test_baseline_rises_quickly_when_eyes_open():
+    gate = OpennessGate()
+    st = _feed_gate(gate, [0.30] * 10)
+    assert st.open and st.open_frac > 0.9, "no warm-up gap at the start"
+
+
+def test_absolute_floor_catches_a_shut_eye_from_the_first_frame():
+    """Starting mid-blink, the baseline has nothing to compare against, so the
+    absolute floor has to carry it."""
+    gate = OpennessGate()
+    st = gate.update(100.0, ABS_FLOOR * 0.5)
+    assert not st.open
+
+
+def test_low_gaze_ratio_names_the_eyelids_not_the_framing():
+    trials = [_feed_trial(1, True, 0.3, 200, -1) for _ in range(4)]
+    out = compute_metrics([], trials, face_visible_ratio=1.0,
+                          gaze_valid_ratio=MIN_GAZE_RATIO - 0.1)
+    assert not out["scoreable"]
+    assert "eyes could only be read" in out["reason"]
+    assert out["gaze_valid_ratio"] == round(MIN_GAZE_RATIO - 0.1, 3)
+
 
 def test_build_directions_balanced_no_long_runs():
     import random

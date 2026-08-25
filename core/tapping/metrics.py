@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 
+from .confidence import confidence, straddles_band
 from .modes import TapMode
 
 
@@ -55,13 +56,36 @@ def band(cv_pct: float, mode: TapMode) -> tuple[str, str]:
     return "danger", "Elevated variability - recommend follow-up"
 
 
+def _interval_stats(mode: TapMode, tap_times: list[float]) -> dict | None:
+    """Return the shared temporal core for a run or compatibility sub-window."""
+    if len(tap_times) < 2:
+        return None
+    iti_all = [(tap_times[i + 1] - tap_times[i]) * 1000
+               for i in range(len(tap_times) - 1)]
+    cutoff = mode.max_iti_ms if mode.paced else 3.0 * _median(iti_all)
+    iti = [v for v in iti_all if v <= cutoff]
+    if len(iti) < 2:
+        return None
+    mean_iti = sum(iti) / len(iti)
+    iiv = _sd(iti)
+    if iiv is None or mean_iti <= 0:
+        return None
+    return {"iti_all": iti_all, "iti": iti, "cutoff": cutoff,
+            "mean_iti_ms": mean_iti, "iiv_ms": iiv,
+            "cv_pct": iiv / mean_iti * 100.0,
+            "frequency_hz": 1000.0 / mean_iti,
+            "rejected_frac": (len(iti_all) - len(iti)) / len(iti_all)}
+
+
 def compute_metrics(mode: TapMode,
                     tap_times: list[float],
                     series: list[tuple[float, float]],
                     t_start: float,
                     t_end: float,
                     beat_times: list[float] | None = None,
-                    hand_visible_ratio: float = 1.0) -> dict:
+                    hand_visible_ratio: float = 1.0,
+                    camera_fps: float | None = None,
+                    near_miss: int = 0) -> dict:
     """Score one recording. Always returns a dict; `scoreable` is False with a
     specific human-readable `reason` when a score can't be computed (audit A10)."""
     out: dict = {
@@ -74,12 +98,19 @@ def compute_metrics(mode: TapMode,
         "decrement_pct_per_s": None, "sync_sd_ms": None,
         "mean_latency_ms": None, "hits": None, "misses": None,
         "status": None, "label": None,
+        "n_intervals": None, "cv_ci_low_pct": None, "cv_ci_high_pct": None,
+        "confidence_pct": None, "band_edge": None,
+        "taps_w10": None, "frequency_hz_w10": None, "cv_pct_w10": None,
+        "near_miss_taps": near_miss,
     }
 
     if len(tap_times) < mode.min_taps:
         if hand_visible_ratio < 0.8:
             out["reason"] = ("Your hand was out of view for part of the test - "
                              "keep it in the frame and try again.")
+        elif near_miss >= max(2, len(tap_times)):
+            out["reason"] = (f"{near_miss} closures were too shallow to count as "
+                             "taps - open the hand fully between taps.")
         else:
             out["reason"] = (f"Only {len(tap_times)} taps detected - at least "
                              f"{mode.min_taps} are needed for a reliable score.")
@@ -90,30 +121,38 @@ def compute_metrics(mode: TapMode,
     if len(taps) - mode.trim_taps >= mode.min_taps:
         taps = taps[mode.trim_taps:]
 
-    iti_ms = [(taps[i + 1] - taps[i]) * 1000 for i in range(len(taps) - 1)]
-
-    # Outlier filter: paced → gaps from missed beats; self-paced → 3× median.
-    if mode.paced:
-        cutoff = mode.max_iti_ms
-    else:
-        cutoff = 3.0 * _median(iti_ms)
-    iti = [v for v in iti_ms if v <= cutoff]
+    stats = _interval_stats(mode, taps)
+    iti = stats["iti"] if stats else []
     if len(iti) < mode.min_taps - 1:
         out["reason"] = ("Tapping was too irregular to score - large pauses "
                          "interrupted the rhythm. Try to keep a continuous motion.")
         return out
 
-    mean_iti = sum(iti) / len(iti)
-    iiv = _sd(iti)
-    cv = (iiv / mean_iti * 100) if (iiv is not None and mean_iti > 0) else None
-    if cv is None:
-        out["reason"] = "Not enough valid intervals to compute variability."
-        return out
+    mean_iti = stats["mean_iti_ms"]
+    cv = stats["cv_pct"]
+    cutoff = stats["cutoff"]
+    out.update(mean_iti_ms=mean_iti, iiv_ms=stats["iiv_ms"], cv_pct=cv,
+               frequency_hz=stats["frequency_hz"], n_intervals=len(iti))
 
-    out["mean_iti_ms"] = mean_iti
-    out["iiv_ms"] = iiv
-    out["cv_pct"] = cv
-    out["frequency_hz"] = 1000.0 / mean_iti
+    quality = confidence(n_intervals=len(iti), cv_pct=cv, mean_iti_ms=mean_iti,
+        band_width_pct=mode.cv_band_width, camera_fps=camera_fps,
+        hand_visible_ratio=hand_visible_ratio, rejected_frac=stats["rejected_frac"],
+        near_miss=near_miss, taps=len(tap_times))
+    out["confidence_pct"] = quality["confidence_pct"]
+    out["cv_ci_low_pct"] = quality["cv_ci_low_pct"]
+    out["cv_ci_high_pct"] = quality["cv_ci_high_pct"]
+    out["band_edge"] = int(straddles_band(quality["cv_ci_low_pct"],
+        quality["cv_ci_high_pct"], mode.cv_typical, mode.cv_monitor))
+
+    taps_w10 = [t for t in tap_times if t <= t_start + mode.compat_window_s]
+    out["taps_w10"] = len(taps_w10)
+    compat_taps = taps_w10
+    if len(compat_taps) - mode.trim_taps >= mode.min_taps:
+        compat_taps = compat_taps[mode.trim_taps:]
+    compat = _interval_stats(mode, compat_taps)
+    if compat:
+        out["frequency_hz_w10"] = compat["frequency_hz"]
+        out["cv_pct_w10"] = compat["cv_pct"]
 
     # Speed decrement: slope of instantaneous rate at interval midpoints,
     # as % of mean rate per second (negative = slowing over the trial).

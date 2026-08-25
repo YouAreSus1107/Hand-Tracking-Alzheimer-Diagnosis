@@ -147,7 +147,7 @@ renderStaticBits();
 
 /* ── Page navigation ─────────────────────────────────────────────── */
 function showPage(id){
-  // The report drawer belongs to the Analysis page; leaving it open over
+  // The report panel belongs to the Analysis page; leaving it open over
   // another page would be a dialog with nothing behind it.
   window.closeReport?.();
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
@@ -638,6 +638,7 @@ const TREND = {
       bands:[{max:15,status:"ok"},{max:25,status:"warn"},{max:Infinity,status:"bad"}] },
     supporting:[
       {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
       {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
       {key:"decrement_pct_per_s", name:"Speed decrement", unit:"%/s"},
     ],
@@ -646,11 +647,13 @@ const TREND = {
     modes:[
       { key:"big_and_fast", label:"Big & Fast", supporting:[
         {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+        {key:"confidence_pct", name:"Confidence", unit:"%"},
         {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
         {key:"decrement_pct_per_s", name:"Speed decrement", unit:"%/s"},
       ]},
       { key:"paced", label:"Paced", supporting:[
         {key:"frequency_hz", name:"Tap frequency", unit:"Hz"},
+        {key:"confidence_pct", name:"Confidence", unit:"%"},
         {key:"amplitude_cv_pct", name:"Amplitude CV", unit:"%"},
         {key:"sync_sd_ms", name:"Beat-sync SD", unit:"ms"},
       ]},
@@ -688,6 +691,7 @@ const INK_MUTED = "#94A3B8", INK_DIM = "#64748B", GRID = "#2A3442", LINE_C = "#5
 let analysisFilter = "all";
 let analysisSessions = null;
 let analysisModes = {};   // per-test selected sub-mode (e.g. finger_tapping → "paced")
+let sessionCalendarState = {}; // per trend/mode: visible month + selected day
 
 function fmtNum(v){
   if(v==null || !isFinite(v)) return "—";
@@ -794,8 +798,10 @@ function trendCard(key, allSessions){
   // Optional per-mode split (finger tapping: Big & Fast vs Paced). The toggle
   // swaps everything below the header — chart, readout, and supporting tiles.
   let sessions = allSessions, supporting = cfg.supporting, modeBar = "";
+  let calendarKey = key;
   if(cfg.modes){
     const active = activeMode(key, cfg, allSessions);
+    calendarKey = `${key}:${active}`;
     const m = cfg.modes.find(x => x.key===active) || cfg.modes[0];
     sessions = allSessions.filter(s => s.mode === active);
     supporting = m.supporting || cfg.supporting;
@@ -805,13 +811,8 @@ function trendCard(key, allSessions){
         onclick="setTrendMode('${key}','${md.key}')">${t(md.label)}</button>`).join("")}</div>`;
   }
 
-  // Scoreable points only, chronological. `id` is what the report drawer opens.
-  const pts = sessions
-    .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
-                 id:s.session_id, mode:s.mode,
-                 label:s.metrics ? s.metrics.label : null,
-                 status:statusOf(s, h) }))
-    .filter(p => p.v!=null && isFinite(p.v));
+  const calendarPts = cardPoints(sessions, h);
+  const pts = calendarPts.filter(p=>p.scoreable);
 
   const head = `<div class="trend-head">
       <div class="trend-title"><span class="trend-ic">${I[cfg.icon]}</span>
@@ -825,7 +826,8 @@ function trendCard(key, allSessions){
     return `<div class="trend-card">${head}${modeBar}
       <div class="analysis-note">${cfg.modes
         ? t("{n} session(s) logged for this type, but none were scoreable for this metric yet.",{n:sessions.length})
-        : t("{n} session(s) logged, but none were scoreable for this metric yet.",{n:sessions.length})}</div></div>`;
+        : t("{n} session(s) logged, but none were scoreable for this metric yet.",{n:sessions.length})}</div>
+      ${sessionCalendar(calendarPts,h,calendarKey)}</div>`;
   }
 
   const latest = pts[pts.length-1], prev = pts.length>1 ? pts[pts.length-2] : null;
@@ -854,12 +856,40 @@ function trendCard(key, allSessions){
   const support = `<div class="trend-support">${supporting.map(m =>
     supportTile(sessions, m)).join("")}</div>`;
 
+  // The legend explains the chart's dot colours, so it sits with the chart —
+  // below the calendar it would be a key to something a screen away.
   return `<div class="trend-card">${head}${modeBar}${readout}${verdict}
     <div class="trend-span">${dateSpan}</div>
     <div class="trend-chart">${trendSvg(pts, h)}</div>
-    <div class="trend-hint">${I.info}${t("Open any session for its full report — click a point above, or one below")}</div>
-    ${sessionStrip(pts, h)}
-    ${legend}${support}</div>`;
+    ${legend}
+    <div class="trend-hint">${I.info}${t("Open a report from any chart point, or choose a date in the calendar")}</div>
+    ${sessionCalendar(calendarPts, h, calendarKey)}
+    ${support}</div>`;
+}
+
+/* One session as the Analysis page thinks of it. The chart plots only the
+   scoreable ones, but the calendar keeps every saved session — a run that
+   failed the quality gate still has a report explaining why. */
+function cardPoints(sessions, h){
+  return sessions.map(s => {
+    const v = s.metrics ? s.metrics[h.key] : null;
+    const scoreable = v!=null && isFinite(v);
+    return {v, iso:s.timestamp, id:s.session_id, mode:s.mode, scoreable,
+            label:s.metrics ? (s.metrics.reason || s.metrics.label) : null,
+            status:scoreable ? statusOf(s,h) : "none"};
+  });
+}
+
+/* The points behind one calendar, rebuilt from its state key alone
+   (`test` or `test:mode`), so a day or month change can redraw that one
+   section without re-rendering every card on the page. */
+function calendarFor(key){
+  const [test, mode] = String(key).split(":");
+  const cfg = TREND[test];
+  if(!cfg) return null;
+  const sessions = (analysisSessions || []).filter(s =>
+    s.test===test && (mode ? s.mode===mode : true));
+  return {pts: cardPoints(sessions, cfg.headline), h: cfg.headline};
 }
 
 // Selected sub-mode for a test: explicit choice, else the mode with the most
@@ -963,29 +993,169 @@ function trendSvg(pts, h){
 }
 function latestVal(pts){ return pts[pts.length-1].v; }
 
-/* One pill per session under the chart. The dots are precise but small and
-   easy to miss; this row is the obvious way in, and it is a real <button>, so
-   it tabs and it reads. Chronological, matching the chart left to right. */
-function sessionStrip(pts, h){
-  return `<div class="sess-strip" aria-label="${t("Sessions in this chart")}">${pts.map(p =>
-    `<button class="sess-pill vs-${p.status}"${p.id?` data-sid="${p.id}"`:""}
-       title="${p.label ? t(p.label) : t(ST[p.status].word)}">
-       <span class="sess-dot"></span>
-       <span class="sess-date">${fmtDate(p.iso)}</span>
-       <span class="sess-val">${fmtNum(p.v)}<span class="sess-unit">${h.unit}</span></span>
-     </button>`).join("")}</div>`;
+function localDateKey(iso){
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function monthKeyFor(iso){ return localDateKey(iso).slice(0,7); }
+function fmtTime(iso){
+  return new Date(iso).toLocaleTimeString(i18nLocale(),{hour:"numeric",minute:"2-digit"});
 }
 
-/* One listener for the whole page: charts and strips are re-rendered on every
+/* Picking a month or a day redraws that one calendar, not the page. A full
+   renderAnalysis() rebuilds all three cards, which throws focus to <body> and
+   makes the page jump under the pointer. The section carries its own state
+   key, so it can rebuild itself from `analysisSessions` alone. */
+function renderCalendar(key){
+  const host = document.getElementById("cal-" + key);   // keys contain ":" -
+  const ctx = calendarFor(key);                          // getElementById is fine
+  if(!host || !ctx) return;
+  const active = document.activeElement;
+  const keepDay = active && active.classList && active.classList.contains("cal-day");
+  host.outerHTML = sessionCalendar(ctx.pts, ctx.h, key);
+  if(keepDay){
+    const back = document.getElementById("cal-" + key);
+    const sel = back && back.querySelector(".cal-day.is-selected");
+    if(sel) sel.focus();
+  }
+}
+
+function setSessionCalendarMonth(key, month){
+  if(!month) return;
+  sessionCalendarState[key] = {month, day:null};
+  renderCalendar(key);
+}
+function setSessionCalendarDay(key, day){
+  const state = sessionCalendarState[key] || {};
+  sessionCalendarState[key] = {...state, day};
+  renderCalendar(key);
+}
+
+/* The report panel's arrows walk every session in the card, so it can land on
+   a day - or a month - the calendar is not showing. It calls this to bring the
+   calendar to whatever is open; no-op when it is already there, so stepping
+   within one day costs nothing. */
+window.revealSession = function(id){
+  const s = (analysisSessions || []).find(x => x.session_id === id);
+  const cfg = s && TREND[s.test];
+  if(!cfg) return;
+  const key = cfg.modes ? `${s.test}:${s.mode}` : s.test;
+  const state = sessionCalendarState[key] || {};
+  const month = monthKeyFor(s.timestamp), day = localDateKey(s.timestamp);
+  if(state.month===month && state.day===day) return;
+  sessionCalendarState[key] = {month, day};
+  renderCalendar(key);
+};
+
+/* A month calendar of the sessions in this card: the grid is the index, the
+   list beside it is the day. Only months that actually hold sessions are
+   reachable, because there is no reason to walk through empty ones. */
+function sessionCalendar(pts, h, key){
+  if(!pts.length) return "";
+  const months = [...new Set(pts.map(p=>monthKeyFor(p.iso)))].sort();
+  let state = sessionCalendarState[key] || {};
+  if(!months.includes(state.month)) state = {month:months[months.length-1], day:null};
+
+  const inMonth = pts.filter(p=>monthKeyFor(p.iso)===state.month);
+  const grouped = {};
+  inMonth.forEach(p => (grouped[localDateKey(p.iso)] ||= []).push(p));
+  const activeDays = Object.keys(grouped).sort();
+  if(!activeDays.includes(state.day)) state.day = activeDays[activeDays.length-1];
+  sessionCalendarState[key] = state;
+
+  const [year, month] = state.month.split("-").map(Number);
+  const first = new Date(year, month-1, 1);
+  const offset = (first.getDay()+6)%7;                 // Monday-first
+  const nDays = new Date(year, month, 0).getDate();
+  const monthAt = months.indexOf(state.month);
+  const monthTitle = first.toLocaleDateString(i18nLocale(),{month:"long",year:"numeric"});
+  // Jan 1 2024 was a Monday, so this walks Mon..Sun in the page's language.
+  const weekdays = Array.from({length:7},(_,i)=>
+    new Date(2024,0,1+i).toLocaleDateString(i18nLocale(),{weekday:"narrow"}));
+  const todayKey = localDateKey(new Date().toISOString());
+
+  const cells = Array.from({length:offset},()=>`<span class="cal-day cal-blank"></span>`);
+  for(let day=1; day<=nDays; day++){
+    const dk = `${state.month}-${String(day).padStart(2,"0")}`;
+    const runs = grouped[dk] || [];
+    const today = dk===todayKey ? " is-today" : "";
+    if(!runs.length){
+      cells.push(`<span class="cal-day${today}">${day}</span>`);
+      continue;
+    }
+    // One bar under the number, split by how that day's verdicts came out -
+    // the mix at a glance without four separate dots competing with the date.
+    const mix = ["ok","warn","bad","none"]
+      .map(k => [k, runs.filter(p=>p.status===k).length])
+      .filter(([,n]) => n)
+      .map(([k,n]) => `<i class="vs-${k}" style="flex:${n}"></i>`).join("");
+    const when = new Date(year, month-1, day).toLocaleDateString(i18nLocale(),
+      {weekday:"long", month:"long", day:"numeric"});
+    cells.push(`<button class="cal-day cal-active${dk===state.day?" is-selected":""}${today}"
+        data-day="${dk}" onclick="setSessionCalendarDay('${esc(key)}','${dk}')"
+        aria-pressed="${dk===state.day}"
+        aria-label="${esc(t("{date}: {n} session(s)",{date:when,n:runs.length}))}">
+        <span class="cal-num">${day}</span>
+        ${runs.length>1?`<span class="cal-count">${runs.length}</span>`:""}
+        <span class="cal-bar">${mix}</span></button>`);
+  }
+  while(cells.length%7) cells.push(`<span class="cal-day cal-blank"></span>`);
+
+  const selected = grouped[state.day] || [];
+  const selectedTitle = selected.length
+    ? new Date(selected[0].iso).toLocaleDateString(i18nLocale(),
+        {weekday:"long", month:"long", day:"numeric"}) : "";
+  const rows = selected.map(p=>`<button class="cal-session vs-${p.status}" data-sid="${p.id}"
+      title="${esc(p.label ? t(p.label) : t(ST[p.status].word))}">
+      <span class="cal-time">${fmtTime(p.iso)}</span>
+      <span class="cal-value${p.scoreable?"":" cal-unscored"}">${p.scoreable
+        ? `${fmtNum(p.v)}<small>${h.unit}</small>` : "—"}</span>
+      <span class="cal-verdict"><i></i>${p.scoreable?t(ST[p.status].word):t("Not scoreable")}</span>
+      <span class="cal-go">${I.arrowRight}</span>
+    </button>`).join("");
+
+  return `<section class="session-calendar" id="cal-${esc(key)}"
+    data-context="${pts.map(p=>p.id).filter(Boolean).join(",")}">
+    <div class="cal-head">
+      <div class="cal-month">
+        <button class="cal-step" ${monthAt>0?"":"disabled"}
+          onclick="setSessionCalendarMonth('${esc(key)}','${months[monthAt-1]||""}')"
+          aria-label="${t("Previous month with sessions")}">${I.arrowLeft}</button>
+        <h4>${monthTitle}</h4>
+        <button class="cal-step" ${monthAt<months.length-1?"":"disabled"}
+          onclick="setSessionCalendarMonth('${esc(key)}','${months[monthAt+1]||""}')"
+          aria-label="${t("Next month with sessions")}">${I.arrowRight}</button>
+      </div>
+      <span class="cal-tally">${t("{days} active days · {n} sessions",
+        {days:activeDays.length, n:inMonth.length})}</span>
+    </div>
+    <div class="cal-body">
+      <div class="cal-grid-wrap">
+        <div class="cal-weekdays" aria-hidden="true">${weekdays.map(w=>`<span>${w}</span>`).join("")}</div>
+        <div class="cal-grid">${cells.join("")}</div>
+      </div>
+      <div class="cal-day-panel">
+        <div class="cal-day-head"><strong>${selectedTitle}</strong>
+          <span>${t("{n} session(s)",{n:selected.length})}</span></div>
+        <div class="cal-list">${rows}</div>
+      </div>
+    </div>
+  </section>`;
+}
+/* One listener for the whole page: charts and calendars are re-rendered on every
    filter change, so per-element handlers would have to be re-bound each time.
    openReport lives in report.js, which loads after this file. */
 const analysisBodyEl = document.getElementById("analysis-body");
 if(analysisBodyEl){
   const open = el => { if(el && el.dataset.sid) window.openReport?.(el.dataset.sid); };
-  analysisBodyEl.addEventListener("click", e => open(e.target.closest("[data-sid]")));
+  analysisBodyEl.addEventListener("click", e => {
+    open(e.target.closest("[data-sid]"));
+  });
   analysisBodyEl.addEventListener("keydown", e => {
     if(e.key!=="Enter" && e.key!==" ") return;
-    const el = e.target.closest("[data-sid]");
+    // Native <button>s already turn Enter/Space into click. This handler is
+    // only for the SVG chart points; handling both caused duplicate opens.
+    const el = e.target.closest(".pt[data-sid]");
     if(el){ e.preventDefault(); open(el); }
   });
 }
@@ -1044,6 +1214,7 @@ function vitalTile(key, sessions){
   const cfg = TREND[key], h = cfg.headline;
   const pts = sessions
     .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
+                 confidence:s.metrics ? s.metrics.confidence_pct : null,
                  status:bandFor(s.metrics ? s.metrics[h.key] : null, h.bands) }))
     .filter(p => p.v!=null && isFinite(p.v));
   const head = `<span class="vital-ic">${I[cfg.icon]}</span><span class="vital-test">${t(cfg.label)}</span>`;
@@ -1111,8 +1282,9 @@ function vitalSpark(all, h, key){
   pts.forEach((p,i)=>{
     const last = i===pts.length-1;
     if(last) svg += `<circle cx="${x(i)}" cy="${y(p.v)}" r="7" fill="${ST[p.status].dot}" opacity=".24"/>`;
+    const opacity = p.confidence != null && p.confidence < 45 ? ".35" : "1";
     svg += `<circle cx="${x(i)}" cy="${y(p.v)}" r="${last?4:2.8}" fill="${ST[p.status].dot}"`
-      + ` stroke="#0E1520" stroke-width="${last?2:1.5}"/>`;
+      + ` opacity="${opacity}" stroke="#0E1520" stroke-width="${last?2:1.5}"/>`;
   });
   return svg + `</svg>`;
 }

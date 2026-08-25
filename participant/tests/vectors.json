@@ -5,9 +5,9 @@
   "big_and_fast": {
    "key": "big_and_fast",
    "paced": false,
-   "duration_s": 10.0,
+   "duration_s": 15.0,
    "expected_rate_hz": 5.0,
-   "min_taps": 10,
+   "min_taps": 6,
    "trim_taps": 2,
    "cv_typical": 15.0,
    "cv_monitor": 25.0,
@@ -1652,7 +1652,16 @@
     "hits": null,
     "misses": null,
     "status": "success",
-    "label": "Within typical range"
+    "label": "Within typical range",
+    "n_intervals": 48,
+    "cv_ci_low_pct": 1.7965432921120174e-13,
+    "cv_ci_high_pct": 2.6950282209616653e-13,
+    "confidence_pct": 99.99999999999977,
+    "band_edge": 0,
+    "taps_w10": 51,
+    "frequency_hz_w10": 5.0,
+    "cv_pct_w10": 2.2457857565368415e-13,
+    "near_miss_taps": 0
    }
   },
   {
@@ -2937,7 +2946,16 @@
     "hits": null,
     "misses": null,
     "status": "success",
-    "label": "Within typical range"
+    "label": "Within typical range",
+    "n_intervals": 38,
+    "cv_ci_low_pct": 5.2048665867171575,
+    "cv_ci_high_pct": 8.241573547687143,
+    "confidence_pct": 92.25315627998783,
+    "band_edge": 0,
+    "taps_w10": 41,
+    "frequency_hz_w10": 3.986014125385109,
+    "cv_pct_w10": 6.72322006720215,
+    "near_miss_taps": 0
    }
   },
   {
@@ -4222,7 +4240,16 @@
     "hits": null,
     "misses": null,
     "status": "warning",
-    "label": "Mild variability - consider monitoring"
+    "label": "Mild variability - consider monitoring",
+    "n_intervals": 38,
+    "cv_ci_low_pct": 12.24029193252686,
+    "cv_ci_high_pct": 19.570887565907235,
+    "confidence_pct": 81.299157450391,
+    "band_edge": 1,
+    "taps_w10": 41,
+    "frequency_hz_w10": 3.9721257123432556,
+    "cv_pct_w10": 15.905589749217047,
+    "near_miss_taps": 0
    }
   },
   {
@@ -4975,7 +5002,7 @@
    },
    "metrics": {
     "scoreable": false,
-    "reason": "Only 4 taps detected - at least 10 are needed for a reliable score.",
+    "reason": "Only 4 taps detected - at least 6 are needed for a reliable score.",
     "taps": 4,
     "duration_s": 6.0,
     "frequency_hz": null,
@@ -4990,7 +5017,16 @@
     "hits": null,
     "misses": null,
     "status": null,
-    "label": null
+    "label": null,
+    "n_intervals": null,
+    "cv_ci_low_pct": null,
+    "cv_ci_high_pct": null,
+    "confidence_pct": null,
+    "band_edge": null,
+    "taps_w10": null,
+    "frequency_hz_w10": null,
+    "cv_pct_w10": null,
+    "near_miss_taps": 0
    }
   },
   {
@@ -6285,7 +6321,16 @@
     "hits": null,
     "misses": null,
     "status": "success",
-    "label": "Within typical range"
+    "label": "Within typical range",
+    "n_intervals": 48,
+    "cv_ci_low_pct": 3.3670026796965264,
+    "cv_ci_high_pct": 5.054634426365129,
+    "confidence_pct": 95.69473789654145,
+    "band_edge": 0,
+    "taps_w10": 51,
+    "frequency_hz_w10": 5.017421952433586,
+    "cv_pct_w10": 4.210818553030828,
+    "near_miss_taps": 0
    }
   }
  ]

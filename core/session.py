@@ -19,6 +19,9 @@ _INDEX_FIELDS = [
     "session_id", "timestamp", "test", "mode", "hand", "duration_s",
     "scoreable", "taps", "frequency_hz", "mean_iti_ms", "iiv_ms", "cv_pct",
     "amplitude_cv_pct", "decrement_pct_per_s", "sync_sd_ms", "hits", "misses",
+    "n_intervals", "cv_ci_low_pct", "cv_ci_high_pct", "confidence_pct",
+    "band_edge", "taps_w10", "frequency_hz_w10", "cv_pct_w10",
+    "near_miss_taps",
     # oculomotor (pro/anti-saccade) columns
     "error_rate_pct", "antisaccade_latency_ms", "prosaccade_latency_ms",
     "anti_minus_pro_ms", "valid_trials",

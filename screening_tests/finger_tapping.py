@@ -3,7 +3,7 @@ Finger Tapping Test
 ===================
 Camera-based finger-tapping screening with two paradigms (core/tapping/modes.py):
 
-  Big & Fast  -- self-paced maximum-speed tapping, 10 s (primary; the
+  Big & Fast  -- self-paced maximum-speed tapping, 15 s (primary; the
                  literature-aligned paradigm: TapTalk, Suzumura, Roalf).
   Paced Rhythm -- metronome-synced tapping at 1 Hz, 30 s (rhythm + beat sync).
 
@@ -439,7 +439,8 @@ class App:
         self.results = compute_metrics(
             self.mode, self.detector.tap_times, self.detector.series,
             self.recording_start, now, beat_times=self.beat_times,
-            hand_visible_ratio=visible_ratio)
+            hand_visible_ratio=visible_ratio, camera_fps=self.fps,
+            near_miss=self.detector.near_miss)
         self.audio.play(self.done_wav)
         hand = max(self.hand_labels, key=self.hand_labels.get) \
             if self.hand_labels else None
@@ -452,6 +453,8 @@ class App:
             "calibration": {"d_closed": round(self.d_closed, 4),
                             "d_open": round(self.d_open, 4)},
             "hand_visible_ratio": round(visible_ratio, 3),
+            "near_miss_taps": self.detector.near_miss,
+            "closed_dwell_frac": round(self.detector.closed_dwell_frac, 3),
         }
         try:
             self.saved_path = save_session(
@@ -480,7 +483,8 @@ class App:
             rows = [("Tap rate", f"{r['frequency_hz']:.2f} Hz"),
                     ("Mean interval", f"{r['mean_iti_ms']:.0f} ms"),
                     ("IIV (SD)", f"{r['iiv_ms']:.1f} ms"),
-                    ("Taps", f"{r['taps']}")]
+                    ("Taps", f"{r['taps']}"),
+                    ("Intervals", f"{r['n_intervals']}")]
             if r.get("amplitude_cv_pct") is not None:
                 rows.append(("Amplitude CV", f"{r['amplitude_cv_pct']:.1f} %"))
             if r.get("decrement_pct_per_s") is not None:
@@ -490,10 +494,13 @@ class App:
             if r.get("hits") is not None:
                 rows.append(("Beats hit", f"{r['hits']}/{r['hits'] + r['misses']}"))
             rows = rows[:8]
-            nlines = (len(rows) + 1) // 2
-            note_off = 190 + nlines * 24 + 6
-            saved_off = note_off + 20
-            btn_off = (saved_off if self.saved_path else note_off) + 26
+            # Three compact columns keep the complete results screen inside a
+            # 480p camera window while retaining legible caption-sized labels.
+            nlines = (len(rows) + 2) // 3
+            metrics_off = 248
+            note_off = metrics_off + nlines * 22 + 2
+            edge_off = note_off + (20 if r.get("band_edge") else 0)
+            btn_off = edge_off + 8
         else:
             reason = r["reason"] or "Something went wrong - please try again."
             # i18n.wrap, not split(): Chinese has no spaces, so splitting on
@@ -517,11 +524,33 @@ class App:
             c.text(w // 2, py + 126,
                    i18n.t("Rhythm variability (CV of tap intervals)"),
                    role="caption", color="text-muted", anchor="mm")
-            c.badge(w // 2, py + 140, i18n.t(r["label"]), r["status"])
-            col_w = (pw - 3 * theme.SPACE[4]) // 2
+            ci_lo, ci_hi = r.get("cv_ci_low_pct"), r.get("cv_ci_high_pct")
+            if ci_lo is not None and ci_hi is not None:
+                c.text(w // 2, py + 142,
+                       i18n.t("95% CI {low}-{high}%", low=f"{ci_lo:.1f}",
+                              high=f"{ci_hi:.1f}"), role="caption",
+                       color="text-muted", anchor="mm", mono=True)
+            c.badge(w // 2, py + 158, i18n.t(r["label"]), r["status"])
+            conf = r.get("confidence_pct") or 0
+            # Confidence is recording quality, not a second clinical verdict.
+            # Moderate therefore uses neutral info blue; only low quality warns.
+            conf_status = ("success" if conf >= 75 else
+                           "info" if conf >= 45 else "warning")
+            conf_level = ("High" if conf >= 75 else
+                          "Moderate" if conf >= 45 else "Low")
+            conf_w = min(330, pw - 2 * theme.SPACE[4])
+            c.confidence_card(
+                # Verdict badge occupies y=158..192; keep a true 8 px gap.
+                px + (pw - conf_w) // 2, py + 200, conf_w,
+                label=i18n.t("Measurement confidence"),
+                value=i18n.t("{level} - {pct}%", level=i18n.t(conf_level),
+                             pct=f"{conf:.0f}"),
+                detail="",
+                progress=conf / 100.0, status=conf_status)
+            col_w = (pw - 4 * theme.SPACE[4]) // 3
             for i, (label, val) in enumerate(rows):
-                rx = px + theme.SPACE[4] + (i % 2) * (col_w + theme.SPACE[4])
-                ry = py + 190 + (i // 2) * 24
+                rx = px + theme.SPACE[4] + (i % 3) * (col_w + theme.SPACE[4])
+                ry = py + metrics_off + (i // 3) * 22
                 c.text(rx, ry, i18n.t(label), role="caption",
                        color="text-muted")
                 c.text(rx + col_w, ry, val, role="caption", anchor="ra", mono=True)
@@ -531,10 +560,9 @@ class App:
                           typical=f"{self.mode.cv_typical:.0f}",
                           monitor=f"{self.mode.cv_monitor:.0f}"),
                    role="caption", color="text-muted", anchor="mm")
-            if self.saved_path:
-                c.text(w // 2, py + saved_off,
-                       i18n.t("Saved: results/{name}",
-                              name=self.saved_path.name),
+            if r.get("band_edge"):
+                c.text(w // 2, py + note_off + 20,
+                       i18n.t("Close to a band edge - repeat for a firmer reading."),
                        role="caption", color="text-muted", anchor="mm")
         else:
             c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
@@ -544,7 +572,14 @@ class App:
                        color="text-muted", anchor="mm")
 
         bw = 160
-        bx, by = w // 2 - bw // 2, py + btn_off
+        bx = (px + pw - theme.SPACE[4] - bw
+              if r["scoreable"] else w // 2 - bw // 2)
+        by = py + btn_off
+        if r["scoreable"] and self.saved_path:
+            c.icon("check", px + theme.SPACE[4], by + 12, 18, "success")
+            c.text(px + theme.SPACE[4] + 26, by + bh // 2,
+                   i18n.t("Result saved"), role="caption",
+                   color="text-muted", anchor="lm")
         b = c.button(bx, by, bw, bh, i18n.t("Try Again"), variant="primary",
                      hovered=self.hover(bx, by, bw, bh))
         c.disclaimer()

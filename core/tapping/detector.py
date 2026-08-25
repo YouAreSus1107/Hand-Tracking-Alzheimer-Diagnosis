@@ -100,7 +100,14 @@ class TapDetector:
     """Calibrated hysteresis tap detector over the normalized distance signal.
 
     Also records the full (t, d) series so metrics can derive amplitude,
-    velocity, and decrement (audit A11)."""
+    velocity, and decrement (audit A11).
+
+    `near_miss` counts partial closures the hysteresis rejected: dips that fell
+    past `open_at` but never reached `close_at`, then rose back. It changes no
+    threshold and no tap count -- it exists so a run that looks slow can be told
+    apart from a run the detector under-counted, which is the difference
+    between genuine bradykinesia and a participant who taps without opening
+    the hand fully."""
 
     def __init__(self, min_intertap_s: float, ema_alpha: float,
                  d_closed: float, d_open: float):
@@ -114,6 +121,10 @@ class TapDetector:
         self.tap_times: list[float] = []
         self.series: list[tuple[float, float]] = []
         self.last_tap_t: float = -1e9
+        self.near_miss = 0
+        self._dip_min: float | None = None
+        self._frames = 0
+        self._closed_frames = 0
 
     def update(self, t: float, d_raw: float | None) -> bool:
         """Feed one frame's distance sample. Returns True if a tap registered."""
@@ -123,17 +134,39 @@ class TapDetector:
             self.ema_alpha * d_raw + (1 - self.ema_alpha) * self._ema)
         d = self._ema
         self.series.append((t, d))
+        self._frames += 1
         tapped = False
         if not self._closed and d < self.close_at:
             self._closed = True
+            self._dip_min = None          # this dip closed; not a near miss
             if t - self.last_tap_t >= self.min_intertap_s:
                 self.tap_times.append(t)
                 self.last_tap_t = t
                 tapped = True
         elif self._closed and d > self.open_at:
             self._closed = False
+            self._dip_min = None
+        elif not self._closed:
+            # Open: track how deep this dip goes. Rising back over open_at
+            # without ever reaching close_at is the near miss.
+            if d < self.open_at:
+                self._dip_min = d if self._dip_min is None else min(self._dip_min, d)
+            elif self._dip_min is not None:
+                self.near_miss += 1
+                self._dip_min = None
+        if self._closed:
+            self._closed_frames += 1
         return tapped
 
     @property
     def smoothed(self) -> float | None:
         return self._ema
+
+    @property
+    def closed_dwell_frac(self) -> float:
+        """Share of frames spent below the close threshold. A high value with
+        few taps means the hysteresis is holding closed, not that the hand
+        stopped moving."""
+        if self._frames == 0:
+            return 0.0
+        return self._closed_frames / self._frames

@@ -629,7 +629,7 @@ def sessions_payload() -> dict:
 
 
 def session_payload(session_id: str) -> dict | None:
-    """One session by id, ``raw`` included — what the report drawer draws.
+    """One session by id, ``raw`` included — what the report panel draws.
 
     The id is matched against the ``session_id`` *inside* each file rather than
     used to build a path: the query string is attacker-controlled on the

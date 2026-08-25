@@ -40,6 +40,7 @@ sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import pa
 
 # Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
 # ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core import i18n
 from core.splash import Splash, GAZE_IMPORT_STEPS
 _splash = Splash("Eye Movement Test (Pro/Anti-saccade)",
                  "Part 1: look toward - Part 2: look away - Part 3: hold still",
@@ -60,6 +61,7 @@ from core.gaze.fixation import (FixationAnalyzer, FixationResult,
                                 HOLD_S as FIX_HOLD_S, SETTLE_S as FIX_SETTLE_S)
 from core.gaze.metrics import (compute_metrics, ERROR_TYPICAL_PCT,
                                ERROR_MONITOR_PCT)
+from core.gaze.openness import BLINK_FRAC, VERTICAL_FRAC
 from core.gaze.tasks import TASKS, BLOCK_ORDER, SaccadeTask, build_directions
 from core.gaze.tracker import GazeTracker, GazeSample
 from core.ui import theme
@@ -79,6 +81,10 @@ DIM_ALPHA = 0.80            # video dim during stimulus phases (dot salience)
 CARD_DIM = 0.96
 CARD_PANEL_ALPHA = 0.98
 FEEDBACK_S = 0.9            # practice per-trial feedback pause
+# A blink is ~0.15 s and every run is full of them, so the "eyes not readable"
+# state is only surfaced once it has persisted well past one — otherwise the
+# chip strobes and the coaching means nothing.
+EYES_WARN_S = 0.7
 
 # ── States ─────────────────────────────────────────────────────────────────
 IDLE, INSTRUCTION, CALIBRATION, COUNTDOWN, PRACTICE, RECORDING, COMPLETE = (
@@ -145,6 +151,8 @@ class App:
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
         self.fps = 30.0
+        self._eyes_bad_since: float | None = None
+        self.eyes_stalled = False       # eyes unreadable for longer than a blink
         self._last_frame_t: float | None = None
         self._dim_solid = None          # cached solid for dim_frame
 
@@ -167,6 +175,9 @@ class App:
         self.raw_trials: dict[str, list[dict]] = {"pro": [], "anti": []}
         self.face_frames = 0
         self.visible_frames = 0
+        self.gaze_frames = 0            # frames with a usable iris reading
+        self._cal_noface = 0            # calibration stall causes, for coaching
+        self._cal_shut = 0
         self.recording_time = 0.0
         self._rec_t0: float | None = None
         self.fixation: FixationAnalyzer | None = None
@@ -201,6 +212,17 @@ class App:
         return x <= mx <= x + w and y <= my <= y + h
 
     # ── per-frame gaze pipeline ───────────────────────────────────────────
+    def _track_eye_state(self, sample: GazeSample | None, now: float) -> None:
+        """Latch how long the iris has been unreadable while a face is tracked,
+        so blinks (~0.15 s) don't flicker the chip or fire the coaching."""
+        unreadable = sample is not None and sample.ratio is None
+        if not unreadable:
+            self._eyes_bad_since = None
+        elif self._eyes_bad_since is None:
+            self._eyes_bad_since = now
+        self.eyes_stalled = (self._eyes_bad_since is not None
+                             and now - self._eyes_bad_since >= EYES_WARN_S)
+
     def detect_gaze(self, frame, now: float) -> GazeSample | None:
         # Adaptive load shedding: skip CLAHE+sharpen when slow (as tapping does).
         rgb = preprocess_for_mediapipe(frame, enable=self.fps >= 20)
@@ -240,33 +262,84 @@ class App:
               outline="brand", outline_w=3)
 
     def draw_eye_markers(self, c: Canvas, sample: GazeSample | None):
+        """Iris + corner dots, drawn on the person's own eyes. The iris colour
+        is the gate's verdict, so the fastest feedback loop in the test — move
+        your lids, watch the dots change — needs no reading."""
         if sample is None:
             return
+        color = "brand" if sample.ratio is not None else "warning"
         for (x, y) in sample.iris_px:
-            c.dot(x, y, 3, "brand")
+            c.dot(x, y, 3, color)
         for (x, y) in sample.corners_px:
             c.dot(x, y, 2, "surface-2")
+
+    def eye_meter(self, c: Canvas, x: int, y: int, sample: GazeSample | None,
+                  w: int = 236) -> None:
+        """Lid-openness readout: how far this person's eyes are open relative
+        to their *own* open baseline, with the blink gate marked on the track.
+
+        Relative, not absolute, on purpose — a narrow palpebral fissure reads
+        as fully open here, so the meter never nags somebody about the eyes
+        they have. It only moves when their lids actually close on the shot.
+        """
+        h = 76
+        c.panel(x, y, w, h)
+        pad = theme.SPACE[2]
+        c.text(x + pad, y + 16, i18n.t("Eye opening"), role="caption",
+               color="text-muted")
+        frac = sample.open_frac if sample is not None else None
+        bar_w = w - 2 * pad
+        bar_y = y + 36
+        if frac is None:
+            c.progress_bar(x + pad, bar_y, bar_w, 0.0, color="surface-2")
+            msg, color = ((i18n.t("Face the camera"), "text-muted")
+                          if sample is None else
+                          (i18n.t("Looking for your eyes..."), "text-muted"))
+        else:
+            if sample.ratio is not None:
+                status = "success" if frac >= VERTICAL_FRAC else "warning"
+                msg = (i18n.t("Eyes tracked") if frac >= VERTICAL_FRAC
+                       else i18n.t("Narrowing - open wider"))
+            else:
+                status = "danger"
+                msg = i18n.t("Eyes read as closed")
+            c.progress_bar(x + pad, bar_y, bar_w, min(1.0, frac), color=status)
+            color = status
+        # the gate itself, drawn on the track: everything left of the tick is
+        # a frame the test has to throw away.
+        tick = x + pad + int(bar_w * BLINK_FRAC)
+        c.polyline([(tick, bar_y - 3), (tick, bar_y + 11)], "text-muted",
+                   thickness=1, alpha=0.8)
+        c.text(x + pad, y + 56, msg, role="caption", color=color)
+
 
     # ── screens ───────────────────────────────────────────────────────────
     def screen_idle(self, c: Canvas, now: float, sample: GazeSample | None):
         self.draw_eye_markers(c, sample)
         w, h = c.w, c.h
+        self.eye_meter(c, theme.SAFE_MARGIN, h - 26 - 12 - 76, sample)
         pw = min(540, w - 2 * theme.SAFE_MARGIN)
         px, py, ph = (w - pw) // 2, h // 2 - 140, 250
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 36, "Eye Movement Test", role="h1", anchor="mm")
-        c.text(w // 2, py + 74, "Measures how quickly and accurately your eyes",
+        c.text(w // 2, py + 36, i18n.t("Eye Movement Test"), role="h1",
+               anchor="mm")
+        c.text(w // 2, py + 74,
+               i18n.t("Measures how quickly and accurately your eyes"),
                role="body", color="text-muted", anchor="mm")
-        c.text(w // 2, py + 98, "respond - a marker studied in early cognitive decline.",
+        c.text(w // 2, py + 98,
+               i18n.t("respond - a marker studied in early cognitive decline."),
                role="body", color="text-muted", anchor="mm")
-        c.text(w // 2, py + 128, "Two short parts, about 4 minutes total.",
+        c.text(w // 2, py + 128,
+               i18n.t("Two short parts, about 4 minutes total."),
                role="body", color="text-muted", anchor="mm")
         bw = pw - 2 * theme.SPACE[4]
         b1 = c.button(px + theme.SPACE[4], py + 156, bw, 48,
-                      "Start Eye Movement Test", variant="primary",
+                      i18n.t("Start Eye Movement Test"), variant="primary",
                       hovered=self.hover(px + theme.SPACE[4], py + 156, bw, 48),
                       icon="play")
-        c.text(w // 2, py + 226, "Sit about arm's length from the screen, face the camera.",
+        c.text(w // 2, py + 226,
+               i18n.t("Sit about arm's length from the screen, "
+                      "face the camera."),
                role="caption", color="text-muted", anchor="mm")
         c.disclaimer()
         if self.hit(b1):
@@ -276,22 +349,25 @@ class App:
     def screen_instruction(self, c: Canvas, now: float):
         w, h = c.w, c.h
         task = self.task
-        lines = task.instructions
+        # keyed, not line by line: Chinese sets its own line breaks
+        lines = i18n.tk(f"gaze.{task.key}.instructions", task.instructions)
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
         c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
-        c.text(w // 2, py + 34, task.title, role="h2", anchor="mm", color="brand")
+        c.text(w // 2, py + 34, i18n.t(task.title), role="h2", anchor="mm",
+               color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
-        next_line = ("Next: a quick calibration - just look at three dots."
-                     if self.gaze_map is None else
-                     "First a few practice tries, then the scored part.")
+        next_line = i18n.t(
+            "Next: a quick calibration - just look at three dots."
+            if self.gaze_map is None else
+            "First a few practice tries, then the scored part.")
         c.text(w // 2, py + 84 + len(lines) * 30, next_line,
                role="caption", color="text-muted", anchor="mm")
         bw = 200
         bx, by = w // 2 - bw // 2, py + ph - 64
-        b = c.button(bx, by, bw, 48, "I'm Ready", variant="success",
+        b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
         if self.hit(b):
@@ -312,13 +388,20 @@ class App:
         w, h = c.w, c.h
         cal = self.calibrator
         ratio = sample.ratio if sample is not None else None
+        if ratio is None:                    # why this frame was dropped
+            if sample is None:
+                self._cal_noface += 1
+            else:
+                self._cal_shut += 1
         advanced = cal.update(now, ratio)
         if advanced:
             self.audio.play(self.tick_wav)
 
         if cal.failed:
-            self.toasts.show(cal.fail_reason, "warning", hold=3.0, now=now)
+            self.toasts.show(i18n.t(cal.fail_reason), "warning", hold=3.0,
+                             now=now)
             self.calibrator = GazeCalibrator(now)   # auto-restart
+            self._cal_noface = self._cal_shut = 0
             return
         if cal.done:
             self.gaze_map = cal.result()
@@ -336,18 +419,34 @@ class App:
         pw = min(520, w - 2 * theme.SAFE_MARGIN)
         px, py, ph = (w - pw) // 2, h - 190, 118
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 28, "Calibration: look at the glowing dot",
+        c.text(w // 2, py + 28, i18n.t("Calibration: look at the glowing dot"),
                role="body_l", anchor="mm")
-        c.text(w // 2, py + 54, "Keep your head still - move only your eyes.",
+        c.text(w // 2, py + 54,
+               i18n.t("Keep your head still - move only your eyes."),
                role="caption", color="text-muted", anchor="mm")
         c.progress_bar(px + theme.SPACE[4], py + 84, pw - 2 * theme.SPACE[4],
                        cal.progress, color="warning",
                        label=f"{int(cal.progress * 100)} %")
+        self.draw_eye_markers(c, sample)
+        self.eye_meter(c, theme.SAFE_MARGIN, 56, sample)
         if sample is None:
-            self.toasts.show("Show your face to the camera", "warning", now=now)
+            self.toasts.show(i18n.t("Show your face to the camera"), "warning",
+                             now=now)
+        elif self.eyes_stalled:
+            self.toasts.show(i18n.t("Your eyes are reading as closed - open "
+                                    "them wide and hold"), "warning", now=now)
         elif cal.stage_timed_out(now):
-            self.toasts.show("Having trouble? Sit closer and add a little light",
-                             "info", hold=3.0, now=now)
+            # A stalled stage has a cause, and the two have opposite fixes:
+            # name whichever one has been eating the frames.
+            if self._cal_shut > self._cal_noface:
+                self.toasts.show(
+                    i18n.t("Having trouble? Add light, and raise the camera "
+                           "to eye level so your lids don't cover the iris"),
+                    "info", hold=4.0, now=now)
+            else:
+                self.toasts.show(
+                    i18n.t("Having trouble? Sit closer and add a little light"),
+                    "info", hold=3.0, now=now)
 
     def screen_countdown(self, c: Canvas, now: float):
         w, h = c.w, c.h
@@ -365,7 +464,8 @@ class App:
         c.draw.text((w // 2, h // 2), str(remaining),
                     font=get_font("bold", int(64 * scale)),
                     fill=theme.rgba("text", 1.0), anchor="mm")
-        c.text(w // 2, h // 2 - 100, "Get ready...", role="h2", anchor="mm",
+        c.text(w // 2, h // 2 - 100, i18n.t("Get ready..."), role="h2",
+               anchor="mm",
                color="text-muted")
         if int(elapsed) != getattr(self, "_last_tick", -1):
             self._last_tick = int(elapsed)
@@ -384,7 +484,7 @@ class App:
         self._rec_t0 = now
         self._begin_fixation(now)
         self.goto(RECORDING, now)
-        self.toasts.show("Scored part - keep going", "info", now=now)
+        self.toasts.show(i18n.t("Scored part - keep going"), "info", now=now)
 
     def _begin_fixation(self, now: float):
         self.phase = FIXATION
@@ -432,13 +532,13 @@ class App:
 
     def _feedback_copy(self, res: TrialResult) -> tuple[str, str]:
         if res.outcome == "correct":
-            return "Correct", "success"
+            return i18n.t("Correct"), "success"
         if res.outcome in ("error_uncorrected", "error_corrected"):
-            return ("Look AWAY from the dot" if self.task.is_anti
-                    else "Look AT the dot"), "warning"
+            return i18n.t("Look AWAY from the dot" if self.task.is_anti
+                          else "Look AT the dot"), "warning"
         if res.outcome == "anticipatory":
-            return "A little early - wait for the dot", "info"
-        return "Eyes not detected - face the camera", "warning"
+            return i18n.t("A little early - wait for the dot"), "info"
+        return i18n.t("Eyes not detected - face the camera"), "warning"
 
     def screen_trials(self, c: Canvas, now: float, pos: float | None,
                       sample: GazeSample | None):
@@ -450,6 +550,8 @@ class App:
             self.face_frames += 1
             if sample is not None:
                 self.visible_frames += 1
+                if sample.ratio is not None:
+                    self.gaze_frames += 1
 
         if self.phase == FIXATION:
             self.draw_cross(c)
@@ -487,33 +589,40 @@ class App:
 
         # phase label + progress
         n = self.task.n_practice if practice else self.task.n_trials
-        label = "Practice" if practice else self.task.title
-        c.text(theme.SAFE_MARGIN, 68, f"{label}  -  trial {min(self.trial_idx + 1, n)} of {n}",
+        label = i18n.t("Practice") if practice else i18n.t(self.task.title)
+        c.text(theme.SAFE_MARGIN, 68,
+               i18n.t("{label}  -  trial {n} of {total}", label=label,
+                      n=min(self.trial_idx + 1, n), total=n),
                role="body_sb", color="warning" if practice else "text")
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        self.trial_idx / n,
                        color="warning" if practice else "success",
-                       label="practice" if practice else "scored")
+                       label=i18n.t("practice") if practice
+                       else i18n.t("scored"))
         if sample is None:
-            self.toasts.show("Face the camera", "warning", now=now)
+            self.toasts.show(i18n.t("Face the camera"), "warning", now=now)
+        elif self.eyes_stalled:
+            self.toasts.show(i18n.t("Open your eyes wide - keep watching "
+                                    "the dot"), "warning", now=now)
 
     # ── fixation-stability block (Part 3) ─────────────────────────────────
     def screen_fix_intro(self, c: Canvas, now: float):
         w, h = c.w, c.h
-        lines = FIX_INSTRUCTIONS
+        lines = i18n.tk("gaze.fix.instructions", FIX_INSTRUCTIONS)
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
         c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
-        c.text(w // 2, py + 34, FIX_TITLE, role="h2", anchor="mm", color="brand")
+        c.text(w // 2, py + 34, i18n.t(FIX_TITLE), role="h2", anchor="mm",
+               color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
         c.text(w // 2, py + 84 + len(lines) * 30,
-               "Last part - about 12 seconds, then you're done.",
+               i18n.t("Last part - about 12 seconds, then you're done."),
                role="caption", color="text-muted", anchor="mm")
         bw = 200
         bx, by = w // 2 - bw // 2, py + ph - 64
-        b = c.button(bx, by, bw, 48, "I'm Ready", variant="success",
+        b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
         if self.hit(b):
@@ -537,12 +646,16 @@ class App:
         c.ring(w // 2, h // 2, 46, "surface-2", thickness=4, alpha=0.5)
         c.ring(w // 2, h // 2, 46, "brand", thickness=4, sweep_deg=360 * frac)
 
-        c.text(w // 2, h // 2 + 96, "Hold still - keep looking at the +",
+        c.text(w // 2, h // 2 + 96,
+               i18n.t("Hold still - keep looking at the +"),
                role="body_l", anchor="mm")
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
-                       frac, color="brand", label="hold steady")
+                       frac, color="brand", label=i18n.t("hold steady"))
         if sample is None:
-            self.toasts.show("Face the camera", "warning", now=now)
+            self.toasts.show(i18n.t("Face the camera"), "warning", now=now)
+        elif self.eyes_stalled:
+            self.toasts.show(i18n.t("Open your eyes wide - keep looking at "
+                                    "the +"), "warning", now=now)
 
         if elapsed >= total:
             self.fix_result = self.fixation.finalize()
@@ -552,9 +665,14 @@ class App:
     def _finish_run(self, now: float):
         visible_ratio = (self.visible_frames / self.face_frames
                          if self.face_frames else 0.0)
+        # Distinct from face visibility: the face can be in frame the whole
+        # run while the lids hide the iris, and only this ratio shows it.
+        gaze_ratio = (self.gaze_frames / self.face_frames
+                      if self.face_frames else 0.0)
         self.results = compute_metrics(self.block_results["pro"],
                                        self.block_results["anti"],
-                                       face_visible_ratio=visible_ratio)
+                                       face_visible_ratio=visible_ratio,
+                                       gaze_valid_ratio=gaze_ratio)
         self.audio.play(self.done_wav)
         gm = self.gaze_map
         raw = {
@@ -564,6 +682,7 @@ class App:
                             "right": round(gm.right, 4),
                             "deadband": round(gm.deadband, 3)},
             "face_visible_ratio": round(visible_ratio, 3),
+            "gaze_valid_ratio": round(gaze_ratio, 3),
         }
         metrics = {k: v for k, v in self.results.items()
                    if k not in ("pro_block", "anti_block")}
@@ -630,6 +749,9 @@ class App:
                     ("Valid anti trials", f"{r['valid_anti_trials']}/{TASKS['anti'].n_trials}"),
                     ("Valid pro trials", f"{r['valid_pro_trials']}/{TASKS['pro'].n_trials}"),
                     ("Excluded (too early)", f"{r['anticipatory_count']}")]
+            if r.get("gaze_valid_ratio", 1.0) < 0.9:
+                rows.append(("Eyes readable",
+                             fmt(r["gaze_valid_ratio"] * 100, " %")))
             fr = self.fix_result
             if fr is not None and fr.scoreable:
                 rows += [("Fixation jitter", fmt(fr.rms_jitter * 100, " %", 1)),
@@ -647,22 +769,15 @@ class App:
             btn_off = y + 26
         else:
             reason = r["reason"] or "Something went wrong - please try again."
-            words, lines, cur = reason.split(), [], ""
-            for word in words:
-                if len(cur) + len(word) + 1 > 48:
-                    lines.append(cur)
-                    cur = word
-                else:
-                    cur = f"{cur} {word}".strip()
-            lines.append(cur)
-            lines = lines[:3]
+            # i18n.wrap, not split(): Chinese has no spaces to break on.
+            lines = i18n.wrap(i18n.t(reason), 48)[:3]
             btn_off = 108 + len(lines) * 26 + 12
         ph = btn_off + bh + 14
 
         px, py = (w - pw) // 2, max(56, (h - ph) // 2)
         c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
-        c.text(w // 2, py + 30, "Eye Movement Test - Results", role="h2",
-               anchor="mm")
+        c.text(w // 2, py + 30, i18n.t("Eye Movement Test - Results"),
+               role="h2", anchor="mm")
 
         if r["scoreable"]:
             val = self.countup.value(now) if self.countup else r["error_rate_pct"]
@@ -670,37 +785,43 @@ class App:
             c.draw.text((w // 2, py + 90), f"{val:.0f}%",
                         font=get_font("mono", 56),
                         fill=theme.rgba(r["status"], 1.0), anchor="mm")
-            c.text(w // 2, py + 126, "Anti-saccade errors (looked toward the dot)",
+            c.text(w // 2, py + 126,
+                   i18n.t("Anti-saccade errors (looked toward the dot)"),
                    role="caption", color="text-muted", anchor="mm")
-            c.badge(w // 2, py + 140, r["label"], r["status"])
+            c.badge(w // 2, py + 140, i18n.t(r["label"]), r["status"])
             col_w = (pw - 3 * theme.SPACE[4]) // 2
             for i, (label, valstr) in enumerate(rows):
                 rx = px + theme.SPACE[4] + (i % 2) * (col_w + theme.SPACE[4])
                 ry = py + 190 + (i // 2) * 24
-                c.text(rx, ry, label, role="caption", color="text-muted")
+                c.text(rx, ry, i18n.t(label), role="caption",
+                       color="text-muted")
                 c.text(rx + col_w, ry, valstr, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
-                   f"Typical < {ERROR_TYPICAL_PCT:.0f}% | monitor "
-                   f"{ERROR_TYPICAL_PCT:.0f}-{ERROR_MONITOR_PCT:.0f}% | "
-                   f"elevated > {ERROR_MONITOR_PCT:.0f}%",
+                   i18n.t("Typical < {typical}% | monitor {typical}-{monitor}% "
+                          "| elevated > {monitor}%",
+                          typical=f"{ERROR_TYPICAL_PCT:.0f}",
+                          monitor=f"{ERROR_MONITOR_PCT:.0f}"),
                    role="caption", color="text-muted", anchor="mm")
             if note2_off is not None:
                 c.text(w // 2, py + note2_off,
-                       "Short screening form - fewer trials than a clinical test.",
+                       i18n.t("Short screening form - fewer trials than a "
+                              "clinical test."),
                        role="caption", color="text-muted", anchor="mm")
             if self.saved_path:
                 c.text(w // 2, py + saved_off,
-                       f"Saved: results/{self.saved_path.name}",
+                       i18n.t("Saved: results/{name}",
+                              name=self.saved_path.name),
                        role="caption", color="text-muted", anchor="mm")
         else:
-            c.badge(w // 2, py + 52, "Couldn't score this run", "warning")
+            c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
+                    "warning")
             for i, line in enumerate(lines):
                 c.text(w // 2, py + 108 + i * 26, line, role="body",
                        color="text-muted", anchor="mm")
 
         bw = 160
         bx, by = w // 2 - bw // 2, py + btn_off
-        b = c.button(bx, by, bw, bh, "Try Again", variant="primary",
+        b = c.button(bx, by, bw, bh, i18n.t("Try Again"), variant="primary",
                      hovered=self.hover(bx, by, bw, bh))
         c.disclaimer()
         if self.hit(b):
@@ -728,19 +849,27 @@ class App:
 
             sample = self.detect_gaze(frame, now)
             pos = self.gaze_pos(sample)
+            self._track_eye_state(sample, now)
 
             dim = DIM_BY_STATE.get(self.state)
             if dim:
                 self.dim_frame(frame, dim)
             c = Canvas(frame)
-            chips = [("Face detected", "success") if sample is not None
-                     else ("Face the camera", "warning")]
+            # Three states, not two: a tracked face whose eyes are shut yields
+            # no gaze at all, and the old chip called that "Face detected" —
+            # green, while the run quietly collected nothing.
+            if sample is None:
+                chips = [(i18n.t("Face the camera"), "warning")]
+            elif self.eyes_stalled:
+                chips = [(i18n.t("Eyes not readable"), "warning")]
+            else:
+                chips = [(i18n.t("Eyes tracked"), "success")]
             if self.fps < 24:
                 chips.append((f"{self.fps:.0f} fps", "warning"))
             if self.state in (FIX_INTRO, FIX_HOLD):
-                bar_title = FIX_TITLE
+                bar_title = i18n.t(FIX_TITLE)
             elif self.state != IDLE:
-                bar_title = self.task.title
+                bar_title = i18n.t(self.task.title)
             else:
                 bar_title = ""
             c.status_bar(chips, bar_title)

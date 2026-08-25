@@ -25,6 +25,9 @@ THRESHOLDS_NOTE = ("Bands anchored to published healthy (~6%) and AD (~25%) "
 MIN_VALID_PRO = 8            # of 16 scored prosaccade trials
 MIN_VALID_ANTI = 12          # of 24 scored anti-saccade trials
 MIN_FACE_RATIO = 0.8
+# Frames whose iris was readable, as a fraction of frames with a face. Low
+# here with a high face ratio means the lids, not the framing, cost the run.
+MIN_GAZE_RATIO = 0.7
 
 
 def _sd(vals: list[float]) -> float | None:
@@ -70,7 +73,8 @@ def block_stats(trials: list[TrialResult]) -> dict:
 
 def compute_metrics(pro_trials: list[TrialResult],
                     anti_trials: list[TrialResult],
-                    face_visible_ratio: float = 1.0) -> dict:
+                    face_visible_ratio: float = 1.0,
+                    gaze_valid_ratio: float = 1.0) -> dict:
     """Score one run (pro block + anti block). Always returns a dict;
     `scoreable` is False with a specific human-readable `reason` when the
     headline can't be computed (mirrors the tapping test's honest handling)."""
@@ -90,6 +94,7 @@ def compute_metrics(pro_trials: list[TrialResult],
         "valid_anti_trials": anti["valid"],
         "valid_pro_trials": pro["valid"],
         "face_visible_ratio": round(face_visible_ratio, 3),
+        "gaze_valid_ratio": round(gaze_valid_ratio, 3),
         "pro_block": pro,
         "anti_block": anti,
         "status": None, "label": None,
@@ -99,6 +104,12 @@ def compute_metrics(pro_trials: list[TrialResult],
         if face_visible_ratio < MIN_FACE_RATIO:
             out["reason"] = ("Your face was out of view for part of the test - "
                              "sit facing the camera and try again.")
+        elif gaze_valid_ratio < MIN_GAZE_RATIO:
+            out["reason"] = (
+                f"Your eyes could only be read on "
+                f"{gaze_valid_ratio * 100:.0f}% of frames - add light, and "
+                f"raise the camera to eye level so your eyelids don't cover "
+                f"the iris.")
         elif anti["no_response"] > anti["valid"]:
             out["reason"] = ("Too few eye movements were detected - the dot "
                              "may be hard to see, or the room too dark.")

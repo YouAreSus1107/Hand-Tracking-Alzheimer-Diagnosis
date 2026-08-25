@@ -217,7 +217,7 @@
           <div class="detail-file">screening_tests/finger_tapping.py</div>
           <p data-i18n="iiv.lede">Tap your index finger to your thumb rhythmically.</p>
           <div class="detail-tags">
-            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (10 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
+            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (15 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
             <span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span><span class="detail-tag" data-i18n="iiv.tag4">CV% headline metric</span>
           </div>
           <div class="detail-actions" id="iiv-actions"></div>
@@ -227,10 +227,10 @@
         <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="iiv.how.intro">Two modes share the same detection engine. Both start with the same calibration. They differ in how you pace the taps.</p>
         <div class="mode-split">
           <div class="mode-col">
-            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">10 s &#183; self-paced &#183; primary</span></div>
+            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">15 s &#183; self-paced &#183; primary</span></div>
             <div class="steps">
               <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the tap threshold for your hand size.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 10 seconds</strong>. The app measures tip-to-tip distance on every frame. Most people top out around 5 to 7 taps per second.</p></div></div>
+              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 15 seconds</strong>. The app measures tip-to-tip distance on every frame. Most people top out around 5 to 7 taps per second.</p></div></div>
               <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode1.s3.h">Score</h4><p data-i18n="iiv.mode1.s3.p">The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
             </div>
           </div>
@@ -253,7 +253,7 @@
           <div class="metric-card"><h4 data-i18n="iiv.m4.h">Amplitude CV (%)</h4><p data-i18n="iiv.m4.p">Variability of the valley-to-peak opening excursion from tap to tap.</p><div class="metric-num" data-i18n="iiv.m4.num">span-normalized per tap</div><div class="metric-cite" data-i18n="iiv.m4.cite">Magnetic-sensor tap amplitude/regularity &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9716461/" target="_blank" rel="noopener">Suzumura 2022</a></div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m5.h">Beat-sync SD (ms) &#183; paced only</h4><p data-i18n="iiv.m5.p">Standard Deviation of each tap&#8217;s latency to its nearest beep (matched within a &#177;500 ms window).</p><div class="metric-num" data-i18n="iiv.m5.num">lower = tighter to the beat</div><div class="metric-cite" data-i18n="iiv.m5.cite">Project-specific rhythm metric &#8212; no cited normative source.</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="iiv.note">A run needs at least <strong>10 taps</strong> </p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="iiv.note">A run needs at least <strong>6 taps</strong>; every result includes a confidence level based on the number and quality of measured intervals. </p>
       </div>
       <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
         <div class="paper"><h4 data-i18n="iiv.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Quantitative Finger Tapping in MCI, Alzheimer's &amp; Parkinson's</a></h4><div class="paper-authors" data-i18n="iiv.p1.authors">Roalf et al., 2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087</div><p data-i18n="iiv.p1.body">They tested 302 people (131 AD, 63 PD, 46 MCI, 62 healthy) with a light-diode finger tapper. Variability in the gaps between taps was higher in every neurodegenerative group, and it separated the groups better than tap count or average speed. We cite it because our headline <strong>CV% / IIV</strong> metric comes from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p1.tag">Source of our IIV / CV metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
@@ -456,7 +456,7 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- Session report drawer (report.js). Opened by clicking a point or a session
+<!-- Session report panel (report.js). Opened by clicking a point or a session
      pill on the Analysis page; empty until then. -->
 <div class="report-backdrop" id="report-backdrop" hidden></div>
 <aside class="report" id="report" hidden role="dialog" aria-modal="true"

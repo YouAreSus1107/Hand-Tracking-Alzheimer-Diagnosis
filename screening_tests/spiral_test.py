@@ -39,6 +39,7 @@ sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import pa
 
 # Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
 # ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core import i18n
 from core.splash import Splash, IMPORT_STEPS
 _splash = Splash("Spiral Tracing Test",
                  "Click 'Start Test' in the camera window.  Q to quit.",
@@ -315,14 +316,16 @@ class App:
         pw = min(520, w - 2 * theme.SAFE_MARGIN)
         px, py, ph = (w - pw) // 2, h // 2 - 118, 212
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 36, "Spiral Tracing Test", role="h1", anchor="mm")
-        c.text(w // 2, py + 74, "Measures movement smoothness and jitter -",
+        c.text(w // 2, py + 36, i18n.t("Spiral Tracing Test"), role="h1",
+               anchor="mm")
+        c.text(w // 2, py + 74,
+               i18n.t("Measures movement smoothness and jitter -"),
                role="body", color="text-muted", anchor="mm")
-        c.text(w // 2, py + 98, "markers studied in cognitive decline.",
+        c.text(w // 2, py + 98, i18n.t("markers studied in cognitive decline."),
                role="body", color="text-muted", anchor="mm")
         bw = pw - 2 * theme.SPACE[4]
         bx, by = px + theme.SPACE[4], py + 132
-        b = c.button(bx, by, bw, 48, "Start Test", variant="primary",
+        b = c.button(bx, by, bw, 48, i18n.t("Start Test"), variant="primary",
                      hovered=self.hover(bx, by, bw, 48), icon="play")
         c.disclaimer()
         if self.hit(b):
@@ -331,21 +334,23 @@ class App:
 
     def screen_instruction(self, c: Canvas, now: float):
         w, h = c.w, c.h
-        lines = INSTRUCTIONS
+        # keyed, not line by line: Chinese sets its own line breaks
+        lines = i18n.tk("spiral.instructions", INSTRUCTIONS)
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         ph = 120 + len(lines) * 30 + 84
         px, py = (w - pw) // 2, (h - ph) // 2
         c.panel(px, py, pw, ph)
-        c.text(w // 2, py + 34, "Your Task", role="h2", anchor="mm",
+        c.text(w // 2, py + 34, i18n.t("Your Task"), role="h2", anchor="mm",
                color="brand")
         for i, line in enumerate(lines):
             c.text(w // 2, py + 78 + i * 30, line, role="body_l", anchor="mm")
         c.text(w // 2, py + 84 + len(lines) * 30,
-               f"{WARMUP_DURATION}s practice, then trace the spiral once at your pace.",
+               i18n.t("{secs}s practice, then trace the spiral once at your pace.",
+                      secs=WARMUP_DURATION),
                role="caption", color="text-muted", anchor="mm")
         bw = 200
         bx, by = w // 2 - bw // 2, py + ph - 64
-        b = c.button(bx, by, bw, 48, "I'm Ready", variant="success",
+        b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
         if self.hit(b):
@@ -367,7 +372,8 @@ class App:
         c.draw.text((w // 2, h // 2), str(remaining),
                     font=get_font("bold", int(64 * scale)),
                     fill=theme.rgba("text", 1.0), anchor="mm")
-        c.text(w // 2, h // 2 - 100, "Get ready...", role="h2", anchor="mm",
+        c.text(w // 2, h // 2 - 100, i18n.t("Get ready..."), role="h2",
+               anchor="mm",
                color="text-muted")
         if int(elapsed) != getattr(self, "_last_tick", -1):
             self._last_tick = int(elapsed)
@@ -415,15 +421,17 @@ class App:
         pw = min(480, w - 2 * theme.SAFE_MARGIN)
         px, py = (w - pw) // 2, h - 160
         c.panel(px, py, pw, 88)
-        c.text(w // 2, py + 26, "Practice - not scored yet", role="body_l",
-               anchor="mm", color="warning")
-        c.text(w // 2, py + 52, f"Scored test begins in {remaining:.0f} s",
+        c.text(w // 2, py + 26, i18n.t("Practice - not scored yet"),
+               role="body_l", anchor="mm", color="warning")
+        c.text(w // 2, py + 52,
+               i18n.t("Scored test begins in {secs} s", secs=f"{remaining:.0f}"),
                role="body", color="text-muted", anchor="mm")
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        elapsed / WARMUP_DURATION, color="warning",
-                       label="warm-up")
+                       label=i18n.t("warm-up"))
         if landmarks is None:
-            self.toasts.show("Follow the dot around the circle", "warning", now=now)
+            self.toasts.show(i18n.t("Follow the dot around the circle"),
+                             "warning", now=now)
 
     def screen_prepare(self, c: Canvas, now: float, landmarks):
         w, h = c.w, c.h
@@ -463,13 +471,13 @@ class App:
         pw = min(480, w - 2 * theme.SAFE_MARGIN)
         px, py = (w - pw) // 2, h - 150
         c.panel(px, py, pw, 78)
-        c.text(w // 2, py + 26, "Get ready to start", role="body_l",
+        c.text(w // 2, py + 26, i18n.t("Get ready to start"), role="body_l",
                anchor="mm", color="brand")
-        msg = ("Hold steady..." if at_center
-               else "Move your fingertip onto the center dot to begin.")
+        msg = i18n.t("Hold steady..." if at_center
+                     else "Move your fingertip onto the center dot to begin.")
         c.text(w // 2, py + 52, msg, role="body", color="text-muted", anchor="mm")
         if landmarks is None:
-            self.toasts.show("Show your hand, then touch the center dot",
+            self.toasts.show(i18n.t("Show your hand, then touch the center dot"),
                              "warning", now=now)
 
     def screen_recording(self, c: Canvas, now: float, landmarks, raw_tip):
@@ -502,7 +510,8 @@ class App:
                 return
         else:
             self._prev_angle = None    # don't fabricate a jump on re-acquisition
-            self.toasts.show("Keep your hand in the frame", "warning", now=now)
+            self.toasts.show(i18n.t("Keep your hand in the frame"), "warning",
+                             now=now)
 
         # traced-so-far highlight follows the USER's progress, not a clock
         if self._max_reached_idx > 1:
@@ -517,13 +526,18 @@ class App:
         prog = self._max_reached_idx / max(1, SPIRAL_NUM_POINTS - 1)
         c.panel(theme.SAFE_MARGIN, 60, 200, 76, alpha=0.75, radius=12,
                 shadow=False)
-        c.text(theme.SAFE_MARGIN + 14, 76, f"Time   {elapsed:.0f} s",
-               role="body_sb", mono=True)
-        c.text(theme.SAFE_MARGIN + 14, 104, f"Trace  {prog * 100:.0f} %",
-               role="body_sb", mono=True)
+        # translated label, mono value: the digits stay tabular as they tick
+        val_x = theme.SAFE_MARGIN + 186
+        c.text(theme.SAFE_MARGIN + 14, 76, i18n.t("Time"), role="body_sb")
+        c.text(val_x, 76, f"{elapsed:.0f} s", role="body_sb", anchor="ra",
+               mono=True)
+        c.text(theme.SAFE_MARGIN + 14, 104, i18n.t("Trace"), role="body_sb")
+        c.text(val_x, 104, f"{prog * 100:.0f} %", role="body_sb", anchor="ra",
+               mono=True)
 
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
-                       prog, color="success", label="trace out to the edge")
+                       prog, color="success",
+                       label=i18n.t("trace out to the edge"))
 
     def _update_live_status(self, now: float):
         """Recompute the rolling smoothness band from the recent raw fingertip
@@ -610,21 +624,14 @@ class App:
             btn_off = (saved_off if self.saved_path else caveat_off) + 24
         else:
             reason = r.get("reason") or "Something went wrong - please try again."
-            words, lines, cur = reason.split(), [], ""
-            for word in words:
-                if len(cur) + len(word) + 1 > 48:
-                    lines.append(cur)
-                    cur = word
-                else:
-                    cur = f"{cur} {word}".strip()
-            lines.append(cur)
-            lines = lines[:3]
+            # i18n.wrap, not split(): Chinese has no spaces to break on.
+            lines = i18n.wrap(i18n.t(reason), 48)[:3]
             btn_off = 108 + len(lines) * 26 + 12
         ph = btn_off + bh + 14
 
         px, py = (w - pw) // 2, max(56, (h - ph) // 2)
         c.panel(px, py, pw, ph, alpha=0.9)
-        c.text(w // 2, py + 30, "Spiral Tracing - Results", role="h2",
+        c.text(w // 2, py + 30, i18n.t("Spiral Tracing - Results"), role="h2",
                anchor="mm")
 
         if r["scoreable"]:
@@ -635,35 +642,39 @@ class App:
             c.draw.text((w // 2, py + 90), f"{idx_val:.0f}",
                         font=get_font("mono", 56),
                         fill=theme.rgba(status, 1.0), anchor="mm")
-            c.text(w // 2, py + 126, "Smoothness index (0-100, higher = smoother)",
+            c.text(w // 2, py + 126,
+                   i18n.t("Smoothness index (0-100, higher = smoother)"),
                    role="caption", color="text-muted", anchor="mm")
-            c.badge(w // 2, py + 140, r["label"], status)
+            c.badge(w // 2, py + 140, i18n.t(r["label"]), status)
             col_w = (pw - 3 * theme.SPACE[4]) // 2
             for i, (label, val) in enumerate(rows):
                 rx = px + theme.SPACE[4] + (i % 2) * (col_w + theme.SPACE[4])
                 ry = py + 190 + (i // 2) * 24
-                c.text(rx, ry, label, role="caption", color="text-muted")
+                c.text(rx, ry, i18n.t(label), role="caption",
+                       color="text-muted")
                 c.text(rx + col_w, ry, val, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
-                   "Smoothness via SPARC. Provisional bands - screening, not "
-                   "diagnosis.",
+                   i18n.t("Smoothness via SPARC. Provisional bands - "
+                          "screening, not diagnosis."),
                    role="caption", color="text-muted", anchor="mm")
             c.text(w // 2, py + caveat_off,
-                   "* tremor metrics are coarse at this frame rate.",
+                   i18n.t("* tremor metrics are coarse at this frame rate."),
                    role="caption", color="text-muted", anchor="mm")
             if self.saved_path:
                 c.text(w // 2, py + saved_off,
-                       f"Saved: results/{self.saved_path.name}",
+                       i18n.t("Saved: results/{name}",
+                              name=self.saved_path.name),
                        role="caption", color="text-muted", anchor="mm")
         else:
-            c.badge(w // 2, py + 52, "Couldn't score this run", "warning")
+            c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
+                    "warning")
             for i, line in enumerate(lines):
                 c.text(w // 2, py + 108 + i * 26, line, role="body",
                        color="text-muted", anchor="mm")
 
         bw = 160
         bx, by = w // 2 - bw // 2, py + btn_off
-        b = c.button(bx, by, bw, bh, "Try Again", variant="primary",
+        b = c.button(bx, by, bw, bh, i18n.t("Try Again"), variant="primary",
                      hovered=self.hover(bx, by, bw, bh))
         c.disclaimer()
         if self.hit(b):
@@ -702,11 +713,12 @@ class App:
                 draw_hand_skeleton(frame, landmarks, HAND_CONNECTIONS)
 
             c = Canvas(frame)
-            chips = [("Hand detected", "success") if landmarks is not None
-                     else ("Show your hand", "warning")]
+            chips = [(i18n.t("Hand detected"), "success")
+                     if landmarks is not None
+                     else (i18n.t("Show your hand"), "warning")]
             if self.fps < 24:
                 chips.append((f"{self.fps:.0f} fps", "warning"))
-            c.status_bar(chips, "Spiral Tracing")
+            c.status_bar(chips, i18n.t("Spiral Tracing"))
 
             if self.state == IDLE:
                 self.screen_idle(c, now)

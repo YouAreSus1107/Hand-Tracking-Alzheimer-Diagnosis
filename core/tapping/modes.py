@@ -29,11 +29,18 @@ class TapMode:
     thresholds_note: str       # honest provenance of the bands (plan A5)
     instructions: tuple = field(default_factory=tuple)
     summary: str = ""
+    compat_window_s: float = 10.0   # sub-window rescored for literature parity
 
     @property
     def min_intertap_s(self) -> float:
         """Fastest plausible inter-tap time — replaces the fixed 300 ms debounce."""
         return 0.5 / self.expected_rate_hz
+
+    @property
+    def cv_band_width(self) -> float:
+        """Width of the middle (monitor) band. The confidence score measures
+        its error bar against this, so the two can never drift apart."""
+        return self.cv_monitor - self.cv_typical
 
     @property
     def max_iti_ms(self) -> float:
@@ -48,11 +55,15 @@ MODES: dict[str, TapMode] = {
         key="big_and_fast",
         title="Big & Fast",
         paced=False,
-        duration_s=10.0,
+        # 15 s, not the 10 s of the webcam norms: Suzumura 2022 (PMC9716461,
+        # the best MCI AUC in research/) measured each condition for 15 s, and
+        # the extra 50% of intervals is what lets a ~1 Hz tapper be scored at
+        # all. compat_window_s keeps a 10 s rescore for TAS Test comparability.
+        duration_s=15.0,
         warmup_s=0.0,
         interval_s=0.0,
         expected_rate_hz=5.0,          # healthy max-speed tapping ~4-7 Hz
-        min_taps=10,
+        min_taps=6,                    # 5 intervals — below that an SD is noise
         trim_taps=2,
         cv_typical=15.0,
         cv_monitor=25.0,
@@ -61,7 +72,7 @@ MODES: dict[str, TapMode] = {
             "Using the hand you write with:",
             "Tap your INDEX FINGER and THUMB together",
             "as BIG and as FAST as you can.",
-            "Open wide, close fully - keep going for 10 seconds.",
+            "Open wide, close fully - keep going for 15 seconds.",
         ),
         summary="Self-paced maximum-speed tapping (TapTalk / Suzumura paradigm).",
     ),

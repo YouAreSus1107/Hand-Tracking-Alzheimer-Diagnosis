@@ -185,47 +185,143 @@ def test_rules_do_not_fire_in_english():
     assert i18n.t(text) == text
 
 
-def test_every_tapping_failure_reason_is_translated():
-    """Every `reason` core/tapping/metrics.py can produce must resolve — either
-    from the dictionary or from a rule. A new one added without a translation
-    would otherwise surface as English inside an otherwise Chinese panel."""
+# Every module that can put a sentence in front of the user when a run cannot
+# be scored. Each is checked for both `out["reason"] = ...` and `self.reason = ...`.
+_REASON_MODULES = (
+    ("core", "tapping", "metrics.py"),
+    ("core", "spiral", "metrics.py"),
+    ("core", "gaze", "metrics.py"),
+    ("core", "gaze", "calibrate.py"),
+)
+
+_BAND_MODULES = (
+    ("core", "tapping", "metrics.py"),
+    ("core", "spiral", "metrics.py"),
+    ("core", "gaze", "metrics.py"),
+    ("core", "gaze", "fixation.py"),
+)
+
+_STATUS_TOKENS = {"success", "warning", "danger", "info"}
+
+
+def _is_chinese(text: str) -> bool:
+    return any("一" <= c <= "鿿" for c in text)
+
+
+def _reason_strings(path) -> list:
+    """Every `reason` sentence a module can produce, with its numbers filled in
+    the way the engine would fill them."""
     import ast
 
-    _reset("zh")
-    tree = ast.parse((_REPO_ROOT / "core" / "tapping" / "metrics.py")
-                     .read_text(encoding="utf-8"))
-    reasons = []
-    for node in ast.walk(tree):
+    def literal(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(
+                part.value if isinstance(part, ast.Constant) else "7"
+                for part in node.values)
+        return None
+
+    found = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if not isinstance(node, ast.Assign):
             continue
         for target in node.targets:
-            if (isinstance(target, ast.Subscript)
-                    and isinstance(target.slice, ast.Constant)
-                    and target.slice.value == "reason"):
-                value = node.value
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    reasons.append(value.value)
-                elif isinstance(value, ast.JoinedStr):
-                    # rebuild with the numbers filled in, as the engine would
-                    reasons.append("".join(
-                        part.value if isinstance(part, ast.Constant) else "7"
-                        for part in value.values))
-    assert len(reasons) >= 4, f"expected the known reasons, found {reasons}"
-    for reason in reasons:
-        out = i18n.t(reason)
-        assert any("一" <= c <= "鿿" for c in out), f"untranslated reason: {reason!r}"
+            name = None
+            if isinstance(target, ast.Subscript) and \
+                    isinstance(target.slice, ast.Constant):
+                name = target.slice.value
+            elif isinstance(target, ast.Attribute):
+                name = target.attr
+            if name not in ("reason", "fail_reason"):
+                continue
+            text = literal(node.value)
+            if text:
+                found.append(text)
+    return found
 
 
-def test_every_tapping_band_label_is_translated():
-    from core.tapping.metrics import band
+def _band_labels(path) -> list:
+    """The plain-language label out of every `return "status", "Label"` pair."""
+    import ast
+
+    found = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Tuple):
+            continue
+        parts = node.value.elts
+        if len(parts) != 2:
+            continue
+        head, tail = parts
+        if (isinstance(head, ast.Constant) and head.value in _STATUS_TOKENS
+                and isinstance(tail, ast.Constant)
+                and isinstance(tail.value, str)):
+            found.append(tail.value)
+    return found
+
+
+def test_every_failure_reason_is_translated():
+    """Every `reason` any engine can produce must resolve — from the dictionary
+    or from a rule. A new one added without a translation would otherwise
+    surface as English inside an otherwise Chinese panel."""
+    _reset("zh")
+    checked = 0
+    for parts in _REASON_MODULES:
+        path = _REPO_ROOT.joinpath(*parts)
+        reasons = _reason_strings(path)
+        assert reasons, f"no reasons found in {path.name} - did it move?"
+        for reason in reasons:
+            assert _is_chinese(i18n.t(reason)), \
+                f"untranslated reason in {'/'.join(parts)}: {reason!r}"
+            checked += 1
+    assert checked >= 12, checked
+
+
+def test_every_band_label_is_translated():
+    """The badge under the headline number on every results screen."""
+    _reset("zh")
+    checked = 0
+    for parts in _BAND_MODULES:
+        path = _REPO_ROOT.joinpath(*parts)
+        labels = _band_labels(path)
+        assert labels, f"no band labels found in {path.name} - did it move?"
+        for label in labels:
+            assert _is_chinese(i18n.t(label)), \
+                f"untranslated band label in {'/'.join(parts)}: {label!r}"
+            checked += 1
+    assert checked >= 11, checked
+
+
+def test_every_instruction_block_is_translated():
+    """The pre-split instruction panels. These are keyed rather than translated
+    line by line, so a missing key degrades silently to the English lines."""
+    from core.gaze.tasks import TASKS
     from core.tapping.modes import MODES
 
     _reset("zh")
-    for mode in MODES.values():
-        for cv in (mode.cv_typical - 1, mode.cv_monitor - 1, mode.cv_monitor + 1):
-            _, label = band(cv, mode)
-            assert any("一" <= c <= "鿿" for c in i18n.t(label)), label
+    blocks = [(f"tap.{k}.instructions", m.instructions) for k, m in MODES.items()]
+    blocks += [(f"gaze.{k}.instructions", t.instructions) for k, t in TASKS.items()]
+    blocks.append(("gaze.fix.instructions", ("x",)))
+    blocks.append(("spiral.instructions", ("x",)))
+    for key, english in blocks:
+        lines = i18n.tk(key, english)
+        assert lines is not english, f"no Chinese instruction block for {key}"
+        assert all(isinstance(line, str) and line.strip() for line in lines), key
+        assert _is_chinese("".join(lines)), key
 
+
+def test_every_screen_title_is_translated():
+    """The h1/h2 a user reads first on each tool."""
+    from core.gaze.tasks import TASKS
+    from core.tapping.modes import MODES
+
+    _reset("zh")
+    titles = ["Finger Tapping Test", "Spiral Tracing Test", "Eye Movement Test",
+              "Part 3 - Hold Still"]
+    titles += [m.title for m in MODES.values()]
+    titles += [t.title for t in TASKS.values()]
+    for title in titles:
+        assert _is_chinese(i18n.t(title)), f"untranslated title: {title!r}"
 
 def test_tapping_modes_are_translated_title_and_instructions():
     from core.tapping.modes import MODES

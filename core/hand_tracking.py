@@ -37,6 +37,7 @@ sys.path.insert(0, str(_REPO_ROOT / "core"))  # keep first: hand_utils import pa
 
 # Stdlib-only, and above the heavy imports on purpose: cv2 + mediapipe take
 # ~2 s warm and ~10 s cold, and nothing reaches the console until they land.
+from core import i18n
 from core.splash import Splash, IMPORT_STEPS
 _splash = Splash("Hand Detection 3D - Data Inspector",
                  "Live landmark inspector + UDP broadcast",
@@ -205,22 +206,27 @@ class Inspector:
 
     def _render_hand(self, c: Canvas, now: float, hd: dict, col_x: int):
         hs, smoothed, d = hd["hs"], hd["lm"], hd["d"]
-        name = "Left" if hd["side"] == "L" else "Right"
+        name = i18n.t("Left" if hd["side"] == "L" else "Right")
         y, ph = 56, 116
         c.panel(col_x, y, PANEL_W, ph)
-        c.text(col_x + 12, y + 10, f"{name} hand", role="body_sb")
+        c.text(col_x + 12, y + 10, i18n.t("{name} hand", name=name),
+               role="body_sb")
 
         closed = hs.detector._closed
-        c.chip(col_x + 12, y + 38, "Closed" if closed else "Open",
+        c.chip(col_x + 12, y + 38, i18n.t("Closed" if closed else "Open"),
                status="brand" if closed else "info", icon=False)
-        c.text(col_x + 12, y + 74,
-               f"Dist {d:.2f}" if d is not None else "Dist  --",
+        # translated label, mono value — the mono face carries no CJK
+        c.text(col_x + 12, y + 74, i18n.t("Dist"), role="caption",
+               color="text-muted")
+        c.text(col_x + 12 + 52, y + 74, f"{d:.2f}" if d is not None else "--",
                role="caption", color="text-muted", mono=True)
         taps = len(hs.detector.tap_times)
         recent = [t for t in hs.detector.tap_times if t > now - 5]
         rate = ((len(recent) - 1) / (recent[-1] - recent[0])
                 if len(recent) >= 2 and recent[-1] > recent[0] else 0.0)
-        c.text(col_x + 12, y + 94, f"Taps {taps}   {rate:.1f} Hz",
+        c.text(col_x + 12, y + 94, i18n.t("Taps"), role="caption",
+               color="text-muted")
+        c.text(col_x + 12 + 52, y + 94, f"{taps}   {rate:.1f} Hz",
                role="caption", color="text-muted", mono=True)
 
         # live distance signal + a dot per tap; y clamped to a fixed range so
@@ -235,14 +241,15 @@ class Inspector:
     def _render_raw(self, c: Canvas, col_x: int, smoothed):
         ry, rph = 180, 180
         c.panel(col_x, ry, PANEL_W, rph)
-        c.text(col_x + 12, ry + 8, "Landmarks Coordination", role="body_sb")
+        c.text(col_x + 12, ry + 8, i18n.t("Landmarks Coordination"),
+               role="body_sb")
         for hx, htxt in ((100, "x"), (150, "y"), (200, "z")):
             c.text(col_x + hx, ry + 30, htxt, role="caption",
                    color="text-muted", anchor="ra")
         for i, (idx, nm) in enumerate(KEY_LANDMARKS):
             yy = ry + 50 + i * 20
             lm = smoothed[idx]
-            c.text(col_x + 12, yy, nm, role="caption")
+            c.text(col_x + 12, yy, i18n.t(nm), role="caption")
             for vx, val in ((100, lm[0]), (150, lm[1]), (200, lm[2])):
                 c.text(col_x + vx, yy, f"{val:.2f}", role="caption",
                        mono=True, anchor="ra")

@@ -1,13 +1,13 @@
-/* Session report drawer — everything behind one point on an Analysis chart.
+/* Session report panel — everything behind one point on an Analysis chart.
 
    A classic script like dev.js / remote.js, loaded after app.js so it shares
    that file's `I` (icons), `t()` (i18n), `TREND`, `ST`, `statusOf`, `fmtNum`,
    `fmtDate`/`fmtDateTime` and `reducedMotion` bindings. Never shadow `t` — it
    is the translator.
 
-   app.js delegates a click on any [data-sid] (chart dot or session pill) to
+   app.js delegates a click on any [data-sid] (chart dot or calendar row) to
    window.openReport(). The chart payload (/api/sessions) has `raw` stripped,
-   so the drawer fetches the one session it needs from /api/session?id=… and
+   so the panel fetches the one session it needs from /api/session?id=… and
    draws the actual recording: the tapping distance trace with every tap on it,
    the traced spiral over the template it was aiming at, the saccade trials one
    by one. Records are cached, so re-opening one is instant. */
@@ -21,8 +21,9 @@
   const cache = new Map();      // session_id → full record (with raw)
   let openId = null;            // null while closed
   let lastFocus = null;         // element to restore focus to on close
-  let ctx = [];                 // ordered ids of the chart the drawer was opened from
+  let ctx = [];                 // ordered ids of the chart the panel was opened from
   let selTrial = null;          // oculomotor: "pro:3" of the expanded trial
+  let hideTimer = null;         // closing animation; cancelled if another report opens
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -59,6 +60,12 @@
   }
 
   function show() {
+    // A quick close -> open used to let the old close timeout hide the newly
+    // opened report. Cancel it before changing any visibility state.
+    if (hideTimer !== null) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
     backdrop.hidden = false;
     box.hidden = false;
     document.body.classList.add("report-open");
@@ -77,8 +84,14 @@
     backdrop.classList.remove("on");
     box.classList.remove("on");
     document.body.classList.remove("report-open");
-    const hide = () => { backdrop.hidden = true; box.hidden = true; };
-    if (reducedMotion) hide(); else setTimeout(hide, 260);
+    const hide = () => {
+      // Do not hide a report that was reopened while the close animation ran.
+      if (openId !== null) return;
+      backdrop.hidden = true;
+      box.hidden = true;
+      hideTimer = null;
+    };
+    if (reducedMotion) hide(); else hideTimer = setTimeout(hide, 260);
     if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
     lastFocus = null;
   }
@@ -90,8 +103,8 @@
     const el = document.querySelector('[data-sid="' + id + '"]');
     const card = el && el.closest(".trend-card");
     if (!card) return [id];
-    return Array.from(card.querySelectorAll(".sess-pill[data-sid]"))
-      .map(b => b.dataset.sid);
+    const calendar = card.querySelector(".session-calendar[data-context]");
+    return calendar ? calendar.dataset.context.split(",").filter(Boolean) : [id];
   }
 
   function step(dir) {
@@ -101,9 +114,14 @@
     if (next) openReport(next);
   }
 
-  // Highlight the open session in every strip on the page.
+  // Highlight the open session in every visible calendar list on the page.
+  // The arrows walk the whole card, not just the open day, so first ask the
+  // calendar to move to this session's month and day — otherwise you read a
+  // July report with August highlighted. revealSession rebuilds those rows,
+  // so it has to run before we query them.
   function markStrip() {
-    document.querySelectorAll(".sess-pill[data-sid]").forEach(b =>
+    if (openId !== null) window.revealSession?.(openId);
+    document.querySelectorAll(".cal-session[data-sid]").forEach(b =>
       b.classList.toggle("is-open", b.dataset.sid === openId));
   }
 
@@ -167,6 +185,8 @@
             <span class="badge badge-${st}"><span class="badge-dot"></span>${t(ST[st].word)}</span>
             <div class="rep-metricname">${t(h.name)}</div>
             ${m.label ? `<div class="rep-label">${t(m.label)}</div>` : ""}
+            ${rec.test === "finger_tapping" && m.cv_ci_low_pct != null
+              ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
           </div>
         </div>`
       : `<div class="rep-verdict vs-none">
@@ -195,6 +215,10 @@
     decrement_pct_per_s: ["Speed decrement", "%/s"],
     sync_sd_ms: ["Beat-sync SD", "ms"], mean_latency_ms: ["Beat latency", "ms"],
     hits: ["Hits", ""], misses: ["Misses", ""],
+    n_intervals: ["Intervals", ""], confidence_pct: ["Confidence", "%"],
+    cv_ci_low_pct: ["CV 95% CI low", "%"], cv_ci_high_pct: ["CV 95% CI high", "%"],
+    taps_w10: ["Taps (first 10 s)", ""], frequency_hz_w10: ["Frequency (first 10 s)", "Hz"],
+    cv_pct_w10: ["Rhythm variability (first 10 s)", "%"], near_miss_taps: ["Shallow closures", ""],
     // spiral
     frames: ["Frames", ""], sparc: ["SPARC", ""],
     smoothness_index: ["Smoothness index", ""], norm_jerk: ["Normalized jerk", ""],

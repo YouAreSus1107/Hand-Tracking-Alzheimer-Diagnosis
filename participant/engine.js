@@ -17,12 +17,13 @@ export const MODES = {
     key: "big_and_fast",
     title: "Big & Fast",
     paced: false,
-    duration_s: 10.0,
+    duration_s: 15.0,
     expected_rate_hz: 5.0,
-    min_taps: 10,
+    min_taps: 6,
     trim_taps: 2,
     cv_typical: 15.0,
     cv_monitor: 25.0,
+    compat_window_s: 10.0,
   },
 };
 
@@ -124,6 +125,10 @@ export class TapDetector {
     this.tapTimes = [];
     this.series = [];          // [t, d] pairs
     this.lastTapT = -1e9;
+    this.nearMiss = 0;
+    this._dipMin = null;
+    this._frames = 0;
+    this._closedFrames = 0;
   }
 
   update(t, dRaw) {
@@ -132,9 +137,11 @@ export class TapDetector {
       : this.emaAlpha * dRaw + (1 - this.emaAlpha) * this._ema;
     const d = this._ema;
     this.series.push([t, d]);
+    this._frames += 1;
     let tapped = false;
     if (!this._closed && d < this.closeAt) {
       this._closed = true;
+      this._dipMin = null;
       if (t - this.lastTapT >= this.minIntertapS) {
         this.tapTimes.push(t);
         this.lastTapT = t;
@@ -142,11 +149,17 @@ export class TapDetector {
       }
     } else if (this._closed && d > this.openAt) {
       this._closed = false;
+      this._dipMin = null;
+    } else if (!this._closed) {
+      if (d < this.openAt) this._dipMin = this._dipMin === null ? d : Math.min(this._dipMin, d);
+      else if (this._dipMin !== null) { this.nearMiss += 1; this._dipMin = null; }
     }
+    if (this._closed) this._closedFrames += 1;
     return tapped;
   }
 
   get smoothed() { return this._ema; }
+  get closedDwellFrac() { return this._frames ? this._closedFrames / this._frames : 0; }
 }
 
 /* ── metrics.py ───────────────────────────────────────────────────────── */
@@ -182,10 +195,42 @@ export function band(cvPct, mode) {
   return ["danger", "Elevated variability - recommend follow-up"];
 }
 
+function intervalStats(mode, tapTimes) {
+  if (tapTimes.length < 2) return null;
+  const all = [];
+  for (let i = 0; i < tapTimes.length - 1; i++) all.push((tapTimes[i + 1] - tapTimes[i]) * 1000);
+  const cutoff = mode.paced ? maxItiMs(mode) : 3.0 * median(all);
+  const iti = all.filter(v => v <= cutoff);
+  if (iti.length < 2) return null;
+  const mean = iti.reduce((a,b) => a+b, 0) / iti.length;
+  const iiv = sd(iti);
+  if (iiv === null || mean <= 0) return null;
+  return {all, iti, cutoff, mean_iti_ms:mean, iiv_ms:iiv,
+    cv_pct:iiv/mean*100, frequency_hz:1000/mean,
+    rejected_frac:(all.length-iti.length)/all.length};
+}
+
+export function cvRelSe(cvFrac, n) { return n < 2 ? null : Math.sqrt((0.5 + cvFrac*cvFrac)/n); }
+export function cvCi(cvPct, n) {
+  const r = cvRelSe(cvPct/100, n); if (r === null) return null;
+  const half = 1.959964 * cvPct * r; return [Math.max(0, cvPct-half), cvPct+half];
+}
+function confidence(n, cv, mean, width, fps, visible, rejected) {
+  const r = cvRelSe(cv/100, n);
+  const errorFactor = Math.max(0, Math.min(1, 1-(cv*r)/width));
+  const precision = errorFactor * Math.sqrt(Math.min(1, n/30));
+  const quant = fps && fps > 0 ? 100*(1000/fps)/Math.sqrt(6)/mean : null;
+  const timing = quant === null || cv <= 0 ? 1 : Math.max(0, Math.min(1, 1-(quant/cv)**2));
+  const tracking = Math.max(0, Math.min(1, (visible-0.70)/0.30));
+  const continuity = Math.max(0, Math.min(1, 1-rejected/0.25));
+  return 100*precision*timing*tracking*continuity;
+}
+
 /** Port of compute_metrics(). Same keys, same order of decisions, same
  *  early-return reasons — those strings are shown to the participant. */
 export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
-                               beatTimes = null, handVisibleRatio = 1.0) {
+                               beatTimes = null, handVisibleRatio = 1.0,
+                               cameraFps = null, nearMiss = 0) {
   const out = {
     scoreable: false,
     reason: null,
@@ -196,40 +241,44 @@ export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
     decrement_pct_per_s: null, sync_sd_ms: null,
     mean_latency_ms: null, hits: null, misses: null,
     status: null, label: null,
+    n_intervals: null, cv_ci_low_pct: null, cv_ci_high_pct: null,
+    confidence_pct: null, band_edge: null, taps_w10: null,
+    frequency_hz_w10: null, cv_pct_w10: null, near_miss_taps: nearMiss,
   };
 
   if (tapTimes.length < mode.min_taps) {
     out.reason = handVisibleRatio < 0.8
       ? "Your hand was out of view for part of the test - keep it in the frame and try again."
-      : `Only ${tapTimes.length} taps detected - at least ${mode.min_taps} are needed for a reliable score.`;
+      : nearMiss >= Math.max(2, tapTimes.length)
+        ? `${nearMiss} closures were too shallow to count as taps - open the hand fully between taps.`
+        : `Only ${tapTimes.length} taps detected - at least ${mode.min_taps} are needed for a reliable score.`;
     return out;
   }
 
   let taps = tapTimes;
   if (taps.length - mode.trim_taps >= mode.min_taps) taps = taps.slice(mode.trim_taps);
 
-  const itiMs = [];
-  for (let i = 0; i < taps.length - 1; i++) itiMs.push((taps[i + 1] - taps[i]) * 1000);
-
-  const cutoff = mode.paced ? maxItiMs(mode) : 3.0 * median(itiMs);
-  const iti = itiMs.filter((v) => v <= cutoff);
+  const stats = intervalStats(mode, taps);
+  const iti = stats ? stats.iti : [];
   if (iti.length < mode.min_taps - 1) {
     out.reason = "Tapping was too irregular to score - large pauses interrupted the rhythm. Try to keep a continuous motion.";
     return out;
   }
 
-  const meanIti = iti.reduce((a, b) => a + b, 0) / iti.length;
-  const iiv = sd(iti);
-  const cv = (iiv !== null && meanIti > 0) ? (iiv / meanIti) * 100 : null;
-  if (cv === null) {
-    out.reason = "Not enough valid intervals to compute variability.";
-    return out;
-  }
-
-  out.mean_iti_ms = meanIti;
-  out.iiv_ms = iiv;
-  out.cv_pct = cv;
-  out.frequency_hz = 1000.0 / meanIti;
+  const meanIti = stats.mean_iti_ms, cv = stats.cv_pct, cutoff = stats.cutoff;
+  out.mean_iti_ms = meanIti; out.iiv_ms = stats.iiv_ms;
+  out.cv_pct = cv; out.frequency_hz = stats.frequency_hz; out.n_intervals = iti.length;
+  out.confidence_pct = confidence(iti.length, cv, meanIti,
+    mode.cv_monitor-mode.cv_typical, cameraFps, handVisibleRatio, stats.rejected_frac);
+  const ci = cvCi(cv, iti.length); out.cv_ci_low_pct=ci[0]; out.cv_ci_high_pct=ci[1];
+  out.band_edge = (ci[0] < mode.cv_typical && ci[1] > mode.cv_typical) ||
+                  (ci[0] < mode.cv_monitor && ci[1] > mode.cv_monitor) ? 1 : 0;
+  const tapsW10 = tapTimes.filter(t => t <= tStart + mode.compat_window_s);
+  out.taps_w10 = tapsW10.length;
+  let compatTaps = tapsW10;
+  if (compatTaps.length-mode.trim_taps >= mode.min_taps) compatTaps=compatTaps.slice(mode.trim_taps);
+  const compat = intervalStats(mode, compatTaps);
+  if (compat) { out.frequency_hz_w10=compat.frequency_hz; out.cv_pct_w10=compat.cv_pct; }
 
   const mids = [], rates = [];
   for (let i = 0; i < taps.length - 1; i++) {

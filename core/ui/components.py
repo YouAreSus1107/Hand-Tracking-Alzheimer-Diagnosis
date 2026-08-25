@@ -324,6 +324,40 @@ class Canvas:
         self.text(x + pad + icon_s + 8, y + h // 2, label, role="body_sb",
                   color=status, anchor="lm")
 
+    def confidence_card(self, x: int, y: int, w: int, *, label: str,
+                        value: str, detail: str, progress: float,
+                        status: str = "info") -> int:
+        """Compact measurement-quality card for result screens.
+
+        Confidence describes the recording, not the clinical result, so it is
+        visually subordinate to the result badge and lives in its own neutral
+        raised card. Returns the fixed card height for easy screen layout.
+        """
+        h = 40 if not detail else 48
+        progress = max(0.0, min(1.0, progress))
+        self._dirty = True
+        self.draw.rounded_rectangle(
+            [x, y, x + w, y + h], radius=theme.RADIUS_BUTTON,
+            fill=theme.rgba("surface-2", 0.92),
+            outline=theme.rgba("border", 1.0), width=1)
+        self.icon(STATUS_ICON.get(status, "info"), x + 10, y + 8, 15, status)
+        self.text(x + 32, y + 15, label, role="caption", color="text",
+                  anchor="lm")
+        self.text(x + w - 10, y + 15, value, role="body_sb", color=status,
+                  anchor="rm", mono=True)
+        if detail:
+            self.text(x + 32, y + 34, detail, role="caption",
+                      color="text-muted", anchor="lm")
+        track_y = y + h - 4
+        self.draw.rounded_rectangle([x + 12, track_y, x + w - 12, track_y + 3],
+                                    radius=2, fill=theme.rgba("border", 1.0))
+        fill_w = int((w - 24) * progress)
+        if fill_w > 0:
+            self.draw.rounded_rectangle([x + 12, track_y,
+                                         x + 12 + fill_w, track_y + 3],
+                                        radius=2, fill=theme.rgba(status, 1.0))
+        return h
+
     def button(self, x: int, y: int, w: int, h: int, label: str, *,
                variant: str = "primary", hovered: bool = False,
                icon: str | None = None) -> tuple[int, int, int, int]:

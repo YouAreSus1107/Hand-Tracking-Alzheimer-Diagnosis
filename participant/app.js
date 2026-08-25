@@ -447,7 +447,7 @@ function finish(det, tStart, tEnd, visibleRatio) {
     return;
   }
 
-  const m = computeMetrics(MODE, det.tapTimes, det.series, tStart, tEnd, null, visibleRatio);
+  const m = computeMetrics(MODE, det.tapTimes, det.series, tStart, tEnd, null, visibleRatio, state.fps, det.nearMiss);
   if (!m.scoreable) {
     $("nogood-why").textContent = m.reason || "We could not score that attempt.";
     show("s-nogood");
@@ -478,6 +478,15 @@ function finish(det, tStart, tEnd, visibleRatio) {
       cv_pct: m.cv_pct,
       amplitude_cv_pct: m.amplitude_cv_pct,
       decrement_pct_per_s: m.decrement_pct_per_s,
+      n_intervals: m.n_intervals,
+      cv_ci_low_pct: m.cv_ci_low_pct,
+      cv_ci_high_pct: m.cv_ci_high_pct,
+      confidence_pct: m.confidence_pct,
+      band_edge: m.band_edge,
+      taps_w10: m.taps_w10,
+      frequency_hz_w10: m.frequency_hz_w10,
+      cv_pct_w10: m.cv_pct_w10,
+      near_miss_taps: m.near_miss_taps,
     },
   };
 
@@ -506,7 +515,9 @@ function renderResult(m) {
   $("result-plain").textContent = PLAIN[m.status] || "Thank you — that's done.";
   $("result-metric").innerHTML =
     `<div class="big">${m.taps}</div><div class="unit">taps in ${MODE.duration_s} seconds</div>` +
-    `<div class="band ${m.status}">Steadiness: ${m.cv_pct.toFixed(1)}% variation</div>`;
+    `<div class="band ${m.status}">Steadiness: ${m.cv_pct.toFixed(1)}% variation</div>` +
+    `<div class="unit">95% CI ${m.cv_ci_low_pct.toFixed(1)}-${m.cv_ci_high_pct.toFixed(1)}% · ` +
+    `${m.confidence_pct >= 75 ? "high" : m.confidence_pct >= 45 ? "moderate" : "low"} confidence</div>`;
   show("s-result");
 }
 
