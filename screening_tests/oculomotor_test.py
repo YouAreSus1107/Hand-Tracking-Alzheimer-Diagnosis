@@ -312,7 +312,6 @@ class App:
                    thickness=1, alpha=0.8)
         c.text(x + pad, y + 56, msg, role="caption", color=color)
 
-
     # ── screens ───────────────────────────────────────────────────────────
     def screen_idle(self, c: Canvas, now: float, sample: GazeSample | None):
         self.draw_eye_markers(c, sample)

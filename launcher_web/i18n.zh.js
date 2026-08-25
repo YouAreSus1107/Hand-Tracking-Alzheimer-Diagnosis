@@ -698,9 +698,7 @@ window.ZH = {
 "Next month with sessions": `下一個有測驗的月份`,
 "{date}: {n} session(s)": `{date}：{n} 場測驗`,
 "View report": `查看報告`,
-"Session pages": `測驗分頁`,
-"Page {page} of {pages}": `第 {page} 頁，共 {pages} 頁`,
-"Page {n}": `第 {n} 頁`,
+"{n} session(s)": `{n} 場測驗`,
 
 /* drawer chrome */
 "Loading session…": `正在載入這次測驗…`,
