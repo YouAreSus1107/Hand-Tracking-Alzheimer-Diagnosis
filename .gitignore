@@ -43,3 +43,7 @@ Thumbs.db
 # Generated static site (tools/build_web.py)
 web-build/
 .firebase/
+
+# Firebase web config for the participant page: published in the build, never
+# tracked, so no AIza... literal sits in the repo for a scanner to flag.
+participant/firebase-config.js

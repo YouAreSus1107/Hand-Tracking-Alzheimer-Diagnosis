@@ -143,6 +143,10 @@
   </button>
 </div>
 
+<!-- Firebase web config, written into the build by tools/build_web.py from the
+     git-ignored .remote_sessions.json. Absent in a checkout; the 404 is
+     harmless and cloud.js reports the missing key on the first screen. -->
+<script src="./firebase-config.js"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

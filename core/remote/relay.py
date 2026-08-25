@@ -33,12 +33,13 @@ MAX_PAGE = 50
 INVITES = "invites"
 RESULTS = "remote_results"
 
-# Defaults for this project. A Firebase **web** API key identifies the project
-# and is designed to ship in client code — the access control is
-# firestore.rules, not this string, and the same key is already public in
-# participant/cloud.js. Overridable from .remote_sessions.json for a fork.
+# Default for this project. The Firebase **web** API key is deliberately not
+# here: it identifies the project rather than authenticating anyone (the access
+# control is firestore.rules), but every secret scanner reads an AIza... string
+# as a leaked Google credential, so keeping one in the tree costs a standing
+# alert and buys nothing. Put it in .remote_sessions.json (git-ignored) instead
+# — the Remote page already prompts for it through missing()/status().
 DEFAULT_PROJECT = "hand-tracking-project"
-DEFAULT_API_KEY = "AIzaSyCCXF8vc5u-bmS_HR-kVE6h4C0xYJvMUyU"
 
 _REQUIRED = ("project_id", "api_key")
 _HINTS = {
@@ -53,7 +54,6 @@ def config() -> dict:
     """Stored settings, with this project's defaults filled in."""
     cfg = dict(store.relay_config())
     cfg.setdefault("project_id", DEFAULT_PROJECT)
-    cfg.setdefault("api_key", DEFAULT_API_KEY)
     return cfg
 
 
@@ -133,7 +133,9 @@ def _id_token() -> tuple[str, str]:
     with _auth_lock:
         cfg = config()
         saved = store.relay_config()
-        key = cfg["api_key"]
+        key = str(cfg.get("api_key", "")).strip()
+        if not key:
+            return "", _HINTS["api_key"]
 
         refresh = saved.get("refresh_token")
         if refresh:
@@ -253,7 +255,7 @@ def encode_fields(record: dict) -> dict:
 
 def _url(cfg: dict, path: str, params: dict | None = None) -> str:
     query = dict(params or {})
-    query["key"] = cfg["api_key"]
+    query["key"] = str(cfg.get("api_key", "")).strip()
     return (f"{API_ROOT}/projects/{cfg['project_id']}/databases/(default)/"
             f"documents/{path}?{urllib.parse.urlencode(query)}")
 

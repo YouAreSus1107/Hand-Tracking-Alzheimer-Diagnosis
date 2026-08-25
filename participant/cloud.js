@@ -5,14 +5,27 @@
    buys nothing here. It also keeps the value-typed JSON codec identical in
    shape to core/remote/relay.py, so the two ends can be read side by side.
 
-   The API key below is a Firebase *web* key. It identifies the project, it is
-   not a secret, and it is meant to ship in client code — the access control is
-   firestore.rules, not this string. */
+   The Firebase *web* API key identifies the project rather than authenticating
+   anyone — the access control is firestore.rules, not the key — so the built
+   page does carry it in the clear, and that is by design. What it must not do
+   is sit in the repository: an AIza... literal in a tracked file is what every
+   secret scanner reads as a leaked Google credential. So it arrives from
+   firebase-config.js, which tools/build_web.py writes into the build from the
+   git-ignored .remote_sessions.json. That file is absent in a fresh checkout;
+   the page then says so instead of failing at the first fetch. */
 
 const CONFIG = {
   projectId: "hand-tracking-project",
-  apiKey: "AIzaSyCCXF8vc5u-bmS_HR-kVE6h4C0xYJvMUyU",
+  apiKey: "",
+  ...((typeof window !== "undefined" && window.HS_FIREBASE) || {}),
 };
+
+/** Throws the one error the screens know how to explain (see app.js). */
+function requireKey() {
+  const key = String(CONFIG.apiKey || "").trim();
+  if (!key) throw new Error("NO_FIREBASE_KEY");
+  return key;
+}
 
 const FS = `https://firestore.googleapis.com/v1/projects/${CONFIG.projectId}/databases/(default)/documents`;
 const IDP = "https://identitytoolkit.googleapis.com/v1";
@@ -70,7 +83,7 @@ function decodeDoc(doc) {
  *  so firestore.rules has a uid to bind the upload to. */
 export async function signIn() {
   if (idToken) return idToken;
-  const r = await fetch(`${IDP}/accounts:signUp?key=${CONFIG.apiKey}`, {
+  const r = await fetch(`${IDP}/accounts:signUp?key=${requireKey()}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ returnSecureToken: true }),

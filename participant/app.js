@@ -156,6 +156,12 @@ async function boot() {
   try {
     invite = await cloud.fetchInvite(state.token);
   } catch (err) {
+    if (err.message === "NO_FIREBASE_KEY") {
+      blocked("Not quite ready yet",
+        "This link is not switched on at the other end.",
+        "<p>Please let the person who sent it know. (The page was published without its Firebase web config.)</p>");
+      return;
+    }
     if (err.message === "ANON_AUTH_DISABLED") {
       blocked("Not quite ready yet",
         "This link is not switched on at the other end.",

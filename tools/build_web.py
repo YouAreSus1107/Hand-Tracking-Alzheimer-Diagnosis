@@ -26,6 +26,7 @@ Stdlib only, matching launcher.py and install.py.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -42,6 +43,14 @@ ASSETS_SRC = REPO / "assets"
 PARTICIPANT_SRC = REPO / "participant"
 SHIM_SRC = REPO / "tools" / "web_static" / "static-api.js"
 OUT = REPO / "web-build"
+
+# The Firebase web config the participant page needs. It is published in the
+# clear -- that is what a web API key is for, and firestore.rules is the access
+# control -- but it is kept out of the repository so a tracked AIza... literal
+# cannot be reported as a leaked credential. Source of truth: the helper's own
+# git-ignored .remote_sessions.json, the same place relay.py reads it from.
+RELAY_STORE = REPO / ".remote_sessions.json"
+FIREBASE_CONFIG = "firebase-config.js"
 
 # Injected ahead of every other script so the fetch wrapper is installed
 # before app.js makes its first /api/status call.
@@ -97,6 +106,37 @@ def replace_once(text: str, old: str, new: str, what: str) -> str:
     return text.replace(old, new)
 
 
+def write_firebase_config(dest: Path) -> None:
+    """Emit web-build/s/firebase-config.js, or say why the page will be inert."""
+    cfg = {}
+    if RELAY_STORE.exists():
+        try:
+            data = json.loads(RELAY_STORE.read_text(encoding="utf-8"))
+            cfg = data.get("relay") or {}
+        except (ValueError, OSError) as exc:
+            print(f"build_web: WARNING could not read {RELAY_STORE.name}: {exc}")
+    key = str(cfg.get("api_key", "")).strip()
+    project = str(cfg.get("project_id", "")).strip()
+    if not key:
+        print(f"build_web: WARNING no relay.api_key in {RELAY_STORE.name} -- "
+              "/s/ will publish without a Firebase key and cannot upload. "
+              "Set it on the Remote page, or add it to that file, and rebuild.")
+        return
+    body = {"apiKey": key}
+    if project:
+        body["projectId"] = project
+    banner = [
+        "/* Written by tools/build_web.py -- do not commit. A Firebase web API",
+        "   key is a public project identifier; firestore.rules is the access",
+        "   control. Restrict this key to this site's referrers in the Google",
+        "   Cloud console. */",
+        f"window.HS_FIREBASE = {json.dumps(body, indent=2)};",
+        "",
+    ]
+    dest.write_text("\n".join(banner), encoding="utf-8")
+    print(f"build_web: firebase config -> s/{FIREBASE_CONFIG}")
+
+
 def main() -> None:
     for p in (WEB_SRC, ASSETS_SRC, SHIM_SRC, PARTICIPANT_SRC):
         if not p.exists():
@@ -115,7 +155,9 @@ def main() -> None:
     if PARTICIPANT_SRC.exists():
         shutil.copytree(
             PARTICIPANT_SRC, OUT / "s", dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("tests", "package.json", "*.md"))
+            ignore=shutil.ignore_patterns("tests", "package.json", "*.md",
+                                          FIREBASE_CONFIG))
+        write_firebase_config(OUT / "s" / FIREBASE_CONFIG)
 
     index = OUT / "index.html"
     html = index.read_text(encoding="utf-8")
