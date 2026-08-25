@@ -111,7 +111,10 @@
 
   function apply() {
     document.documentElement.lang = lang === "zh" ? "zh-Hant" : "en";
-    applyStatic();
+    // Guarded on its own: a throw in here used to take the picker and every
+    // re-render hook down with it, which reads as a page that has stopped
+    // responding rather than as one mistranslated block.
+    try { applyStatic(); } catch (e) { console.error(e); }
     syncPicker();
     subs.forEach(fn => { try { fn(lang); } catch (e) { console.error(e); } });
   }

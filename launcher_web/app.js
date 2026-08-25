@@ -149,12 +149,21 @@ renderStaticBits();
 function showPage(id){
   // The report panel belongs to the Analysis page; leaving it open over
   // another page would be a dialog with nothing behind it.
+  // Resolve the target before deactivating anything: an unknown id used to
+  // clear every page and then throw inside the callback, leaving the app blank
+  // with no way back.
+  const next = document.getElementById("page-"+id);
+  if(!next) return;
   window.closeReport?.();
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  requestAnimationFrame(()=>{
-    document.getElementById("page-"+id).classList.add("active");
+  // The frame gap lets the fade-in play. rAF is suspended while the tab is
+  // hidden, so activate straight away there — otherwise every page stays off
+  // and the dashboard is blank until it returns to the foreground.
+  const activate = ()=>{
+    next.classList.add("active");
     window.scrollTo({top:0,behavior:"smooth"});
-  });
+  };
+  if(document.hidden) activate(); else requestAnimationFrame(activate);
   document.querySelectorAll(".nav-link").forEach(n =>
     n.classList.toggle("active", n.dataset.page===id));
   if(TOOLS.find(tool=>tool.key===id)) renderDetailActions(id);
@@ -745,6 +754,7 @@ function renderAnalysis(){
   renderAnalysisFilter(byTest);
 
   const body = document.getElementById("analysis-body");
+  if(!body) return;                       // same guard loadAnalysis() already has
   if(!sessions.length){
     body.innerHTML = `<div class="analysis-empty">
       <div class="analysis-empty-icon">${I.chart}</div>
@@ -1300,13 +1310,17 @@ function idleSpark(){
    Almost everything on these pages is built from JS, so a switch has to ask
    each builder to run again. The "built once" flags are cleared first. */
 onLang(lang => {
-  renderStaticBits();
   cardsBuilt = false; whyBuilt = false; statusBuilt = false;
-  buildCards();
-  renderWhy();
-  refresh();
-  renderVitals();
-  if(analysisSessions) renderAnalysis();
+  // Each section is guarded on its own. As one sequence, a throw in any of
+  // them skipped every later one and left the DOM half-rebuilt — losing the
+  // Launch buttons that buildCards() owns because a chart failed to draw.
+  const step = fn => { try{ fn(); }catch(e){ console.error(e); } };
+  step(renderStaticBits);
+  step(buildCards);
+  step(renderWhy);
+  step(refresh);
+  step(renderVitals);
+  if(analysisSessions) step(renderAnalysis);
   saveLang(lang);
 });
 

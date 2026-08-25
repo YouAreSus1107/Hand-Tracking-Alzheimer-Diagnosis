@@ -69,12 +69,16 @@
     backdrop.hidden = false;
     box.hidden = false;
     document.body.classList.add("report-open");
-    requestAnimationFrame(() => {
+    // The frame gap lets the panel fade in. rAF is suspended while the tab is
+    // hidden, and `on` is what carries opacity:1 — without this the panel would
+    // sit there un-hidden and fully transparent, eating every click.
+    const reveal = () => {
       backdrop.classList.add("on");
       box.classList.add("on");
       const first = box.querySelector(".rep-close");
       if (first) first.focus();
-    });
+    };
+    if (document.hidden) reveal(); else requestAnimationFrame(reveal);
   }
 
   function closeReport() {

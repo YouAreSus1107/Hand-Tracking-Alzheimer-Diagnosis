@@ -11,6 +11,11 @@
   --font-cjk:'Noto Sans TC','Microsoft JhengHei','PingFang TC','Heiti TC',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* `hidden` is only a user-agent rule, so ANY author `display` silently beats
+   it: `.report{display:flex}` left #report laid over the middle of the page at
+   opacity 0, swallowing every click on the dashboard. Panels are toggled by
+   the attribute (report.js, remote.js), so make it win outright. */
+[hidden]{display:none !important}
 html{scroll-behavior:smooth;overscroll-behavior-y:none;scrollbar-gutter:stable}
 body{font-family:'Inter','Segoe UI',var(--font-cjk),system-ui,-apple-system,sans-serif;
      font-size:18px;background:var(--bg);color:var(--text);line-height:1.55;
