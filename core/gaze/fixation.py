@@ -35,6 +35,13 @@ SETTLE_S = 0.8           # ignore initial samples (eye settling onto the cross)
 MIN_VALID_RATIO = 0.6    # fraction of post-settle frames that must be tracked
 MIN_SAMPLES = 30         # min stable samples for a reliable score
 DEBOUNCE_FRAMES = 2      # consecutive out-of-deadband frames to confirm an intrusion
+# Floor on the intrusion threshold, decoupling it from the calibrated deadband.
+# The two used to be the same number, so lowering the deadband to make the
+# saccade blocks register real attempts would have quietly made this block
+# count more intrusions - a change to a reported metric as a side effect of a
+# fix to a different one. 0.30 is the value the recorded intrusion counts were
+# measured at, so they stay comparable.
+INTRUSION_MIN = 0.30
 
 BCEA_P = 0.68
 _BCEA_K = -math.log(1.0 - BCEA_P)   # ≈ 1.1394 (fraction of a 2-D Gaussian inside)
@@ -110,7 +117,9 @@ class FixationAnalyzer:
 
     def __init__(self, t0: float, deadband: float):
         self.t0 = t0
-        self.threshold = deadband           # intrusion = beyond the fixation deadband
+        # Never below INTRUSION_MIN: a generous calibration may widen the band
+        # this person's own noise needs, but a narrow one must not sharpen it.
+        self.threshold = max(INTRUSION_MIN, deadband)
         self._frames = 0
         self._missing = 0
         self._run_len = 0

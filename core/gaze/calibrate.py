@@ -22,8 +22,15 @@ STAGE_FRAMES = 30        # ~1 s of valid samples per point at 30 fps
 SETTLE_S = 0.6           # ignore samples right after a dot appears (eye travel)
 STAGE_TIMEOUT_S = 12.0   # per-stage "having trouble?" coaching threshold
 MIN_SEPARATION = 0.025   # min |side − center| ratio gap for a usable map
-DEADBAND_MIN = 0.30      # deadband bounds, in normalized position units
-DEADBAND_MAX = 0.55
+# Deadband bounds, in normalized position units. These are the *seed* for the
+# detector's confirm threshold, which narrows from here as the run shows what
+# excursion this person actually produces (detector.SaccadeEnvelope).
+# Lowered from 0.30/0.55 after replaying the recorded sessions: a noisy
+# calibration centre was buying a deadband no real anti-saccade cleared - one
+# session drew 0.425 and then recorded nine of twenty anti trials as
+# no-response while the person was performing the task.
+DEADBAND_MIN = 0.22
+DEADBAND_MAX = 0.40
 DEADBAND_NOISE_K = 3.0   # deadband = K × center noise (normalized), clamped
 
 

@@ -14,12 +14,19 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
-from core.gaze.calibrate import GazeCalibrator, GazeMap, STAGES, STAGE_FRAMES
-from core.gaze.detector import SaccadeTrial, MIN_LATENCY_MS
+from core.gaze.calibrate import (GazeCalibrator, GazeMap, STAGES, STAGE_FRAMES,
+                                 DEADBAND_MIN, DEADBAND_MAX)
+from core.gaze.detector import (SaccadeEnvelope, SaccadeTrial, SettleGate,
+                                TrialResult, MIN_LATENCY_MS, CONFIRM_MIN,
+                                SETTLE_HOLD_S, SETTLE_SPREAD)
 from core.gaze.fixation import (FixationAnalyzer, bcea, jitter_band,
                                 JITTER_TYPICAL, JITTER_MONITOR, SETTLE_S)
 from core.gaze.metrics import (compute_metrics, band, block_stats,
-                               MIN_GAZE_RATIO)
+                               MIN_GAZE_RATIO, MIN_VALID_ANTI,
+                               ERROR_TYPICAL_PCT)
+from core.gaze.confidence import (block_quality, confidence, wilson_ci,
+                                  SATURATION_TRIALS)
+from core.gaze.tasks import TASKS
 from core.gaze.openness import (OpennessGate, ABS_FLOOR, BLINK_FRAC,
                                 NARROW_BASELINE, VERTICAL_FRAC)
 from core.gaze.tasks import build_directions
@@ -69,7 +76,7 @@ def test_calibration_maps_and_deadband():
     assert abs(gm.position(0.65) - 1.0) < 0.05      # right target → +1
     assert abs(gm.position(0.35) + 1.0) < 0.05      # left target → −1
     assert abs(gm.position(0.5)) < 0.05             # center → 0
-    assert 0.30 <= gm.deadband <= 0.55
+    assert DEADBAND_MIN <= gm.deadband <= DEADBAND_MAX
 
 
 def test_calibration_fails_on_tiny_movement():
@@ -168,6 +175,157 @@ def test_debounce_rejects_single_frame_noise():
         trial.update(t, pos)
     r = trial.finalize()
     assert r.outcome == "no_response"   # one-frame spike must not trigger onset
+
+
+# ── baseline-relative onset ──────────────────────────────────────────────────
+def _offset_trial(target_dir, is_anti, deadband, onset_ms, move_dir, offset,
+                  *, baseline=None, hold_s=1.0, jitter=0.0):
+    """A trial whose gaze rests at `offset` rather than at a true zero — the
+    ordinary case once the calibrated centre has drifted, or the eye has not
+    quite come back from the last target."""
+    t0 = 100.0
+    trial = SaccadeTrial(t0, target_dir, deadband, is_anti, baseline=baseline)
+    for i in range(int(hold_s * FPS)):
+        t = t0 + i * DT
+        wobble = jitter * (1 if i % 2 else -1)
+        pos = offset + wobble
+        if i * DT * 1000 >= onset_ms:
+            pos = offset + move_dir * 0.9
+        trial.update(t, pos)
+    return trial.finalize()
+
+
+def test_offset_start_still_scores_the_saccade():
+    """The failure this rework exists for: the eye is parked well outside the
+    deadband when the dot appears, then makes a clean, correct saccade. Against
+    an absolute zero that was onset at 0 ms → 'anticipatory', and it was 21% of
+    every trial in the recorded session history."""
+    r = _offset_trial(target_dir=-1, is_anti=False, deadband=0.35,
+                      onset_ms=200, move_dir=-1, offset=0.7)
+    assert r.outcome == "correct"
+    assert r.latency_ms >= MIN_LATENCY_MS
+    assert abs(r.baseline - 0.7) < 0.01
+
+
+def test_a_genuine_early_start_is_still_anticipatory():
+    """Tolerance for a stale baseline must not become tolerance for jumping the
+    gun: movement *away from the resting point* before 90 ms is still excluded."""
+    r = _offset_trial(target_dir=-1, is_anti=False, deadband=0.35,
+                      onset_ms=30, move_dir=-1, offset=0.7)
+    assert r.outcome == "anticipatory"
+    assert not r.valid
+
+
+def test_baseline_falls_back_to_the_presaccadic_window():
+    """No settle reading (the gate timed out) → the trial estimates its own
+    baseline from the frames before MIN_LATENCY_MS, and an explicit baseline
+    overrides that estimate."""
+    fallback = _offset_trial(1, False, 0.35, 250, 1, offset=-0.5, baseline=None)
+    assert abs(fallback.baseline + 0.5) < 0.01
+    assert fallback.outcome == "correct"
+    given = _offset_trial(1, False, 0.35, 250, 1, offset=-0.5, baseline=-0.5)
+    assert given.baseline == -0.5
+    assert given.outcome == "correct"
+
+
+def test_a_still_eye_manufactures_no_saccade_at_the_floor():
+    """The CONFIRM_MIN guard: even at the most forgiving threshold the engine
+    will ever use, tracker wobble around a resting eye is not a response."""
+    r = _offset_trial(1, False, CONFIRM_MIN, onset_ms=1e9, move_dir=1,
+                      offset=-0.6, jitter=0.05)
+    assert r.outcome == "no_response"
+
+
+def test_onset_opens_below_confirm_but_needs_the_full_excursion():
+    """Two-tier: a wobble that clears the onset threshold but never reaches the
+    confirm threshold is not a saccade, while one that reaches it is — and its
+    latency is stamped where the movement began, not where it was confirmed."""
+    # 0.4 · 0.9 = 0.36: past the 0.20 onset threshold, short of the 0.40
+    # confirm threshold, so it never becomes a saccade.
+    small = _offset_trial(1, False, 0.40, 200, 0.4, offset=0.0)
+    assert small.outcome == "no_response"
+    full = _offset_trial(1, False, 0.40, 200, 1, offset=0.0)
+    assert full.outcome == "correct"
+    assert abs(full.latency_ms - 200) < 2 * (1000 * DT)
+
+
+def test_envelope_follows_a_shrinking_excursion_down_to_the_floor():
+    """The amplitude a person produces is not constant across a block; a frozen
+    threshold read one recorded anti block (peaks 0.3–0.7) as 18 no-responses."""
+    env = SaccadeEnvelope(seed=0.40)
+    assert env.confirm_threshold() == 0.40          # seed until it has evidence
+    for _ in range(SaccadeEnvelope.MIN_TRIALS):
+        env.observe(_offset_trial(1, False, 0.40, 200, 1, offset=0.0))
+    shrunk = env.confirm_threshold()
+    assert CONFIRM_MIN <= shrunk < 0.40, shrunk
+
+    floored = SaccadeEnvelope(seed=0.40)
+    for _ in range(6):
+        floored.observe(TrialResult(1, 1, 200.0, "correct", False, peak=0.20))
+    assert floored.confirm_threshold() == CONFIRM_MIN   # 0.40 · 0.20 < the floor
+
+
+def _feed_settle(pos_fn, dur_s=1.2):
+    gate = SettleGate()
+    t = 0.0
+    for i in range(int(dur_s * FPS)):
+        t = i * DT
+        gate.update(t, pos_fn(t))
+    return gate
+
+
+def test_gate_settles_on_a_steady_eye_wherever_it_is_resting():
+    """It tests steadiness, never nearness to zero. An eye resting calmly on
+    the cross whose map has drifted to -0.7 has to pass, because that offset is
+    precisely what the baseline exists to absorb - gating on |pos| would stall
+    the run exactly when drift is worst."""
+    gate = _feed_settle(lambda t: -0.7 + 0.01 * (1 if int(t * 100) % 2 else -1))
+    assert gate.settled
+    assert abs(gate.baseline() + 0.7) < 0.05
+
+
+def test_gate_does_not_settle_on_a_wandering_eye_and_offers_no_baseline():
+    """A gate that timed out must answer None, not the median of a moving eye:
+    the trial's own pre-saccadic window is the better estimate, and a wandering
+    median would be worse than no answer."""
+    gate = _feed_settle(lambda t: -1.0 + 1.6 * t)      # sweeping across the range
+    assert not gate.settled
+    assert gate.baseline() is None
+
+
+def test_gate_is_not_latched_by_an_early_settle():
+    """Steady for a moment, then drifting: the gate must report the eye as it
+    is now, not hand over the reading it had a second ago."""
+    gate = _feed_settle(lambda t: 0.0 if t < 0.5 else (t - 0.5) * 1.5, dur_s=1.2)
+    assert not gate.settled
+    assert gate.baseline() is None
+
+
+def test_gate_accepts_a_new_resting_point():
+    """The flip side: an eye that moves and then genuinely comes to rest
+    somewhere else is resting *there*, and that is the baseline to hand over."""
+    gate = _feed_settle(lambda t: 0.0 if t < 0.5 else 0.9, dur_s=1.2)
+    assert gate.settled
+    assert abs(gate.baseline() - 0.9) < 0.01
+
+
+def test_gate_treats_a_blink_as_not_steady():
+    gate = SettleGate()
+    for i in range(int(1.0 * FPS)):
+        t = i * DT
+        gate.update(t, 0.1)
+    assert gate.settled
+    gate.update(1.0, None)
+    assert not gate.settled and gate.baseline() is None
+
+
+def test_envelope_never_loosens_past_calibration():
+    """It may only make the test more forgiving than calibration, never less —
+    a big warm-up excursion must not raise the bar on the trials that follow."""
+    env = SaccadeEnvelope(seed=0.25)
+    for _ in range(6):
+        env.observe(TrialResult(1, 1, 200.0, "correct", False, peak=2.0))
+    assert env.confirm_threshold() == 0.25
 
 
 # ── run metrics ──────────────────────────────────────────────────────────────
@@ -379,6 +537,152 @@ def test_low_gaze_ratio_names_the_eyelids_not_the_framing():
     assert not out["scoreable"]
     assert "eyes could only be read" in out["reason"]
     assert out["gaze_valid_ratio"] == round(MIN_GAZE_RATIO - 0.1, 3)
+
+
+# ── confidence + the lowered floor ────────────────────────────────────────
+def _anti(n_correct, n_error=0, n_antic=0, n_lost=0):
+    """A finished anti block with the given outcome mix."""
+    def T(outcome):
+        return _feed_trial(1, True, 0.3, 200,
+                           -1 if outcome == "correct" else 1,
+                           missing=(outcome == "lost"))
+    trials = []
+    trials += [_feed_trial(1, True, 0.3, 200, -1) for _ in range(n_correct)]
+    trials += [_feed_trial(1, True, 0.3, 200, 1) for _ in range(n_error)]
+    trials += [_feed_trial(1, True, 0.3, 40, -1) for _ in range(n_antic)]
+    trials += [_feed_trial(1, True, 0.3, 200, -1, missing=True)
+               for _ in range(n_lost)]
+    return trials
+
+
+def test_wilson_interval_survives_a_perfect_score():
+    """Wald collapses to zero width at p=0, and 0 errors of 15 is the common
+    healthy result — the interval has to keep an honest upper bound."""
+    lo, hi = wilson_ci(0, 15)
+    assert lo == 0.0
+    assert 15 < hi < 30, hi
+    lo, hi = wilson_ci(3, 15)
+    assert lo < 20.0 < hi, "3/15 sits on the band edge; the CI must span it"
+    assert wilson_ci(0, 0) is None
+
+
+def test_wider_blocks_give_tighter_intervals():
+    narrow = wilson_ci(3, 15)
+    wide = wilson_ci(12, 60)          # same 20% rate, four times the trials
+    assert (wide[1] - wide[0]) < (narrow[1] - narrow[0])
+
+
+def test_six_valid_anti_trials_score_and_five_refuse():
+    """The tapping floor, ported: a thin run is reported with its confidence
+    rather than thrown away after three minutes of the patient's time."""
+    out = compute_metrics([], _anti(4, 2))
+    assert out["scoreable"], out["reason"]
+    assert abs(out["error_rate_pct"] - 2 / 6 * 100) < 1e-9
+    assert out["confidence_level"] == "low", out["confidence_pct"]
+    thin = compute_metrics([], _anti(3, 2))
+    assert not thin["scoreable"]
+    assert str(MIN_VALID_ANTI) in thin["reason"]
+
+
+def test_anticipation_gets_its_own_reason_not_the_generic_one():
+    out = compute_metrics([], _anti(2, 0, n_antic=12))
+    assert not out["scoreable"]
+    assert "started before the dot" in out["reason"]
+    assert "valid anti-saccade trials" not in out["reason"]
+
+
+def test_heavy_anticipation_costs_confidence_not_the_run():
+    """The whole point of the change: an anticipator gets a scored run whose
+    confidence says how compromised it is."""
+    out = compute_metrics([], _anti(8, 2, n_antic=5), gaze_valid_ratio=0.95)
+    assert out["scoreable"]
+    assert out["confidence_pct"] < 60, out["confidence_pct"]
+    assert any("started before the dot" in r
+               for r in out["confidence_reasons"])
+    assert abs(out["anticipatory_rate_pct"] - 100 * 5 / 15) < 1e-9
+
+
+def test_clean_full_block_is_high_confidence():
+    out = compute_metrics([], _anti(14, 1), gaze_valid_ratio=0.95)
+    assert out["scoreable"]
+    assert out["confidence_pct"] >= 75, out["confidence_pct"]
+    assert out["confidence_level"] == "high"
+
+
+def test_confidence_ranks_recordings_not_results():
+    """A clean block scores the same whether the patient erred a lot or not —
+    the error bar carries that story, and folding it into the score would
+    relabel every elevated result as untrustworthy."""
+    clean_low = compute_metrics([], _anti(15, 0), gaze_valid_ratio=0.95)
+    clean_high = compute_metrics([], _anti(9, 6), gaze_valid_ratio=0.95)
+    assert clean_low["confidence_pct"] == clean_high["confidence_pct"]
+    assert (clean_high["error_ci_high_pct"] - clean_high["error_ci_low_pct"]
+            > clean_low["error_ci_high_pct"] - clean_low["error_ci_low_pct"])
+
+
+def test_band_edge_flags_the_boundary_case():
+    edge = compute_metrics([], _anti(12, 3), gaze_valid_ratio=0.95)
+    assert edge["error_rate_pct"] == 20.0
+    assert edge["band_edge"] == 1, "3/15 lands exactly on the 20% edge"
+    # A perfect block is nowhere near the edge on a 1-SE view, even though
+    # its 95% interval reaches past 20% — which is why the flag is not tested
+    # against the interval the screen reports.
+    clear = compute_metrics([], _anti(15, 0), gaze_valid_ratio=0.95)
+    assert clear["band_edge"] == 0
+    assert clear["error_ci_high_pct"] > ERROR_TYPICAL_PCT
+
+
+def test_quality_factors_move_independently():
+    base = dict(support=1.0, excluded_frac=0.0, gaze_valid_ratio=0.95)
+    good = block_quality(**base)
+    assert good["quality_pct"] == 100.0
+    assert block_quality(**{**base, "gaze_valid_ratio": 0.80})["quality_pct"] \
+        < good["quality_pct"]
+    assert block_quality(**{**base, "excluded_frac": 0.2})["quality_pct"] \
+        < good["quality_pct"]
+    assert block_quality(**{**base, "support": 0.5})["quality_pct"] \
+        < good["quality_pct"]
+
+
+def test_blinking_alone_does_not_cost_tracking_marks():
+    """gaze_valid_ratio cannot reach 1.0 — involuntary blinks eat ~4% of
+    frames — so a normal run must still read as fully tracked."""
+    assert block_quality(support=1.0, gaze_valid_ratio=0.94)["quality_pct"] \
+        == 100.0
+
+
+def test_confidence_saturates_at_the_block_length():
+    full = confidence(n_valid=SATURATION_TRIALS, errors=2, band_width_pct=20.0,
+                      attempted=SATURATION_TRIALS, gaze_valid_ratio=0.95)
+    over = confidence(n_valid=SATURATION_TRIALS + 5, errors=3,
+                      band_width_pct=20.0, attempted=SATURATION_TRIALS + 5,
+                      gaze_valid_ratio=0.95)
+    assert full["confidence_pct"] == over["confidence_pct"] == 100.0
+
+
+# ── block extension ───────────────────────────────────────────────────────
+def test_both_blocks_extend_only_when_short_of_usable_trials():
+    for key in ("pro", "anti"):
+        task = TASKS[key]
+        assert task.extends, key
+        assert task.target_valid < task.n_trials < task.max_trials, key
+
+
+def test_replacement_segment_stays_count_balanced():
+    """Two balanced segments, not one long schedule truncated early: any
+    stopping point then stays within ±1 of balanced."""
+    import random
+    task = TASKS["anti"]
+    for seed in range(20):
+        rng = random.Random(seed)
+        dirs = build_directions(task.n_trials, rng)
+        dirs += build_directions(task.max_trials - task.n_trials, rng)
+        assert len(dirs) == task.max_trials
+        # Each segment is count-balanced to ±1, and a partial second segment
+        # can lean by at most the 3-in-a-row cap build_directions allows — so
+        # any stopping point stays within ±4 of even, on 20 trials.
+        for stop in range(task.n_trials, task.max_trials + 1):
+            assert abs(sum(dirs[:stop])) <= 4, (seed, stop, sum(dirs[:stop]))
 
 
 def test_build_directions_balanced_no_long_runs():

@@ -19,7 +19,7 @@ class SaccadeTask:
     key: str
     title: str
     is_anti: bool
-    n_trials: int              # scored trials
+    n_trials: int              # scored trials the block plans to run
     n_practice: int            # unscored, with explicit feedback
     fixation_min_s: float      # jittered central fixation
     fixation_max_s: float
@@ -28,15 +28,28 @@ class SaccadeTask:
     eccentricity: float        # target x offset as fraction of frame width
     instructions: tuple = field(default_factory=tuple)
     summary: str = ""
+    # Replacement trials. A block runs `n_trials`, then keeps going only while
+    # it is short of `target_valid` usable ones, never past `n_trials_max`.
+    # Both default to 0, meaning "fixed length"; both blocks now set them.
+    n_trials_max: int = 0
+    target_valid: int = 0
 
     @property
     def trial_span_s(self) -> float:
         """Worst-case seconds per trial, for the progress estimate."""
         return self.fixation_max_s + self.gap_s + self.target_hold_s
 
+    @property
+    def max_trials(self) -> int:
+        return self.n_trials_max or self.n_trials
+
+    @property
+    def extends(self) -> bool:
+        return self.max_trials > self.n_trials and self.target_valid > 0
+
 
 _COMMON = dict(
-    n_practice=3,
+    n_practice=2,
     fixation_min_s=1.0,
     fixation_max_s=2.0,
     gap_s=0.2,
@@ -49,7 +62,16 @@ TASKS: dict[str, SaccadeTask] = {
         key="pro",
         title="Part 1 - Look Toward",
         is_anti=False,
-        n_trials=16,
+        n_trials=15,
+        # The pro block loses trials to blinks and lost tracking exactly as the
+        # anti block does - over the recorded history it was scoring only ~69%
+        # of what it attempted, which is what kept firing the MIN_VALID_PRO
+        # note and left Anti - Pro resting on a thin baseline. It gets the same
+        # replacement rule; 12 is the pro-side analogue of anti's 13, sitting
+        # just above metrics.MIN_VALID_PRO so the note fires on a genuinely
+        # poor block rather than on ordinary attrition.
+        n_trials_max=20,
+        target_valid=12,
         instructions=(
             "Keep your eyes on the + in the middle.",
             "When a dot appears to the left or right,",
@@ -63,7 +85,18 @@ TASKS: dict[str, SaccadeTask] = {
         key="anti",
         title="Part 2 - Look Away",
         is_anti=True,
-        n_trials=24,
+        # 15 scored trials, not 24: computed against the healthy (~6%) and AD
+        # (~25.4%) error rates this test is banded on, 15 flags a 25% rate as
+        # often as 24 does (76.4% vs 75.3%), because 3/15 falls exactly on the
+        # 20% band edge. It costs false positives (5.7% vs 1.3%), which the
+        # band_edge flag is there to soften. The relationship is NOT monotonic
+        # — 16 trials moves the edge to 25% and detection drops to 59.5% — so
+        # this number cannot be nudged without redoing that arithmetic.
+        n_trials=15,
+        # Anticipated and lost trials buy replacements rather than costing the
+        # run: keep going while short of 13 usable ones, to a hard 20.
+        n_trials_max=20,
+        target_valid=13,
         instructions=(
             "Keep your eyes on the + in the middle.",
             "When the dot appears, look to the",

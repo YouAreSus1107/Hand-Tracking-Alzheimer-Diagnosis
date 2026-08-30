@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 
+from .confidence import confidence, straddles_band, wilson_ci
 from .detector import TrialResult
 
 # Anti-saccade error-rate bands (§6): healthy webcam median ≈ 5.8%
@@ -22,8 +23,22 @@ ERROR_MONITOR_PCT = 40.0
 THRESHOLDS_NOTE = ("Bands anchored to published healthy (~6%) and AD (~25%) "
                    "anti-saccade error rates; short screening form, not a norm.")
 
-MIN_VALID_PRO = 8            # of 16 scored prosaccade trials
-MIN_VALID_ANTI = 12          # of 24 scored anti-saccade trials
+# Bumped whenever a change to core/gaze/detector.py would score the same
+# recording differently, so the Analysis page's trend line can say where the
+# break is instead of drawing a step nobody's eyes actually made.
+#   1 - original: absolute deadband, single threshold.
+#   2 - baseline-relative onset, two-tier onset/confirm, adaptive envelope.
+#       Recovers ~21% of trials that v1 discarded as anticipatory, which were
+#       disproportionately the hard ones - so v2 error rates read a little
+#       higher than v1 on the same person.
+ENGINE_VERSION = 2
+
+MIN_VALID_PRO = 8            # advisory: below this the latency note fires
+# Six is a floor, not a target. A thin run is now reported with a confidence
+# score and an interval saying how thin it is (confidence.py), which beats
+# handing back nothing after three minutes — the same call the tapping test
+# made when it dropped min_taps to 6.
+MIN_VALID_ANTI = 6
 MIN_FACE_RATIO = 0.8
 # Frames whose iris was readable, as a fraction of frames with a face. Low
 # here with a high face ratio means the lids, not the framing, cost the run.
@@ -71,10 +86,18 @@ def block_stats(trials: list[TrialResult]) -> dict:
     }
 
 
+def _band_width_pct() -> float:
+    """Width of the middle (monitor) band. The confidence module measures the
+    error bar against this, so the two can never drift apart."""
+    return ERROR_MONITOR_PCT - ERROR_TYPICAL_PCT
+
+
 def compute_metrics(pro_trials: list[TrialResult],
                     anti_trials: list[TrialResult],
                     face_visible_ratio: float = 1.0,
-                    gaze_valid_ratio: float = 1.0) -> dict:
+                    gaze_valid_ratio: float = 1.0,
+                    camera_fps: float | None = None,
+                    attempts: dict | None = None) -> dict:
     """Score one run (pro block + anti block). Always returns a dict;
     `scoreable` is False with a specific human-readable `reason` when the
     headline can't be computed (mirrors the tapping test's honest handling)."""
@@ -83,6 +106,7 @@ def compute_metrics(pro_trials: list[TrialResult],
     out: dict = {
         "scoreable": False,
         "reason": None,
+        "engine_version": ENGINE_VERSION,
         "error_rate_pct": anti["error_rate_pct"],
         "corrected_rate_pct": anti["corrected_rate_pct"],
         "antisaccade_latency_ms": anti["mean_latency_ms"],
@@ -95,6 +119,12 @@ def compute_metrics(pro_trials: list[TrialResult],
         "valid_pro_trials": pro["valid"],
         "face_visible_ratio": round(face_visible_ratio, 3),
         "gaze_valid_ratio": round(gaze_valid_ratio, 3),
+        "anticipatory_rate_pct": (anti["anticipatory"] / anti["trials"] * 100
+                                  if anti["trials"] else None),
+        "confidence_pct": None, "confidence_level": None,
+        "error_ci_low_pct": None, "error_ci_high_pct": None,
+        "band_edge": None, "confidence_reasons": [],
+        "attempts": attempts or {},
         "pro_block": pro,
         "anti_block": anti,
         "status": None, "label": None,
@@ -110,6 +140,10 @@ def compute_metrics(pro_trials: list[TrialResult],
                 f"{gaze_valid_ratio * 100:.0f}% of frames - add light, and "
                 f"raise the camera to eye level so your eyelids don't cover "
                 f"the iris.")
+        elif anti["anticipatory"] > anti["valid"]:
+            out["reason"] = ("Most trials started before the dot appeared - "
+                             "wait for the dot to appear before moving your "
+                             "eyes, then try again.")
         elif anti["no_response"] > anti["valid"]:
             out["reason"] = ("Too few eye movements were detected - the dot "
                              "may be hard to see, or the room too dark.")
@@ -126,6 +160,32 @@ def compute_metrics(pro_trials: list[TrialResult],
     if pro["valid"] < MIN_VALID_PRO:
         out["latency_note"] = ("Prosaccade baseline had too few valid trials - "
                                "latency comparison is unreliable.")
+
+    quality = confidence(
+        n_valid=anti["valid"], errors=anti["errors"],
+        band_width_pct=_band_width_pct(),
+        attempted=anti["trials"], excluded=anti["trials"] - anti["valid"],
+        anticipatory=anti["anticipatory"], gaze_valid_ratio=gaze_valid_ratio,
+        camera_fps=camera_fps)
+    out["confidence_pct"] = quality["confidence_pct"]
+    out["confidence_level"] = quality["confidence_level"]
+    out["error_ci_low_pct"] = quality["error_ci_low_pct"]
+    out["error_ci_high_pct"] = quality["error_ci_high_pct"]
+    out["confidence_reasons"] = quality["reasons"]
+    # At 15 trials one error is worth 6.7 points and three land exactly on the
+    # 20% edge, so whether the estimate sits near a boundary matters more here
+    # than it does for a continuous metric.
+    #
+    # The test uses a 1-SE interval rather than the 95% one reported to the
+    # user, and that is not a fudge: at this block length the 95% interval
+    # spans a band edge for *every* attainable result, 0 errors included, so
+    # flagging on it would mark every run and tell the reader nothing. The
+    # 1-SE band asks the narrower, useful question — is the point estimate
+    # itself close enough to an edge that one more error would move it?
+    edge_ci = wilson_ci(anti["errors"], anti["valid"], z=1.0)
+    out["band_edge"] = int(straddles_band(
+        edge_ci[0] if edge_ci else None, edge_ci[1] if edge_ci else None,
+        ERROR_TYPICAL_PCT, ERROR_MONITOR_PCT))
 
     out["status"], out["label"] = band(anti["error_rate_pct"])
     out["scoreable"] = True
