@@ -134,6 +134,22 @@ def compute_metrics(mode: TapMode,
     out.update(mean_iti_ms=mean_iti, iiv_ms=stats["iiv_ms"], cv_pct=cv,
                frequency_hz=stats["frequency_hz"], n_intervals=len(iti))
 
+    # Floor for having a rhythm at all. Below roughly one tap every two
+    # seconds the hand is pausing between taps rather than tapping, and CV%
+    # is then measuring the pauses. This is deliberately set below the whole
+    # observed range of real runs — it rejects an abandoned attempt, not a
+    # merely unhurried one. CV% cannot tell a genuine maximum effort from a
+    # comfortable pace, and a scoring gate is the wrong place to try: the
+    # remedy for "fast" meaning different things to different people is
+    # coaching the pace during practice (docs/TAPPING_PRACTICE_PLAN.md).
+    if mode.min_effort_hz and stats["frequency_hz"] < mode.min_effort_hz:
+        out["reason"] = (
+            f"Tapping was too slow to score a rhythm "
+            f"({stats['frequency_hz']:.1f} taps/s - long pauses between taps "
+            f"leave no steady rhythm to measure). Try to keep a continuous "
+            f"tapping motion.")
+        return out
+
     quality = confidence(n_intervals=len(iti), cv_pct=cv, mean_iti_ms=mean_iti,
         band_width_pct=mode.cv_band_width, camera_fps=camera_fps,
         hand_visible_ratio=hand_visible_ratio, rejected_frac=stats["rejected_frac"],

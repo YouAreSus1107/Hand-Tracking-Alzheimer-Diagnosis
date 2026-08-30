@@ -3,7 +3,7 @@ Finger Tapping Test
 ===================
 Camera-based finger-tapping screening with two paradigms (core/tapping/modes.py):
 
-  Big & Fast  -- self-paced maximum-speed tapping, 15 s (primary; the
+  Big & Fast  -- self-paced maximum-speed tapping, 20 s (primary; the
                  literature-aligned paradigm: TapTalk, Suzumura, Roalf).
   Paced Rhythm -- metronome-synced tapping at 1 Hz, 30 s (rhythm + beat sync).
 
@@ -47,7 +47,7 @@ from core import i18n
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
 from core.camera import (select_camera_source, open_capture,
-                         create_display_window, window_closed)
+                         create_display_window, window_closed, pause_before_exit)
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.tapping.detector import Calibrator, TapDetector, thumb_index_distance
@@ -452,6 +452,8 @@ class App:
             "beat_times_s": [round(b - t0, 3) for b in self.beat_times],
             "calibration": {"d_closed": round(self.d_closed, 4),
                             "d_open": round(self.d_open, 4)},
+            "threshold_series": [[round(t - t0, 3), round(c, 4), round(o, 4)]
+                                 for t, c, o in self.detector.threshold_series],
             "hand_visible_ratio": round(visible_ratio, 3),
             "near_miss_taps": self.detector.near_miss,
             "closed_dwell_frac": round(self.detector.closed_dwell_frac, 3),
@@ -518,9 +520,13 @@ class App:
         if r["scoreable"]:
             cv_val = self.countup.value(now) if self.countup else r["cv_pct"]
             c._dirty = True
+            # Deliberately not r["status"]: a red/amber/green number here reads
+            # as an on-the-spot diagnosis, which is not what this screen is for
+            # (§ result page review — informal testing, explained in person).
+            # The plain-language label still carries the finding in words.
             c.draw.text((w // 2, py + 90), f"{cv_val:.1f}%",
                         font=get_font("mono", 56),
-                        fill=theme.rgba(r["status"], 1.0), anchor="mm")
+                        fill=theme.rgba("text", 1.0), anchor="mm")
             c.text(w // 2, py + 126,
                    i18n.t("Rhythm variability (CV of tap intervals)"),
                    role="caption", color="text-muted", anchor="mm")
@@ -530,7 +536,7 @@ class App:
                        i18n.t("95% CI {low}-{high}%", low=f"{ci_lo:.1f}",
                               high=f"{ci_hi:.1f}"), role="caption",
                        color="text-muted", anchor="mm", mono=True)
-            c.badge(w // 2, py + 158, i18n.t(r["label"]), r["status"])
+            c.badge(w // 2, py + 158, i18n.t(r["label"]), "info")
             conf = r.get("confidence_pct") or 0
             # Confidence is recording quality, not a second clinical verdict.
             # Moderate therefore uses neutral info blue; only low quality warns.
@@ -663,6 +669,7 @@ def main():
     cap = open_capture(source)
     if cap is None:
         print("[ERROR] Could not open camera.")
+        pause_before_exit()
         sys.exit(1)
     App(cap).run()
 

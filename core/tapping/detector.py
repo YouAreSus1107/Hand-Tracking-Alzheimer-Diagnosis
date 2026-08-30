@@ -9,14 +9,33 @@ Fixes over the old fixed-threshold approach:
   - Per-session calibration captures the user's own open/closed range.
   - Hysteresis (close below 30% of range, re-open above 55%) replaces the
     fixed 300 ms debounce that blocked max-speed tapping (audit A4).
+  - **Thresholds follow the actual tapping excursion, not the warm-up.**
+    Calibration is recorded while the participant opens wide and closes fully;
+    real tapping is a smaller motion, and it shrinks further over the trial
+    (that shrinking IS the decrement biomarker). Frozen calibration thresholds
+    therefore start missing the shallow half of a run - one dropped tap merges
+    two intervals into a double-length one and inflates CV% far more than the
+    lost tap itself. The fractions below are now applied to a rolling estimate
+    of the recent excursion, with calibration as the seed and the floor guard.
+    This is the threshold-free direction research/01-webcam-hand-motor.md
+    recommends (peak detection on the displacement curve, as TapTalk does).
 """
 
 from __future__ import annotations
 
 import math
 
-CLOSE_FRAC = 0.40   # close when d < d_closed + 0.40·range (higher = more sensitive tap)
-OPEN_FRAC = 0.55    # re-open only above d_closed + 0.55·range (hysteresis)
+CLOSE_FRAC = 0.40   # close when d < lo + 0.40·range (higher = more sensitive tap)
+OPEN_FRAC = 0.55    # re-open only above lo + 0.55·range (hysteresis)
+
+# Rolling-envelope adaptation.
+ENVELOPE_S = 3.0            # window the recent excursion is estimated over
+ENVELOPE_MIN_FRAMES = 20    # below this the window is not yet representative
+# 0.20 of the calibrated range is the measured knee: real tapping is still
+# recovered down to a quarter of the warm-up excursion, while a hand held
+# still yields no manufactured taps even at 0.05 landmark noise. Loosening
+# to 0.15 scores that still hand as ~25 taps.
+ADAPT_MIN_RANGE_FRAC = 0.20
 
 
 def thumb_index_distance(landmarks) -> float | None:
@@ -110,10 +129,20 @@ class TapDetector:
     the hand fully."""
 
     def __init__(self, min_intertap_s: float, ema_alpha: float,
-                 d_closed: float, d_open: float):
+                 d_closed: float, d_open: float, adaptive: bool = True):
         rng = max(1e-6, d_open - d_closed)
-        self.close_at = d_closed + CLOSE_FRAC * rng
-        self.open_at = d_closed + OPEN_FRAC * rng
+        self.cal_range = rng
+        self.cal_close_at = d_closed + CLOSE_FRAC * rng
+        self.cal_open_at = d_closed + OPEN_FRAC * rng
+        self.close_at = self.cal_close_at
+        self.open_at = self.cal_open_at
+        self.adaptive = adaptive
+        self._win: list[tuple[float, float]] = []
+        self.adapted_frames = 0
+        # (t, close_at, open_at) in force when each frame was judged. Recorded
+        # so the session report can draw the thresholds the detector actually
+        # used -- a flat line would now misrepresent an adapting one.
+        self.threshold_series: list[tuple[float, float, float]] = []
         self.min_intertap_s = min_intertap_s
         self.ema_alpha = ema_alpha
         self._ema: float | None = None
@@ -134,6 +163,7 @@ class TapDetector:
             self.ema_alpha * d_raw + (1 - self.ema_alpha) * self._ema)
         d = self._ema
         self.series.append((t, d))
+        self.threshold_series.append((t, self.close_at, self.open_at))
         self._frames += 1
         tapped = False
         if not self._closed and d < self.close_at:
@@ -156,7 +186,41 @@ class TapDetector:
                 self._dip_min = None
         if self._closed:
             self._closed_frames += 1
+        # Re-estimate the excursion AFTER deciding, so a frame never moves the
+        # threshold it is being judged against.
+        self._track_envelope(t, d)
         return tapped
+
+    def _track_envelope(self, t: float, d: float) -> None:
+        """Slide the window and re-derive the thresholds from the excursion
+        actually being performed. Holds the last good pair when the window is
+        too short or too flat to trust -- a hand held still must never collapse
+        the range onto the noise floor and start scoring jitter as taps."""
+        if not self.adaptive:
+            return
+        self._win.append((t, d))
+        cut = t - ENVELOPE_S
+        i = 0
+        while i < len(self._win) and self._win[i][0] < cut:
+            i += 1
+        if i:
+            del self._win[:i]
+        if len(self._win) < ENVELOPE_MIN_FRAMES:
+            return
+        lo, hi = self._window_percentiles()
+        rng = hi - lo
+        if rng < ADAPT_MIN_RANGE_FRAC * self.cal_range:
+            return
+        self.close_at = lo + CLOSE_FRAC * rng
+        self.open_at = lo + OPEN_FRAC * rng
+        self.adapted_frames += 1
+
+    def _window_percentiles(self) -> tuple[float, float]:
+        """5th/95th of the window -- the same estimator Calibrator uses, so the
+        seed and the running estimate mean the same thing."""
+        s = sorted(d for _, d in self._win)
+        n = len(s)
+        return (s[int(n * 0.05)], s[min(n - 1, int(n * 0.95))])
 
     @property
     def smoothed(self) -> float | None:
