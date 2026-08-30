@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from core import profiles
+
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
 
 _INDEX_FIELDS = [
@@ -25,6 +27,7 @@ _INDEX_FIELDS = [
     # oculomotor (pro/anti-saccade) columns
     "error_rate_pct", "antisaccade_latency_ms", "prosaccade_latency_ms",
     "anti_minus_pro_ms", "valid_trials",
+    "error_ci_low_pct", "error_ci_high_pct", "anticipatory_rate_pct",
     # oculomotor fixation-stability columns
     "fixation_rms_pct", "fixation_bcea", "intrusion_rate_per_min",
     # spiral-tracing columns (self-paced smoothness/jitter)
@@ -34,6 +37,9 @@ _INDEX_FIELDS = [
     # provenance — "local" for a test run on this machine, "remote" for one
     # that arrived from a participant's phone (REMOTE_SESSION_PLAN.md §3.4).
     "source", "participant",
+    # who the session belongs to — a snapshot of the profile that was active
+    # when it was recorded (core/profiles.py), not a live lookup.
+    "profile_id", "profile_name", "sex", "age_years", "dominant_hand",
 ]
 
 LOCAL, REMOTE = "local", "remote"
@@ -60,6 +66,7 @@ def _round(v, nd=2):
 def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
                  device: dict, metrics: dict, raw: dict,
                  source: str = LOCAL, participant: str = "",
+                 profile: dict | None = None,
                  session_id: str | None = None,
                  timestamp: datetime | None = None) -> Path:
     """Write one session JSON + append the CSV index row. Returns the JSON path.
@@ -69,7 +76,16 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
     phone already has its own id and its own clock, and overwriting either
     would break de-duplication on a retried upload. Local callers pass none of
     them and get the old behaviour.
+
+    `profile` says who was tested. A local caller passes nothing and the active
+    profile is read from the environment the launcher set (core/profiles.py),
+    which is why the test scripts need to know nothing about profiles. What is
+    stored is a snapshot, so editing or deleting the profile later never
+    rewrites what this recording said. Remote records are never given one here:
+    they arrive from a stranger's phone and are assigned from the hub.
     """
+    if profile is None:
+        profile = profiles.from_env() if source == LOCAL else {}
     RESULTS_DIR.mkdir(exist_ok=True)
     ts = timestamp or datetime.now()
     record = {
@@ -81,6 +97,7 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
         "duration_s": _round(duration_s),
         "source": source,
         "participant": participant,
+        "profile": profile,
         "device": device,
         "metrics": {k: _round(v) for k, v in metrics.items()},
         "raw": raw,
@@ -108,7 +125,63 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
                "test": test, "mode": mode, "hand": hand,
                "duration_s": record["duration_s"],
                "source": source, "participant": participant}
+        row.update(_profile_row(profile))
         row.update({k: _round(metrics.get(k)) for k in _INDEX_FIELDS
                     if k in metrics})
         w.writerow(row)
     return path
+
+
+def _profile_row(profile: dict | None) -> dict:
+    """The profile's columns in index.csv. An unassigned session leaves them
+    empty rather than absent, so a reassignment can clear them again."""
+    p = profile or {}
+    return {"profile_id": p.get("id", ""), "profile_name": p.get("name", ""),
+            "sex": p.get("sex", ""), "age_years": p.get("age_years", ""),
+            "dominant_hand": p.get("dominant_hand", "")}
+
+
+def reassign(session_id: str, profile: dict | None) -> bool:
+    """Move one already-saved session to a different profile (or to none).
+
+    The JSON and the index row have to move together, so both live here. The id
+    is matched against the `session_id` *inside* each file rather than used to
+    build a path — same reason as launcher.session_payload(): on the published
+    dashboard that value is attacker-controlled.
+    """
+    if not session_id or not RESULTS_DIR.is_dir():
+        return False
+    snap = profile or {}
+    found = False
+    for path in sorted(RESULTS_DIR.glob("*.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                record = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get("session_id") != session_id:
+            continue
+        record["profile"] = snap
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(record, fh, indent=1)
+        except OSError:
+            return False
+        found = True
+        break
+    if not found:
+        return False
+
+    index = RESULTS_DIR / "index.csv"
+    if index.exists():
+        _migrate_index(index)
+        with open(index, newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        for row in rows:
+            if row.get("session_id") == session_id:
+                row.update(_profile_row(snap))
+        with open(index, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=_INDEX_FIELDS, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+    return True

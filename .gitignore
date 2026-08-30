@@ -22,6 +22,9 @@ model/face_landmarker.task
 .launcher.pid
 .camera_cache.json
 .launcher_settings.json
+# Patient roster — names, sex and ages of the people tested on this machine.
+# Health-adjacent personal data, never published (core/profiles.py).
+.launcher_profiles.json
 # Invite ledger for remote sessions — local bookkeeping, holds participant
 # names and live tokens (docs/REMOTE_SESSION_PLAN.md).
 .remote_sessions.json

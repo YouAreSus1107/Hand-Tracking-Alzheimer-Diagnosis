@@ -32,6 +32,7 @@ Quit:  press Ctrl+C in this console, or close the window.
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import os
@@ -212,16 +213,24 @@ def set_lang_setting(raw) -> tuple[bool, str]:
 
 
 def _tool_env(lang: str | None = None) -> dict:
-    """Process environment for a spawned tool: camera source + overlay language.
+    """Process environment for a spawned tool: camera source, overlay language,
+    and who is being tested.
 
     `lang` overrides the stored setting when the launch request carried one, so
     a switch made a moment before Launch cannot lose the race against the POST
     that persists it.
+
+    The profile rides the same rail so the test scripts stay untouched:
+    core.session.save_session() reads HAND3D_PROFILE itself and stamps the
+    snapshot onto the record it writes.
     """
+    from core import profiles
+
     cam = camera_setting()
     env = os.environ.copy()
     env[ENV_CAMERA] = cam["url"] if cam["mode"] == "stream" else str(cam["index"])
     env[ENV_LANG] = lang if lang in _LANGS else lang_setting()
+    env[profiles.ENV_PROFILE] = profiles.env_value()
     return env
 _procs_lock = threading.Lock()
 
@@ -279,6 +288,45 @@ def hub_token() -> str:
 def pair_url(origin: str | None = None) -> str:
     """Link that hands the token to the hosted dashboard."""
     return f"{origin or _HOSTED_ORIGINS[0]}/#hub={PORT}&token={hub_token()}"
+
+
+def _pair_refused_page(dest: str) -> bytes:
+    """The 400 for /pair, as a page rather than a line of plain text.
+
+    /pair is reached by a top-level navigation, so a refusal replaces whatever
+    the visitor was looking at. A bare `text/plain` body left them on a white
+    screen with no way back to the dashboard; this says which address was
+    refused and offers the step back. Tokens from docs/UI_STYLE_GUIDE.md.
+    """
+    shown = html.escape(dest) if dest else "(none given)"
+    return f"""<!doctype html>
+<html lang="en" style="color-scheme:dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pairing refused &#8212; Cognitive Screening Suite</title>
+<style>
+ body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:#0E1520;color:#F8FAFC;padding:24px;line-height:1.6;
+      font-family:'Segoe UI',system-ui,-apple-system,sans-serif}}
+ .card{{max-width:520px;background:#111827;border:1px solid #2A3442;border-radius:16px;
+        padding:28px 32px;box-shadow:0 18px 50px rgba(0,0,0,.45)}}
+ h1{{font-size:20px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em}}
+ p{{margin:0 0 14px;font-size:14px;color:#94A3B8}}
+ code{{background:#1C2430;border-radius:5px;padding:2px 6px;font-size:13px;color:#F8FAFC;
+       font-family:Consolas,monospace;word-break:break-all}}
+ button{{height:44px;padding:0 18px;border:0;border-radius:12px;background:#2D7FF9;color:#fff;
+         font:inherit;font-size:14px;font-weight:600;cursor:pointer}}
+ button:hover{{background:#5197FB}}
+ a{{color:#12A594}}
+</style></head><body><div class="card">
+<h1>Pairing refused</h1>
+<p>This hub only hands its pairing code to addresses it knows, and
+<code>{shown}</code> is not one of them. Nothing was shared.</p>
+<p>If you are testing a local build of the site, start the hub with
+<code>HAND3D_ALLOW_ORIGIN</code> set to that address.</p>
+<button onclick="history.back()">Go back</button>
+&#160;<a href="/">or open this hub&#8217;s own dashboard</a>
+</div></body></html>
+""".encode("utf-8")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -791,6 +839,63 @@ def remote_post(route: str, data: dict) -> tuple[bool, str, dict]:
     return False, f"Unknown endpoint: {route}", {}
 
 
+# ── Patient profiles ───────────────────────────────────────────────────────
+# The roster of people this machine tests (core/profiles.py). Imported inside
+# each function like the glove and remote stacks, so a mid-edit module cannot
+# stop the hub starting.
+#
+# Note these answer the hosted dashboard too, behind the same _authorised()
+# gate as everything else — a paired browser can read and edit patient names.
+# That is the same trust boundary the session metrics already sit behind.
+
+def _profiles_module():
+    from core import profiles
+    return profiles
+
+
+def profiles_payload() -> dict:
+    return _profiles_module().state()
+
+
+def profiles_post(data: dict) -> tuple[bool, str, dict]:
+    profiles = _profiles_module()
+    action = str(data.get("action", "save")).strip()
+    made = None
+    if action == "save":
+        ok, msg, made = profiles.upsert(data.get("profile"))
+    elif action == "delete":
+        ok, msg = profiles.delete(str(data.get("id", "")))
+    elif action == "activate":
+        ok, msg = profiles.set_active(str(data.get("id", "")))
+    else:
+        return False, f"Unknown profile action: {action}", {}
+    extra = profiles.state()
+    if made:
+        # The dashboard activates a profile it has just created, and needs the
+        # id the server minted to do it.
+        extra["profile"] = made
+    return ok, msg, extra
+
+
+def assign_session(session_id: str, profile_id: str) -> tuple[bool, str, dict]:
+    """Move one saved session to a different profile. An empty profile id
+    unassigns it, which is how a run recorded under the wrong person is undone
+    without inventing a placeholder profile."""
+    profiles = _profiles_module()
+    from core import session as session_store
+
+    session_id = str(session_id or "").strip()
+    profile_id = str(profile_id or "").strip()
+    snap = profiles.snapshot(profile_id) if profile_id else {}
+    if profile_id and not snap:
+        return False, "That profile no longer exists.", {}
+    if not session_store.reassign(session_id, snap):
+        return False, "Session not found.", {}
+    who = snap.get("name")
+    return True, (f"Session moved to {who}." if who
+                  else "Session is now unassigned."), {"profile": snap}
+
+
 def status_payload() -> dict:
     return {
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
@@ -805,6 +910,10 @@ def status_payload() -> dict:
         "camera": camera_setting(),
         # Which language the next launched tool will draw its overlay in.
         "lang": lang_setting(),
+        # Who the next launched tool will record for. Rides the same 3 s poll
+        # as the camera chip, so the profile chip needs no endpoint to stay in
+        # sync — only the roster itself is fetched separately.
+        "profile": _profiles_module().active_snapshot(),
     }
 
 
@@ -848,9 +957,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """CORS preflight.
 
-        Chrome sends one for any public page reaching loopback (Private Network
-        Access) and asks with Access-Control-Request-Private-Network; without
-        the matching allow header every call from the hosted page fails.
+        Chrome sends one for any public page reaching loopback and asks for
+        permission to cross into the local network; without the matching allow
+        header every call from the hosted page fails.
+
+        It asks under two different names. Up to Chrome 137 the exchange was
+        Private Network Access (Access-Control-Request-Private-Network); from
+        138 it was renamed Local Network Access and gained a user-facing
+        permission prompt. A hub that answers only the old name fails the
+        preflight on any current Chrome, so answer whichever one arrived.
         """
         self.send_response(204)
         self._cors()
@@ -859,6 +974,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "600")
         if self.headers.get("Access-Control-Request-Private-Network") == "true":
             self.send_header("Access-Control-Allow-Private-Network", "true")
+        if self.headers.get("Access-Control-Request-Local-Network-Access") == "true":
+            self.send_header("Access-Control-Allow-Local-Network-Access", "true")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -894,7 +1011,7 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         dest = (q.get("return", [""])[0] or "").strip().rstrip("/")
         if dest not in _allowed_origins():
-            self._send(400, b"Unknown return address.", "text/plain; charset=utf-8")
+            self._send(400, _pair_refused_page(dest), "text/html; charset=utf-8")
             return
         self.send_response(302)
         self.send_header("Location", pair_url(dest))
@@ -937,6 +1054,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": "Session not found"}, 404)
             else:
                 self._send_json(rec)
+        elif route == "/api/profiles":
+            self._send_json(profiles_payload())
         elif route == "/api/remote/state":
             self._send_json(remote_state_payload())
         elif route == "/api/dev/env":
@@ -1013,6 +1132,18 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/lang":
             ok, msg = set_lang_setting(data.get("lang"))
             self._send_json({"ok": ok, "message": msg, "lang": lang_setting()})
+            return
+        elif route == "/api/profiles":
+            ok, msg, extra = profiles_post(data)
+            payload = {"ok": ok, "message": msg}
+            payload.update(extra or {})
+            self._send_json(payload)
+            return
+        elif route == "/api/session/profile":
+            ok, msg, extra = assign_session(data.get("id"), data.get("profile_id"))
+            payload = {"ok": ok, "message": msg}
+            payload.update(extra or {})
+            self._send_json(payload)
             return
         else:
             self._send_json({"ok": False, "message": "Unknown endpoint"}, code=404)
