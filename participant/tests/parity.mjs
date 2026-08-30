@@ -69,7 +69,8 @@ for (const [key, py] of Object.entries(V.modes)) {
   const js = MODES[key];
   if (!js) { pending.push(key); continue; }
   for (const field of ["paced", "duration_s", "expected_rate_hz", "min_taps",
-                       "trim_taps", "cv_typical", "cv_monitor"]) {
+                       "trim_taps", "cv_typical", "cv_monitor",
+                       "max_rate_hz", "min_effort_hz"]) {
     check(`mode.${key}.${field}`, js[field], py[field]);
   }
   check(`mode.${key}.min_intertap_s`, minIntertapS(js), py.min_intertap_s);
@@ -109,7 +110,9 @@ for (const c of V.cases) {
     check(`${c.name}/metrics.${key}`, m[key], c.metrics[key]);
   }
 
-  if (c.metrics.cv_pct !== null) {
+  // Guard on status, not cv_pct: a run can have a CV% and still be refused a
+  // band (the min_effort_hz floor computes the stats, then declines to score).
+  if (c.metrics.status !== null) {
     const [status, label] = band(c.metrics.cv_pct, mode);
     check(`${c.name}/band.status`, status, c.metrics.status);
     check(`${c.name}/band.label`, label, c.metrics.label);

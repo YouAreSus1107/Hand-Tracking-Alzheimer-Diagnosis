@@ -17,8 +17,10 @@ export const MODES = {
     key: "big_and_fast",
     title: "Big & Fast",
     paced: false,
-    duration_s: 15.0,
-    expected_rate_hz: 5.0,
+    duration_s: 20.0,
+    expected_rate_hz: 1.2,
+    max_rate_hz: 5.0,
+    min_effort_hz: 0.5,
     min_taps: 6,
     trim_taps: 2,
     cv_typical: 15.0,
@@ -28,7 +30,8 @@ export const MODES = {
 };
 
 // TapMode.min_intertap_s / max_iti_ms are properties in Python.
-export function minIntertapS(mode) { return 0.5 / mode.expected_rate_hz; }
+// The debounce follows max_rate_hz, not expected_rate_hz — see modes.py.
+export function minIntertapS(mode) { return 0.5 / (mode.max_rate_hz || mode.expected_rate_hz); }
 export function maxItiMs(mode) {
   return mode.paced ? mode.interval_s * 1000 * 1.5
                     : 3.0 * 1000.0 / mode.expected_rate_hz;
@@ -38,6 +41,13 @@ export function maxItiMs(mode) {
 
 export const CLOSE_FRAC = 0.40;
 export const OPEN_FRAC = 0.55;
+
+// Rolling-envelope adaptation: the thresholds follow the excursion actually
+// being performed rather than the wide-open warm-up. See detector.py's
+// module docstring for why a frozen threshold drops the shallow half of a run.
+export const ENVELOPE_S = 3.0;
+export const ENVELOPE_MIN_FRAMES = 20;
+export const ADAPT_MIN_RANGE_FRAC = 0.20;
 
 /** Thumb-tip↔index-tip distance normalised by hand span. `landmarks` is an
  *  array of {x, y} (or [x, y]) in normalised image space. null on a glitch. */
@@ -114,10 +124,17 @@ export class Calibrator {
 }
 
 export class TapDetector {
-  constructor(minIntertap, emaAlpha, dClosed, dOpen) {
+  constructor(minIntertap, emaAlpha, dClosed, dOpen, adaptive = true) {
     const rng = Math.max(1e-6, dOpen - dClosed);
-    this.closeAt = dClosed + CLOSE_FRAC * rng;
-    this.openAt = dClosed + OPEN_FRAC * rng;
+    this.calRange = rng;
+    this.calCloseAt = dClosed + CLOSE_FRAC * rng;
+    this.calOpenAt = dClosed + OPEN_FRAC * rng;
+    this.closeAt = this.calCloseAt;
+    this.openAt = this.calOpenAt;
+    this.adaptive = adaptive;
+    this._win = [];
+    this.adaptedFrames = 0;
+    this.thresholdSeries = [];   // [t, closeAt, openAt] in force per frame
     this.minIntertapS = minIntertap;
     this.emaAlpha = emaAlpha;
     this._ema = null;
@@ -137,6 +154,7 @@ export class TapDetector {
       : this.emaAlpha * dRaw + (1 - this.emaAlpha) * this._ema;
     const d = this._ema;
     this.series.push([t, d]);
+    this.thresholdSeries.push([t, this.closeAt, this.openAt]);
     this._frames += 1;
     let tapped = false;
     if (!this._closed && d < this.closeAt) {
@@ -155,7 +173,38 @@ export class TapDetector {
       else if (this._dipMin !== null) { this.nearMiss += 1; this._dipMin = null; }
     }
     if (this._closed) this._closedFrames += 1;
+    // Re-estimate AFTER deciding, so a frame never moves the threshold it is
+    // being judged against.
+    this._trackEnvelope(t, d);
     return tapped;
+  }
+
+  /** Slide the window and re-derive the thresholds from the excursion actually
+   *  being performed. Holds the last good pair when the window is too short or
+   *  too flat to trust — a hand held still must never collapse the range onto
+   *  the noise floor and start scoring jitter as taps. */
+  _trackEnvelope(t, d) {
+    if (!this.adaptive) return;
+    this._win.push([t, d]);
+    const cut = t - ENVELOPE_S;
+    let i = 0;
+    while (i < this._win.length && this._win[i][0] < cut) i += 1;
+    if (i) this._win.splice(0, i);
+    if (this._win.length < ENVELOPE_MIN_FRAMES) return;
+    const [lo, hi] = this._windowPercentiles();
+    const rng = hi - lo;
+    if (rng < ADAPT_MIN_RANGE_FRAC * this.calRange) return;
+    this.closeAt = lo + CLOSE_FRAC * rng;
+    this.openAt = lo + OPEN_FRAC * rng;
+    this.adaptedFrames += 1;
+  }
+
+  /** 5th/95th of the window — the same estimator Calibrator uses, so the seed
+   *  and the running estimate mean the same thing. */
+  _windowPercentiles() {
+    const s = this._win.map(([, d]) => d).sort((a, b) => a - b);
+    const n = s.length;
+    return [s[Math.floor(n * 0.05)], s[Math.min(n - 1, Math.floor(n * 0.95))]];
   }
 
   get smoothed() { return this._ema; }
@@ -268,6 +317,15 @@ export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
   const meanIti = stats.mean_iti_ms, cv = stats.cv_pct, cutoff = stats.cutoff;
   out.mean_iti_ms = meanIti; out.iiv_ms = stats.iiv_ms;
   out.cv_pct = cv; out.frequency_hz = stats.frequency_hz; out.n_intervals = iti.length;
+
+  // Floor for having a rhythm at all — mirrors compute_metrics().
+  if (mode.min_effort_hz && stats.frequency_hz < mode.min_effort_hz) {
+    out.reason = `Tapping was too slow to score a rhythm ` +
+      `(${stats.frequency_hz.toFixed(1)} taps/s - long pauses between taps ` +
+      `leave no steady rhythm to measure). Try to keep a continuous tapping motion.`;
+    return out;
+  }
+
   out.confidence_pct = confidence(iti.length, cv, meanIti,
     mode.cv_monitor-mode.cv_typical, cameraFps, handVisibleRatio, stats.rejected_frac);
   const ci = cvCi(cv, iti.length); out.cv_ci_low_pct=ci[0]; out.cv_ci_high_pct=ci[1];
