@@ -29,17 +29,16 @@ from __future__ import annotations
 
 import math
 
-# Level thresholds on the 0-100 score.
-HIGH, MODERATE = 75.0, 45.0
+# The level split and the band-straddle rule are shared with the other tests'
+# confidence modules, so "moderate" means one thing across the whole suite
+# (core/confidence.py). Re-exported here: this module's public surface is
+# unchanged, and the JS port in participant/engine.js still mirrors one file.
+from core.confidence import (HIGH, MODERATE, Z95, level_of,  # noqa: F401
+                             straddles_band, clamp as _clamp)
 
 # Factor shaping constants.
 VISIBLE_FLOOR = 0.70        # hand-visible ratio at or below which tracking → 0
 REJECT_CEILING = 0.25       # share of intervals dropped as outliers → 0
-Z95 = 1.959964              # normal quantile for a 95% interval
-
-
-def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return lo if v < lo else hi if v > hi else v
 
 
 def cv_rel_se(cv_frac: float, n_intervals: int) -> float | None:
@@ -72,14 +71,6 @@ def quantisation_cv_pct(camera_fps: float | None, mean_iti_ms: float) -> float |
     if not camera_fps or camera_fps <= 0 or mean_iti_ms <= 0:
         return None
     return 100.0 * (1000.0 / camera_fps) / math.sqrt(6.0) / mean_iti_ms
-
-
-def level_of(confidence_pct: float) -> str:
-    if confidence_pct >= HIGH:
-        return "high"
-    if confidence_pct >= MODERATE:
-        return "moderate"
-    return "low"
 
 
 def confidence(*, n_intervals: int, cv_pct: float, mean_iti_ms: float,
@@ -154,11 +145,3 @@ def confidence(*, n_intervals: int, cv_pct: float, mean_iti_ms: float,
         "quant_cv_pct": quant,
     }
 
-
-def straddles_band(ci_low: float | None, ci_high: float | None,
-                   *edges: float) -> bool:
-    """True when the interval spans a band boundary -- the point estimate's
-    band call is then not the only one the data supports."""
-    if ci_low is None or ci_high is None:
-        return False
-    return any(ci_low < edge < ci_high for edge in edges)
