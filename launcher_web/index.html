@@ -8,6 +8,28 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Critical shell, inline and ahead of styles.css so that a stylesheet
+     that is slow, evicted or lost on one load cannot leave the page as raw
+     UA-styled HTML: default list markers, an inline full-size #rd-bg canvas,
+     every .page stacked on screen at once. Every rule here is repeated in
+     styles.css, which comes later and wins. Keep it in sync if the shell
+     tokens change. -->
+<style>
+html{background:#0E1520;color-scheme:dark}
+body{margin:0;min-height:100vh;background:#0E1520;color:#F8FAFC;overflow-x:hidden;
+     font-family:'Inter','Segoe UI','Noto Sans TC',system-ui,-apple-system,sans-serif;
+     font-size:18px;line-height:1.55}
+#rd-bg{position:fixed;inset:0;z-index:0;pointer-events:none;width:100%;height:100%}
+.app{position:relative;z-index:1;min-height:100vh}
+.page{display:none}
+.page.active{display:block}
+ol,ul{list-style:none;margin:0;padding:0}
+h1,h2,h3,h4,p{margin:0}
+i{font-style:normal}
+a{color:inherit}
+button,input{font:inherit;color:inherit}
+[hidden]{display:none !important}
+</style>
 <link rel="stylesheet" href="/styles.css">
 <script type="importmap">{"imports":{
   "three":"https://unpkg.com/three@0.164.0/build/three.module.js",
@@ -24,14 +46,29 @@
     </button>
     <div class="nav-links">
       <button class="nav-link active" data-page="home" data-i18n="nav.home">Dashboard</button>
-      <button class="nav-link" data-page="why" data-i18n="nav.why">Why This</button>
       <button class="nav-link" data-page="analysis" data-i18n="nav.analysis">Analysis</button>
       <button class="nav-link" data-page="remote" data-i18n="nav.remote">Remote</button>
-      <button class="nav-link" data-page="iiv" data-i18n="nav.iiv">Finger Tapping</button>
-      <button class="nav-link" data-page="spiral" data-i18n="nav.spiral">Spiral Tracing</button>
-      <button class="nav-link" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
-      <button class="nav-link" data-page="tracking" data-i18n="nav.tracking">Hand Tracking</button>
-      <button class="nav-link" data-page="dev" data-i18n="nav.dev">Developer</button>
+      <!-- The four camera tools live behind one trigger; nine top-level links
+           made the bar taller than anything under it. -->
+      <div class="nav-group">
+        <button class="nav-trigger" type="button" aria-haspopup="true" aria-expanded="false"
+                aria-controls="nav-menu-tests"><span data-i18n="nav.tests">Tests</span><svg class="nav-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="nav-menu" id="nav-menu-tests" role="menu">
+          <button class="nav-link" role="menuitem" data-page="iiv" data-i18n="nav.iiv">Finger Tapping</button>
+          <button class="nav-link" role="menuitem" data-page="spiral" data-i18n="nav.spiral">Spiral Tracing</button>
+          <button class="nav-link" role="menuitem" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
+          <button class="nav-link" role="menuitem" data-page="tracking" data-i18n="nav.tracking">Hand Tracking</button>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-trigger" type="button" aria-haspopup="true" aria-expanded="false"
+                aria-controls="nav-menu-about"><span data-i18n="nav.about">About</span><svg class="nav-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <div class="nav-menu" id="nav-menu-about" role="menu">
+          <button class="nav-link" role="menuitem" data-page="why" data-i18n="nav.why">Why This</button>
+          <button class="nav-link" role="menuitem" data-page="about" data-i18n="nav.aboutMe">About Me</button>
+          <button class="nav-link" role="menuitem" data-page="dev" data-i18n="nav.dev">Developer</button>
+        </div>
+      </div>
     </div>
     <div class="lang-switch" role="group" aria-label="Language / 語言">
       <button class="lang-btn" data-lang="en" lang="en">EN</button>
@@ -51,34 +88,165 @@
       </div>
     </div>
 
-    <!-- Get the app. Shown only on the published site when no hub is
-         answering: the connector sets body[data-hub], and the local hub
-         never loads it, so this stays hidden there. -->
+    <!-- Hub connection. Shown only on the published site, and only while no
+         hub is driving the page: the connector (tools/web_static/static-api.js)
+         puts its state on body[data-hub], and the local launcher never loads
+         it, so this stays collapsed there.
+
+         A guided rail rather than a download blurb. The step the visitor is
+         actually on is lit from the live hub probe, and step 3 stays visibly
+         locked until a hub answers — clicking "connect" before starting the
+         hub used to navigate the whole tab onto a browser error page. -->
     <div class="section get-app" id="get-app">
-      <div class="get-card">
-        <h2 data-i18n="get.h">Run the tests on your own machine</h2>
-        <p class="get-lead" data-i18n="get.lead">The screening tests are Python and need your camera, so they run on your
+      <div class="hub-panel">
+        <div class="hub-head">
+          <div>
+            <div class="hub-eyebrow" data-i18n="get.eyebrow">Local hub</div>
+            <h2 data-i18n="get.h">Run the tests on your own machine</h2>
+          </div>
+          <span class="hub-state" id="hub-state" role="status" aria-live="polite">
+            <span class="hub-state-dot"></span><span id="hub-state-word">&#8230;</span>
+          </span>
+        </div>
+        <p class="hub-lead" data-i18n="get.lead">The tests are Python and need your camera, so they run on your
           computer &#8212; this page drives them. Install once, and every button here goes live.</p>
-        <div class="get-actions">
-          <a class="btn btn-primary" href="/download/HandScreening-Setup.zip" download>
+
+        <!-- Steps already behind you. Shown only in the link stage, where
+             boards 1-2 have left the flow and their state still has to read. -->
+        <div class="hub-chips" id="hub-chips" hidden>
+          <span class="hub-chip-done"><i class="hub-tick"></i><span data-i18n="get.chip.dl">Downloaded</span></span>
+          <span class="hub-chip-done"><i class="hub-tick"></i><span data-i18n="get.chip.install">Installed</span></span>
+        </div>
+
+        <!-- The stage. data-stage="install" is three boards; "link" drops
+             boards 1-2 and gives the connect board the full width with its
+             handshake art scaled up. One set of artwork, one grid change -
+             see the [data-stage] rules in styles.css. -->
+        <div class="hub-stage" id="hub-stage" data-stage="install">
+
+          <article class="hub-board" data-step="1" data-step-state="current">
+            <div class="hub-art">
+              <svg class="art art-dl" viewBox="0 0 240 150" aria-hidden="true">
+                <g class="pkg">
+                  <rect class="ac-s" x="102" y="14" width="36" height="30" rx="6"/>
+                  <path class="ac-s" d="M120 14v30"/>
+                  <rect class="ac-f" x="114" y="21" width="12" height="9" rx="2"/>
+                </g>
+                <path class="ln dash" d="M120 50v9"/>
+                <path class="ac-s" d="M113 60l7 7 7-7"/>
+                <rect class="ln" x="68" y="74" width="104" height="50" rx="7"/>
+                <path class="ln soft" d="M84 92h48M84 104h30"/>
+                <path class="ln" d="M52 132h136l-9-8H61z"/>
+              </svg>
+            </div>
+            <div class="hub-board-body">
+              <div class="hub-board-h"><span class="hub-num">1</span><h3 data-i18n="get.s1.h">Download</h3></div>
+              <p data-i18n="get.s1.p">The setup bundle, 8&#160;MB.</p>
+              <p class="hub-tip" data-i18n="get.s1.tip">Windows &#183; Python 3.9&#8211;3.12</p>
+            </div>
+          </article>
+
+          <article class="hub-board" data-step="2" data-step-state="locked">
+            <div class="hub-art">
+              <svg class="art art-run" viewBox="0 0 240 150" aria-hidden="true">
+                <rect class="ln" x="38" y="26" width="164" height="98" rx="9"/>
+                <path class="ln soft" d="M38 46h164"/>
+                <circle class="dot" cx="52" cy="36" r="2.8"/>
+                <circle class="dot" cx="63" cy="36" r="2.8"/>
+                <circle class="dot" cx="74" cy="36" r="2.8"/>
+                <text class="mono ac-t" x="54" y="70">&#62;</text>
+                <text class="mono tx" x="67" y="70">setup.bat</text>
+                <rect class="trk" x="54" y="82" width="132" height="8" rx="4"/>
+                <rect class="fill" x="54" y="82" width="132" height="8" rx="4"/>
+                <rect class="mod m1" x="54" y="100" width="15" height="15" rx="4"/>
+                <rect class="mod m2" x="75" y="100" width="15" height="15" rx="4"/>
+                <rect class="mod m3" x="96" y="100" width="15" height="15" rx="4"/>
+                <text class="cap start" x="120" y="112">models</text>
+              </svg>
+            </div>
+            <div class="hub-board-body">
+              <div class="hub-board-h"><span class="hub-num">2</span><h3 data-i18n="get.s2.h">Install</h3></div>
+              <p data-i18n="get.s2.p">Unzip anywhere, run <code>setup.bat</code> once.</p>
+              <p class="hub-tip" data-i18n="get.s2.tip">It builds the environment and fetches the models</p>
+            </div>
+          </article>
+
+          <!-- The live one. data-art is set from the real probe (static-api.js
+               paintPanel/ping): idle | pinging | found | paired | blocked. The
+               drawing is the status display, not decoration. -->
+          <article class="hub-board" id="hub-link" data-step="3" data-step-state="locked" data-art="idle">
+            <div class="hub-art">
+              <svg class="art art-link" viewBox="0 0 240 150" aria-hidden="true">
+                <rect class="ln" x="14" y="40" width="76" height="58" rx="8"/>
+                <path class="ln soft" d="M14 55h76"/>
+                <circle class="dot" cx="25" cy="47.5" r="2.4"/>
+                <circle class="dot" cx="33" cy="47.5" r="2.4"/>
+                <path class="ln soft" d="M26 70h44M26 81h28"/>
+
+                <rect class="ln box" x="150" y="40" width="76" height="58" rx="8"/>
+                <path class="ln soft mach-i" d="M164 62h44M164 73h28M164 84h36"/>
+                <circle class="pwr" cx="216" cy="49" r="3.4"/>
+                <path class="ln" d="M188 98v9M172 107h32"/>
+
+                <path class="wire" d="M90 69h60"/>
+                <path class="wire-lit" d="M90 69h60"/>
+                <path class="wire-cut" d="M90 69h16M134 69h16"/>
+                <circle class="beam" cx="90" cy="69" r="4"/>
+                <path class="tick" d="M113 69.5l5 5 9-11"/>
+                <path class="shield" d="M120 51l11 4v9c0 7-4.5 11.5-11 13.5-6.5-2-11-6.5-11-13.5v-9z"/>
+
+                <text class="cap" id="art-cap-page" x="52" y="122">this page</text>
+                <text class="cap" id="art-cap-machine" x="188" y="122">your machine</text>
+                <text class="mono port" x="188" y="136">127.0.0.1:8770</text>
+              </svg>
+            </div>
+            <div class="hub-board-body">
+              <div class="hub-board-h"><span class="hub-num">3</span><h3 data-i18n="get.s3.h">Connect</h3></div>
+              <p data-i18n="get.s3.p">Run <code>run_hub.bat</code>, then come back.</p>
+              <p class="hub-tip" data-i18n="get.s3.tip">This page finds it by itself &#8212; nothing to type</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="hub-actions">
+          <a class="btn btn-primary" id="hub-dl" href="/download/HandScreening-Setup.zip" download>
             <span data-i18n="get.dl">Download for Windows</span>&#160;<span class="get-size" id="get-size"></span></a>
-          <button class="btn btn-ghost" id="hub-connect" onclick="hubConnect()"
-                  data-i18n="get.connect">Hub found &#8212; connect this page</button>
+          <button class="btn btn-primary hub-connect" id="hub-connect" onclick="hubConnect()"
+                  data-i18n="get.connect">Connect this page</button>
+          <button class="btn btn-ghost" id="hub-recheck" onclick="hubRecheck()"
+                  data-i18n="get.recheck">Check again</button>
         </div>
-        <ol class="get-steps">
-          <li data-i18n="get.step1">Unzip the folder anywhere.</li>
-          <li data-i18n="get.step2">Double-click <code>setup.bat</code>. It builds the environment and
-            downloads the models &#8212; once, and it takes a few minutes.</li>
-          <li data-i18n="get.step3">Double-click <code>run_hub.bat</code>, then come back here. The page
-            connects itself.</li>
-        </ol>
-        <p class="get-note" data-i18n="get.note">Windows with Python 3.9&#8211;3.12, in Chrome or Edge. Safari blocks a local
+
+        <!-- Locked-step explainer while nothing has answered; the pulse is the
+             only thing that says the page is still listening. -->
+        <p class="hub-listen" id="hub-listen"><span class="hub-listen-dot"></span><span
+             id="hub-listen-text" data-i18n="get.listen">Listening for a hub on
+             <code>127.0.0.1:8770</code> &#8212; already installed? Run <code>run_hub.bat</code>.</span></p>
+
+        <!-- Pre-flight failure. Never a navigation: the page stays put. -->
+        <div class="hub-error" id="hub-error" hidden>
+          <span class="hub-error-ic" id="hub-error-ic"></span>
+          <div>
+            <p id="hub-error-text"></p>
+            <button class="btn-mini hub-retry" onclick="hubRetry()" data-i18n="get.retry">Try again</button>
+          </div>
+        </div>
+
+        <p class="hub-note" data-i18n="get.note">Windows with Python 3.9&#8211;3.12, in Chrome or Edge. Safari blocks a local
           hub from an https page. Nothing you record is uploaded: this page talks to your machine, not to a server.</p>
-        <div class="get-manual">
-          <label for="hub-code" data-i18n="get.manual">Or paste the code the hub prints:</label>
-          <input id="hub-code" type="text" autocomplete="off" spellcheck="false">
-          <button class="btn btn-ghost" onclick="hubPairManual()" data-i18n="get.pair">Pair</button>
-        </div>
+
+        <details class="hub-manual" id="hub-manual">
+          <summary data-i18n="get.manual.sum">Pair by hand</summary>
+          <div class="hub-manual-body">
+            <label for="hub-code" data-i18n="get.manual">Or paste the code the hub prints:</label>
+            <div class="hub-manual-row">
+              <input id="hub-code" type="text" autocomplete="off" spellcheck="false">
+              <button class="btn btn-ghost" onclick="hubPairManual()" data-i18n="get.pair">Pair</button>
+            </div>
+            <button class="hub-forget" id="hub-forget" onclick="hubForget()" hidden
+                    data-i18n="get.forget">Forget the stored pairing code</button>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -88,12 +256,14 @@
          will show, so the strip is informative on a fresh install too. -->
     <div class="section vitals-sec reveal">
       <div class="section-head"><h2 data-i18n="home.sec.vitals">Your Readings</h2><div class="sh-line"></div>
+        <span class="sh-who" id="vitals-who"></span>
         <button class="sh-link" onclick="showPage('analysis')" data-i18n="home.vitals.link">Full trend &#8594;</button></div>
+      <div class="run-assign" id="run-assign" hidden></div>
       <div class="vitals" id="vitals"></div>
     </div>
 
     <div class="section">
-      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="cam-slot" data-cam></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
+      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="hub-slot" data-hub-chip></span><span class="cam-slot" data-cam></span><span class="pf-slot" data-profile></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
       <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
         <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
         <div class="carousel-stage" id="cards"></div>
@@ -126,6 +296,9 @@
         </div>
       </div>
       <div class="analysis-summary" id="analysis-summary"></div>
+      <div class="seg" id="analysis-profile" role="tablist" aria-label="Filter by person" data-i18n-aria="analysis.person.aria"></div>
+      <div class="analysis-who" id="analysis-who"></div>
+      <div class="analysis-editor" id="analysis-editor" hidden></div>
       <div class="seg" id="analysis-filter" role="tablist" aria-label="Filter by test" data-i18n-aria="analysis.filter.aria"></div>
       <div class="analysis-body" id="analysis-body"></div>
       <p class="analysis-disclaimer" data-i18n="analysis.disclaimer">
@@ -163,6 +336,21 @@
         provisional pending a normative cohort, and validation on patient groups is the
         roadmap&#8217;s decisive next step &#8212; shown honestly in the table above.
       </p>
+    </div>
+  </div>
+
+  <!-- ABOUT ME -->
+  <div class="page" id="page-about">
+    <div class="why">
+      <div class="analysis-head">
+        <div class="analysis-title">
+          <div class="analysis-icon" id="about-icon"></div>
+          <div>
+            <h1 data-i18n="about.h1">About Me</h1>
+            <p data-i18n="about.intro">Nothing here yet.</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -217,7 +405,7 @@
           <div class="detail-file">screening_tests/finger_tapping.py</div>
           <p data-i18n="iiv.lede">Tap your index finger to your thumb rhythmically.</p>
           <div class="detail-tags">
-            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (15 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
+            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (20 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
             <span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span><span class="detail-tag" data-i18n="iiv.tag4">CV% headline metric</span>
           </div>
           <div class="detail-actions" id="iiv-actions"></div>
@@ -227,10 +415,10 @@
         <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="iiv.how.intro">Two modes share the same detection engine. Both start with the same calibration. They differ in how you pace the taps.</p>
         <div class="mode-split">
           <div class="mode-col">
-            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">15 s &#183; self-paced &#183; primary</span></div>
+            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">20 s &#183; self-paced &#183; primary</span></div>
             <div class="steps">
-              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the tap threshold for your hand size.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 15 seconds</strong>. The app measures tip-to-tip distance on every frame. Most people top out around 5 to 7 taps per second.</p></div></div>
+              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the starting tap threshold for your hand size, and from there it follows the excursion you are actually making — so taps still count as they get shallower through the run.</p></div></div>
+              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 20 seconds</strong>. The app measures tip-to-tip distance on every frame. Our runs land around 1 to 2 taps per second. TapTalk reports 5 to 7 for the same instruction, and we have not explained the gap yet.</p></div></div>
               <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode1.s3.h">Score</h4><p data-i18n="iiv.mode1.s3.p">The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
             </div>
           </div>
@@ -248,12 +436,12 @@
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="iiv.m1.h">Rhythm variability (CV%)</h4><p data-i18n="iiv.m1.p">The test captures the Standard Deviation of inter-tap intervals. The scale-invariant prime biomarker.</p><div class="metric-num" data-i18n="iiv.m1.num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite" data-i18n="iiv.m1.cite">IIV elevated across neurodegenerative groups &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
-          <div class="metric-card"><h4 data-i18n="iiv.m2.h">Tap frequency (Hz)</h4><p data-i18n="iiv.m2.p">Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num" data-i18n="iiv.m2.num">Big &amp; Fast expects ~4&#8211;7 Hz</div><div class="metric-cite" data-i18n="iiv.m2.cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m2.h">Tap frequency (Hz)</h4><p data-i18n="iiv.m2.p">Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num" data-i18n="iiv.m2.num">Big &amp; Fast runs ~1&#8211;2 Hz at full excursion</div><div class="metric-cite" data-i18n="iiv.m2.cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>. Same paper measures 5&#8211;7 Hz where we see 1&#8211;2; gap still open.</div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m3.h">Speed decrement (%/s)</h4><p data-i18n="iiv.m3.p">Slope of the instantaneous tap rate over the trial. This captures fatigue slowdown.</p><div class="metric-num" data-i18n="iiv.m3.num">negative = slowing</div><div class="metric-cite" data-i18n="iiv.m3.cite">&#8220;Big &amp; Fast&#8221; decrement measure &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m4.h">Amplitude CV (%)</h4><p data-i18n="iiv.m4.p">Variability of the valley-to-peak opening excursion from tap to tap.</p><div class="metric-num" data-i18n="iiv.m4.num">span-normalized per tap</div><div class="metric-cite" data-i18n="iiv.m4.cite">Magnetic-sensor tap amplitude/regularity &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9716461/" target="_blank" rel="noopener">Suzumura 2022</a></div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m5.h">Beat-sync SD (ms) &#183; paced only</h4><p data-i18n="iiv.m5.p">Standard Deviation of each tap&#8217;s latency to its nearest beep (matched within a &#177;500 ms window).</p><div class="metric-num" data-i18n="iiv.m5.num">lower = tighter to the beat</div><div class="metric-cite" data-i18n="iiv.m5.cite">Project-specific rhythm metric &#8212; no cited normative source.</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="iiv.note">A run needs at least <strong>6 taps</strong>; every result includes a confidence level based on the number and quality of measured intervals. </p>
+        <p class="band-note" data-i18n="iiv.note">Minimum 6 taps; every result carries a confidence level. <strong>*The 15% and 25% cut-offs are ours, not the literature’s</strong> — no normative cohort yet. Context, not diagnosis.</p>
       </div>
       <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
         <div class="paper"><h4 data-i18n="iiv.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Quantitative Finger Tapping in MCI, Alzheimer's &amp; Parkinson's</a></h4><div class="paper-authors" data-i18n="iiv.p1.authors">Roalf et al., 2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087</div><p data-i18n="iiv.p1.body">They tested 302 people (131 AD, 63 PD, 46 MCI, 62 healthy) with a light-diode finger tapper. Variability in the gaps between taps was higher in every neurodegenerative group, and it separated the groups better than tap count or average speed. We cite it because our headline <strong>CV% / IIV</strong> metric comes from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p1.tag">Source of our IIV / CV metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
@@ -466,6 +654,7 @@
 <script src="/i18n.js"></script>
 <script src="/background.js"></script>
 <script src="/app.js"></script>
+<script src="/profiles.js"></script>
 <script src="/dev.js"></script>
 <script src="/remote.js"></script>
 <script src="/report.js"></script>

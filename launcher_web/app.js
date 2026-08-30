@@ -25,6 +25,7 @@ const I = {
   layers: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
   shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>',
   camera: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  person: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>',
   chevron: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
 };
 
@@ -125,6 +126,9 @@ function renderStaticBits(){
   // Why-this header icon
   const wi = document.getElementById("why-icon");
   if(wi) wi.innerHTML = I.scale;
+  // About-me header icon
+  const bi = document.getElementById("about-icon");
+  if(bi) bi.innerHTML = I.person;
   // Research cards
   const rc = document.getElementById("research-cards");
   if(rc) rc.innerHTML = RESEARCH.map(r => `<div class="r-card">
@@ -166,6 +170,10 @@ function showPage(id){
   if(document.hidden) activate(); else requestAnimationFrame(activate);
   document.querySelectorAll(".nav-link").forEach(n =>
     n.classList.toggle("active", n.dataset.page===id));
+  // A drop-down trigger carries the marker for whichever of its pages is on.
+  document.querySelectorAll(".nav-group").forEach(g =>
+    g.querySelector(".nav-trigger").classList.toggle(
+      "active", !!g.querySelector(".nav-link.active")));
   if(TOOLS.find(tool=>tool.key===id)) renderDetailActions(id);
   if(id==="analysis") loadAnalysis();
   if(id==="why") renderWhy();
@@ -176,6 +184,48 @@ function showPage(id){
 }
 document.querySelectorAll(".nav-link").forEach(n =>
   n.addEventListener("click", ()=> showPage(n.dataset.page)));
+
+/* ── Nav drop-downs ──────────────────────────────────────────────── */
+const navGroups = Array.from(document.querySelectorAll(".nav-group"));
+function openNavGroup(g, open){
+  g.classList.toggle("open", open);
+  g.querySelector(".nav-trigger").setAttribute("aria-expanded", open ? "true" : "false");
+}
+function closeNavMenus(except){
+  navGroups.forEach(g => { if(g!==except) openNavGroup(g, false); });
+}
+navGroups.forEach(g => {
+  const trigger = g.querySelector(".nav-trigger");
+  // Hover opens it (mouse only — a touch tap has no hover to leave, so it
+  // would open and never close). A short close delay survives the gap
+  // between the trigger and the menu below it and moving diagonally onto
+  // the menu itself, rather than snapping shut mid-move.
+  let closeTimer = null;
+  const hoverOpen = () => {
+    if(!matchMedia("(hover: hover)").matches) return;
+    clearTimeout(closeTimer);
+    closeNavMenus(g);
+    openNavGroup(g, true);
+  };
+  const hoverClose = () => {
+    if(!matchMedia("(hover: hover)").matches) return;
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(()=> openNavGroup(g, false), 150);
+  };
+  g.addEventListener("mouseenter", hoverOpen);
+  g.addEventListener("mouseleave", hoverClose);
+  trigger.addEventListener("click", e => {
+    // Without this the document handler below would close it again in the
+    // same click. Still needed for touch/keyboard, which get no hover.
+    e.stopPropagation();
+    const open = !g.classList.contains("open");
+    closeNavMenus(g);
+    openNavGroup(g, open);
+  });
+});
+// A pick inside the menu bubbles here too, so choosing a page also closes it.
+document.addEventListener("click", ()=> closeNavMenus());
+document.addEventListener("keydown", e => { if(e.key==="Escape") closeNavMenus(); });
 
 /* ── Card rendering (build once, update surgically) ──────────────── */
 const cardsEl = document.getElementById("cards");
@@ -387,8 +437,10 @@ function renderDetailActions(key){
   el.innerHTML = `
     <button class="btn btn-primary" onclick="act('launch','${key}')" ${on?"disabled":""} aria-label="${t("Launch test")}">${on?t("Running..."):I.play+" "+t("Launch Test")}</button>
     <button class="btn btn-danger" onclick="act('stop','${key}')" ${on?"":"disabled"} aria-label="${t("Stop test")}">${I.stop} ${t("Stop")}</button>
-    <span class="cam-slot" data-cam></span>`;
+    <span class="cam-slot" data-cam></span>
+    <span class="pf-slot" data-profile></span>`;
   renderCamChips();
+  window.renderProfileChips?.();      // profiles.js loads after this file
 }
 
 /* ── Camera-source chip ───────────────────────────────────────────────
@@ -555,24 +607,34 @@ function addRipple(btn, e){
 
 /* ── Status pills ────────────────────────────────────────────────── */
 const statusEl = document.getElementById("status");
-let statusBuilt = false;
 let wasRunning = false;
 
+/* Signature-guarded, like renderCamChips(): the 3 s poll must not churn the
+   DOM, but the row still has to follow the payload. It used to be built once
+   behind a `statusBuilt` latch, and on the published dashboard the first
+   /api/status answer is the connector's canned offline one (static-api.js) —
+   fetched before the hub probe resolves. The pills then read "null / Missing"
+   for the rest of the session, including after a hub connected. */
 function renderStatus(s){
-  if(!statusBuilt){
+  const sig = [s.python, s.model_present, s.face_model_present,
+               s.opencv, s.mediapipe, getLang()].join("|");
+  if(statusEl.dataset.sig !== sig){
     let html = "";
-    html += pill(true, "Python", s.python);
+    html += pill(s.python == null ? null : true, "Python", s.python);
     html += pill(s.model_present, t("Hand model"), t(s.model_present ? "Ready" : "Missing"));
     html += pill(s.face_model_present, t("Face model"), t(s.face_model_present ? "Ready" : "Missing"));
     html += pill(s.opencv, "OpenCV", t(s.opencv ? "OK" : "Missing"));
     html += pill(s.mediapipe, "MediaPipe", t(s.mediapipe ? "OK" : "Missing"));
     statusEl.innerHTML = html;
-    statusBuilt = true;
+    statusEl.dataset.sig = sig;
   }
   if(s.camera){
     camState = s.camera;
     renderCamChips();
   }
+  // Same rail as the camera: the chip follows the poll rather than needing an
+  // endpoint of its own. `profile` is a snapshot, so an absent one is {}.
+  window.setActiveProfile?.(s.profile || {});
   if(!cardsBuilt){
     currentRunning = s.running || {};
     buildCards();
@@ -582,12 +644,22 @@ function renderStatus(s){
   // A test that just stopped has written its session to results/; refetch so
   // the readings strip shows it without a reload.
   const busy = Object.values(s.running || {}).some(Boolean);
-  if(wasRunning && !busy) loadVitals(true);
+  if(wasRunning && !busy){
+    // The session it just wrote is the one the assign card offers to move, so
+    // profiles.js does the refetch and calls renderVitals() when it lands.
+    if(window.afterRun) window.afterRun();
+    else loadVitals(true);
+  }
   wasRunning = busy;
 }
 
+/* `ok` is tri-state: null means "not known yet" — a hub that has not answered
+   is not the same thing as a missing dependency, and a green dot beside the
+   literal `null` was the worst of both readings. */
 function pill(ok, label, value){
-  return `<div class="s-pill"><span class="s-dot ${ok?"ok":"bad"}"></span><b>${label}</b>&#160;<span>${value}</span></div>`;
+  const cls = ok == null ? "unknown" : (ok ? "ok" : "bad");
+  const shown = value == null || value === "" ? "&#8212;" : value;
+  return `<div class="s-pill"><span class="s-dot ${cls}"></span><b>${label}</b>&#160;<span>${shown}</span></div>`;
 }
 
 /* ── Toast ────────────────────────────────────────────────────────── */
@@ -608,6 +680,19 @@ async function refresh(){
     renderStatus(await r.json());
   }catch(e){}
 }
+
+/* The hub state changed under us (static-api.js). Everything cached from the
+   previous state has to go: `analysisSessions` holds the canned empty list
+   while offline, and keeping it would leave the readings strip blank after a
+   pairing. */
+window.rehydrate = function(){
+  analysisSessions = null;
+  refresh();
+  window.reloadProfiles?.();          // the roster came from the old hub too
+  loadVitals(true);
+  const page = document.getElementById("page-analysis");
+  if(page && page.classList.contains("active")) loadAnalysis();
+};
 
 async function act(kind, key){
   try{
@@ -683,6 +768,7 @@ const TREND = {
       bands:[{max:20,status:"ok"},{max:40,status:"warn"},{max:Infinity,status:"bad"}] },
     supporting:[
       {key:"anti_minus_pro_ms", name:"Anti − Pro latency", unit:"ms"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
       {key:"corrected_rate_pct", name:"Corrected errors", unit:"%"},
       {key:"valid_trials", name:"Valid trials", unit:""},
     ],
@@ -698,6 +784,12 @@ const ST = {
 const INK_MUTED = "#94A3B8", INK_DIM = "#64748B", GRID = "#2A3442", LINE_C = "#5197FB";
 
 let analysisFilter = "all";
+/* Whose history is on screen. "all" pools everyone - what this page did before
+   profiles existed - "none" is the sessions nobody claimed, and anything else
+   is a profile id. null means the person has not chosen yet, and resolves to
+   whoever the chip is set to, so the dashboard opens on the patient who is
+   about to be tested rather than on a pooled line. */
+let analysisProfile = null;
 let analysisSessions = null;
 let analysisModes = {};   // per-test selected sub-mode (e.g. finger_tapping → "paced")
 let sessionCalendarState = {}; // per trend/mode: visible month + selected day
@@ -733,6 +825,41 @@ function statusOf(session, h){
   return bandFor(m[h.key], h.bands);
 }
 
+function profileFilter(){
+  const list = analysisSessions || [];
+  const has = id => id === "none"
+    ? list.some(sn => !(sn.profile && sn.profile.id))
+    : list.some(sn => sn.profile && sn.profile.id === id);
+  // A pin can outlive its sessions: move the last one to somebody else and the
+  // person it names has no button left to click back from. Drop it rather than
+  // strand the page on an empty view it cannot leave. Only once sessions have
+  // actually loaded — an empty list is "not yet", not "nobody".
+  if(analysisProfile === "all") return "all";     // an explicit choice to pool
+  if(analysisProfile){
+    if(!list.length || has(analysisProfile)) return analysisProfile;
+    analysisProfile = null;
+  }
+  const active = window.activeProfileId?.();
+  return active && has(active) ? active : "all";
+}
+
+/* The one place the person filter is applied. The chart, the calendar and the
+   home readings strip all read through it, so they cannot disagree about which
+   sessions exist. */
+function visibleSessions(){
+  const list = analysisSessions || [];
+  const f = profileFilter();
+  if(f === "all") return list;
+  if(f === "none") return list.filter(sn => !(sn.profile && sn.profile.id));
+  return list.filter(sn => sn.profile && sn.profile.id === f);
+}
+
+function setAnalysisProfile(id){
+  analysisProfile = id;
+  renderAnalysis();
+  renderVitals();
+}
+
 async function loadAnalysis(){
   const body = document.getElementById("analysis-body");
   if(!body) return;
@@ -745,16 +872,27 @@ async function loadAnalysis(){
 }
 
 function renderAnalysis(){
-  const sessions = analysisSessions || [];
+  const sessions = visibleSessions();
   const byTest = {};
   TREND_ORDER.forEach(k => byTest[k] = []);
   sessions.forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
 
   renderAnalysisSummary(sessions, byTest);
+  renderAnalysisPeople();
   renderAnalysisFilter(byTest);
 
   const body = document.getElementById("analysis-body");
   if(!body) return;                       // same guard loadAnalysis() already has
+  if(!sessions.length && (analysisSessions || []).length){
+    // Someone has sessions, just not this person - never the fresh-install copy.
+    body.innerHTML = `<div class="analysis-empty">
+      <div class="analysis-empty-icon">${I.chart}</div>
+      <h3>${t("Nothing logged for this person yet")}</h3>
+      <p>${t("Set them on the profile chip before you launch a test, or move an existing session to them from its report.")}</p>
+      <button class="btn btn-primary" onclick="showPage('home')">${I.play} ${t("Go to tests")}</button>
+    </div>`;
+    return;
+  }
   if(!sessions.length){
     body.innerHTML = `<div class="analysis-empty">
       <div class="analysis-empty-icon">${I.chart}</div>
@@ -789,6 +927,81 @@ function renderAnalysisSummary(sessions, byTest){
   el.innerHTML = tiles.map(([l,v]) =>
     `<div class="sum-tile"><div class="sum-val">${v}</div><div class="sum-label">${l}</div></div>`
   ).join("");
+}
+
+/* Who the page can be read as. Only profiles that actually hold sessions get a
+   button - a roster of ten with one tested would be a row of dead ends - plus
+   "Unassigned" when any session has no profile. */
+function renderAnalysisPeople(){
+  const el = document.getElementById("analysis-profile");
+  const who = document.getElementById("analysis-who");
+  if(!el) return;
+  const all = analysisSessions || [];
+  const roster = window.profileList?.() || [];
+  const counts = {};
+  let unassigned = 0;
+  all.forEach(sn => {
+    const id = sn.profile && sn.profile.id;
+    if(id) counts[id] = (counts[id] || 0) + 1; else unassigned++;
+  });
+
+  const opts = [["all", t("All people")]];
+  roster.forEach(pr => { if(counts[pr.id]) opts.push([pr.id, pr.name]); });
+  // A session outlives the profile it names - the record keeps its own
+  // snapshot - so offer those names too rather than hiding the sessions.
+  all.forEach(sn => {
+    const pr = sn.profile;
+    if(pr && pr.id && !opts.some(o => o[0] === pr.id))
+      opts.push([pr.id, pr.name || t("Removed profile")]);
+  });
+  if(unassigned) opts.push(["none", t("Unassigned")]);
+
+  // One person and nothing unassigned: the row would be a single button that
+  // does nothing. Hide it and let the line below carry the name.
+  const cur = profileFilter();
+  el.hidden = opts.length < 3;
+  el.innerHTML = opts.map(([k, label]) =>
+    `<button class="seg-btn ${cur===k?"active":""}" role="tab"
+       aria-selected="${cur===k}" data-person="${esc(k)}">${esc(label)}</button>`).join("");
+  el.querySelectorAll("[data-person]").forEach(b =>
+    b.onclick = () => setAnalysisProfile(b.dataset.person));
+
+  if(who){
+    who.innerHTML = whoLine(cur);
+    // profiles.js owns the form; this page only says which person it is for.
+    who.querySelector("[data-add-person]")?.addEventListener("click",
+      () => window.openProfileEditor?.(""));
+    who.querySelector("[data-edit-person]")?.addEventListener("click", ev =>
+      window.openProfileEditor?.(ev.currentTarget.dataset.editPerson));
+  }
+  // A rebuild while the editor is open would leave it orphaned above a filter
+  // row that no longer matches it.
+  window.closeProfileEditor?.();
+}
+
+/* "Jane Chen - Female - 68 - right-handed". Age and sex are the reason the
+   profile exists, so they stay visible while the trend is being read. */
+function whoLine(filterId){
+  // Editing is offered only for a person still on the roster: a session can
+  // outlive the profile it names, and there is nothing left to edit then.
+  const onRoster = filterId !== "all" && filterId !== "none"
+    && !!window.profileById?.(filterId);
+  const acts = `<span class="who-acts">
+      ${onRoster ? `<button class="who-act" type="button"
+        data-edit-person="${esc(filterId)}">${t("Edit details")}</button>` : ""}
+      <button class="who-act" type="button" data-add-person>${t("Add a person")}</button>
+    </span>`;
+
+  if(filterId === "none")
+    return `<span class="who-name">${t("Unassigned sessions")}</span>
+      <span class="who-note">${t("Recorded with no profile set.")}</span>${acts}`;
+  if(filterId === "all") return acts;
+  const pr = window.profileById?.(filterId)
+    || (visibleSessions().slice(-1)[0] || {}).profile;
+  if(!pr || !pr.name) return acts;
+  const detail = window.describeProfile?.(pr) || "";
+  return `<span class="who-name">${esc(pr.name)}</span>`
+    + (detail ? `<span class="who-detail">${esc(detail)}</span>` : "") + acts;
 }
 
 function renderAnalysisFilter(byTest){
@@ -872,7 +1085,9 @@ function trendCard(key, allSessions){
     <div class="trend-span">${dateSpan}</div>
     <div class="trend-chart">${trendSvg(pts, h)}</div>
     ${legend}
-    <div class="trend-hint">${I.info}${t("Open a report from any chart point, or choose a date in the calendar")}</div>
+    <div class="trend-hint" role="note" tabindex="0">
+      <span class="hint-ic">${I.info}</span><span class="hint-text">${t("Open a report from any chart point, or choose a date in the calendar")}</span>
+    </div>
     ${sessionCalendar(calendarPts, h, calendarKey)}
     ${support}</div>`;
 }
@@ -897,7 +1112,7 @@ function calendarFor(key){
   const [test, mode] = String(key).split(":");
   const cfg = TREND[test];
   if(!cfg) return null;
-  const sessions = (analysisSessions || []).filter(s =>
+  const sessions = visibleSessions().filter(s =>
     s.test===test && (mode ? s.mode===mode : true));
   return {pts: cardPoints(sessions, cfg.headline), h: cfg.headline};
 }
@@ -1216,8 +1431,18 @@ function renderVitals(){
   if(!el) return;
   const byTest = {};
   TREND_ORDER.forEach(k => byTest[k] = []);
-  (analysisSessions || []).forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
+  visibleSessions().forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
   el.innerHTML = TREND_ORDER.map(k => vitalTile(k, byTest[k])).join("");
+
+  // The strip follows the same person as the Analysis page, so it has to say
+  // whose readings these are - one patient's numbers must not read as pooled.
+  const who = document.getElementById("vitals-who");
+  if(who){
+    const cur = profileFilter();
+    const pr = cur !== "all" && cur !== "none" ? window.profileById?.(cur) : null;
+    who.textContent = pr ? t("for {name}", {name: pr.name})
+      : cur === "none" ? t("unassigned sessions") : "";
+  }
 }
 
 function vitalTile(key, sessions){
@@ -1310,7 +1535,7 @@ function idleSpark(){
    Almost everything on these pages is built from JS, so a switch has to ask
    each builder to run again. The "built once" flags are cleared first. */
 onLang(lang => {
-  cardsBuilt = false; whyBuilt = false; statusBuilt = false;
+  cardsBuilt = false; whyBuilt = false;   // the status row keys off getLang()
   // Each section is guarded on its own. As one sequence, a throw in any of
   // them skipped every later one and left the DOM half-rebuilt — losing the
   // Launch buttons that buildCards() owns because a chart failed to draw.
@@ -1319,6 +1544,7 @@ onLang(lang => {
   step(buildCards);
   step(renderWhy);
   step(refresh);
+  step(() => window.renderProfileChips?.(true));
   step(renderVitals);
   if(analysisSessions) step(renderAnalysis);
   saveLang(lang);

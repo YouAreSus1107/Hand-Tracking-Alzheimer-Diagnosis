@@ -163,7 +163,9 @@
     const st = h ? statusOf(rec, h) : "none";
     const val = h ? m[h.key] : null;
 
+    const who = rec.profile && rec.profile.name;
     const chips = [
+      who ? `${I.person}${esc(who)}` : null,
       modeLabel(rec),
       rec.hand ? t(rec.hand) : null,
       m.duration_s != null ? `${fmtNum(m.duration_s)}s`
@@ -191,6 +193,8 @@
             ${m.label ? `<div class="rep-label">${t(m.label)}</div>` : ""}
             ${rec.test === "finger_tapping" && m.cv_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
+            ${rec.test === "oculomotor" && m.error_ci_low_pct != null
+              ? `<div class="rep-label">95% CI ${fmtNum(m.error_ci_low_pct)}-${fmtNum(m.error_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
           </div>
         </div>`
       : `<div class="rep-verdict vs-none">
@@ -221,6 +225,9 @@
     hits: ["Hits", ""], misses: ["Misses", ""],
     n_intervals: ["Intervals", ""], confidence_pct: ["Confidence", "%"],
     cv_ci_low_pct: ["CV 95% CI low", "%"], cv_ci_high_pct: ["CV 95% CI high", "%"],
+    error_ci_low_pct: ["Error rate 95% CI low", "%"],
+    error_ci_high_pct: ["Error rate 95% CI high", "%"],
+    anticipatory_rate_pct: ["Started too early", "%"],
     taps_w10: ["Taps (first 10 s)", ""], frequency_hz_w10: ["Frequency (first 10 s)", "Hz"],
     cv_pct_w10: ["Rhythm variability (first 10 s)", "%"], near_miss_taps: ["Shallow closures", ""],
     // spiral
@@ -242,6 +249,7 @@
     anticipatory_count: ["Anticipatory", ""], valid_trials: ["Valid trials", ""],
     valid_anti_trials: ["Valid anti trials", ""], valid_pro_trials: ["Valid pro trials", ""],
     face_visible_ratio: ["Face visible", ""],
+    engine_version: ["Scoring engine", "v"],
     fixation_rms_pct: ["Fixation jitter (RMS)", "%"],
     fixation_bcea: ["Fixation BCEA", "×10⁻³"],
     intrusion_count: ["Saccadic intrusions", ""],
@@ -291,9 +299,34 @@
     if (cal.center != null) rows.push([t("Calibration"),
       `${t("centre")} ${fmtNum(cal.center)} · L ${fmtNum(cal.left)} · R ${fmtNum(cal.right)}`]);
     rows.push([t("Session id"), `<code>${esc(rec.session_id).slice(0, 8)}</code>`]);
+    // The snapshot this session was saved with, not a live lookup: it is what
+    // was true of the person at the time, which is the point of storing it.
+    const p = rec.profile || {};
+    if (p.sex && p.sex !== "unspecified") rows.push([t("Sex"), t(SEX_LABEL[p.sex] || p.sex)]);
+    if (p.age_years != null) rows.push([t("Age at test"), fmtNum(p.age_years)]);
+    if (p.dominant_hand && p.dominant_hand !== "unknown")
+      rows.push([t("Dominant hand"), t(HAND_LABEL[p.dominant_hand] || p.dominant_hand)]);
     return sec(t("How it was recorded"),
       `<div class="rep-foot">${rows.map(([k, v]) =>
-        `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>`);
+        `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>${assignRow(rec)}`);
+  }
+
+  const SEX_LABEL = {female: "Female", male: "Male", other: "Other",
+                     unspecified: "Not specified"};
+  const HAND_LABEL = {right: "Right-handed", left: "Left-handed",
+                      ambidextrous: "Ambidextrous", unknown: "Not specified"};
+
+  /* A run filed under the wrong person is fixed here rather than only in the
+     moment it finished — this is where somebody notices, reading it back. */
+  function assignRow(rec) {
+    const roster = window.profileList ? window.profileList() : [];
+    const chosen = (rec.profile && rec.profile.id) || "";
+    if (!roster.length && !chosen) return "";
+    const options = [`<option value="">${t("No profile")}</option>`].concat(
+      roster.map(p => `<option value="${esc(p.id)}" ${p.id === chosen ? "selected" : ""}
+        >${esc(p.name)}</option>`)).join("");
+    return `<label class="rep-assign"><span>${t("Belongs to")}</span>
+      <select class="rep-who" data-assign="${esc(rec.session_id)}">${options}</select></label>`;
   }
 
   /* ── Shared chart bits ──────────────────────────────────────────── */
@@ -318,8 +351,11 @@
     const span = (t1 - t0) || 1;
     let lo = Infinity, hi = -Infinity;
     series.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); });
+    const thr = raw.threshold_series || [];
     [cal.d_closed, cal.d_open].forEach(v => {
       if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    thr.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[2]);
+                       hi = Math.max(hi, p[1]); lo = Math.min(lo, p[2]); });
     const pad = (hi - lo) * 0.12 || 0.1; lo -= pad; hi += pad;
     const X = v => padL + iw * ((v - t0) / span);
     const Y = v => padT + ih * (1 - (v - lo) / ((hi - lo) || 1));
@@ -334,13 +370,25 @@
         stroke="${LINE_C}" stroke-width="1" opacity=".28" stroke-dasharray="2 4"/>`;
     });
 
-    // Calibrated open/closed thresholds — the hysteresis the detector used.
-    [["d_open", t("open")], ["d_closed", t("closed")]].forEach(([k, lbl]) => {
-      if (cal[k] == null) return;
-      const y = Y(cal[k]).toFixed(1);
-      s += `<line x1="${padL}" y1="${y}" x2="${padL + iw}" y2="${y}" stroke="${GRID}"
-        stroke-width="1.4" stroke-dasharray="5 5"/>` + axisLabel(padL + 3, +y - 4, lbl);
-    });
+    // The hysteresis the detector actually used. It tracks the excursion
+    // being performed, so it is a path, not a level — sessions recorded before
+    // that still carry only the two calibration levels, hence the fallback.
+    if (thr.length > 1) {
+      [[2, t("open")], [1, t("closed")]].forEach(([col, lbl]) => {
+        const path = thr.map((p, i) =>
+          `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[col]).toFixed(1)}`).join("");
+        s += `<path d="${path}" fill="none" stroke="${GRID}" stroke-width="1.4"
+          stroke-dasharray="5 5"/>`
+          + axisLabel(padL + 3, Y(thr[0][col]) - 4, lbl);
+      });
+    } else {
+      [["d_open", t("open")], ["d_closed", t("closed")]].forEach(([k, lbl]) => {
+        if (cal[k] == null) return;
+        const y = Y(cal[k]).toFixed(1);
+        s += `<line x1="${padL}" y1="${y}" x2="${padL + iw}" y2="${y}" stroke="${GRID}"
+          stroke-width="1.4" stroke-dasharray="5 5"/>` + axisLabel(padL + 3, +y - 4, lbl);
+      });
+    }
 
     // Taps.
     (raw.tap_times_s || []).forEach(tp => {
@@ -359,7 +407,8 @@
 
     const legend = `<div class="rep-legend">
       <span><i class="lg-tri" style="background:${ST.ok.dot}"></i>${t("tap")}</span>
-      <span><i class="lg-dash"></i>${t("calibrated open / closed")}</span>
+      <span><i class="lg-dash"></i>${thr.length > 1
+        ? t("tap thresholds") : t("calibrated open / closed")}</span>
       ${(raw.beat_times_s || []).length
         ? `<span><i class="lg-dash" style="border-color:${LINE_C}"></i>${t("metronome beat")}</span>` : ""}
     </div>`;
@@ -543,9 +592,16 @@
     const W = 640, H = 170, padL = 46, padR = 14, padT = 12, padB = 26;
     const iw = W - padL - padR, ih = H - padT - padB;
     const t1 = pts[pts.length - 1][0] || 1;
-    const lim = Math.max(1, ...pts.map(p => Math.abs(p[1]))) * 1.1;
+    // The detector measures from where the eye was resting when the dot
+    // appeared, not from an absolute zero, so the chart has to as well —
+    // otherwise the drawn line disagrees with the verdict beside it.
+    // Sessions from engine v1 carry no baseline; they were scored against 0.
+    const base = tr.baseline != null ? tr.baseline : 0;
+    const conf = tr.confirm_thr != null ? tr.confirm_thr : null;
+    const lim = Math.max(1, conf ? conf * 1.4 : 0,
+                         ...pts.map(p => Math.abs(p[1] - base))) * 1.1;
     const X = x => padL + iw * (x / t1);
-    const Y = y => padT + ih * (1 - (y + lim) / (2 * lim));
+    const Y = y => padT + ih * (1 - ((y - base) + lim) / (2 * lim));
     // Which side was the right answer: pro → toward the target, anti → away.
     const good = key === "anti" ? -tr.dir : tr.dir;
     const goodTop = good < 0;   // negative gaze values are drawn upward
@@ -556,8 +612,13 @@
         fill="${ST.ok.band}"/>`
       + `<rect x="${padL}" y="${goodTop ? padT + ih / 2 : padT}" width="${iw}" height="${ih / 2}"
         fill="${ST.bad.band}"/>`
-      + `<line x1="${padL}" y1="${Y(0).toFixed(1)}" x2="${padL + iw}" y2="${Y(0).toFixed(1)}"
+      + `<line x1="${padL}" y1="${Y(base).toFixed(1)}" x2="${padL + iw}" y2="${Y(base).toFixed(1)}"
         stroke="${GRID}" stroke-width="1.2"/>`;
+    // The excursion the trace had to reach to count as a saccade at all.
+    if (conf) [base + conf, base - conf].forEach(v => {
+      s += `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${padL + iw}" y2="${Y(v).toFixed(1)}"
+        stroke="${GRID}" stroke-width="1" opacity=".55" stroke-dasharray="4 4"/>`;
+    });
     if (tr.latency_ms) {
       const lx = X(tr.latency_ms / 1000).toFixed(1);
       s += `<line x1="${lx}" y1="${padT}" x2="${lx}" y2="${padT + ih}" stroke="${LINE_C}"
@@ -612,6 +673,21 @@
 
   /* ── Events ─────────────────────────────────────────────────────── */
 
+  // Reassigning repaints the panel from the updated record, so the change is
+  // shown where it was made rather than only on the page behind.
+  box.addEventListener("change", async e => {
+    const sel = e.target.closest("[data-assign]");
+    if (!sel || !window.assignSession) return;
+    const id = sel.dataset.assign;
+    const ok = await window.assignSession(id, sel.value);
+    if (!ok) return;
+    const rec = cache.get(id);
+    if (rec) {
+      rec.profile = window.profileById?.(sel.value) || {};
+      if (openId === id) paint(rec);
+    }
+  });
+
   box.addEventListener("click", e => {
     const stepBtn = e.target.closest("[data-step]");
     if (stepBtn) { step(+stepBtn.dataset.step); return; }
@@ -651,6 +727,9 @@
     setTimeout(markStrip, 0);
   });
 
+  // profiles.js calls this after moving a session, so a reopened report is
+  // never the stale copy from before the move.
+  window.forgetReport = id => cache.delete(id);
   window.openReport = openReport;
   window.closeReport = closeReport;
 })();

@@ -52,7 +52,7 @@ _splash.step()               # MediaPipe in
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
 from core.camera import (open_capture, preset_camera_source,
-                         describe_source)
+                         describe_source, pause_before_exit)
 from core.tapping.detector import TapDetector, thumb_index_distance
 from core.ui import theme
 from core.ui.anim import ease_out_cubic, lerp
@@ -325,6 +325,7 @@ def main():
     if cap is None:
         print(f"[ERROR] Could not open camera source: {source}. "
               "Please check your connection.")
+        pause_before_exit()
         sys.exit(1)
 
     print("=" * 52)

@@ -72,7 +72,7 @@ ZH: dict[str, object] = {
         "請使用您慣用的那隻手：",
         "將食指與拇指互相敲擊，",
         "動作盡量大、速度盡量快。",
-        "完全張開、完全合攏 — 持續 15 秒。",
+        "完全張開、完全合攏 — 持續 20 秒。",
     ],
     "tap.paced.instructions": [
         "請使用您慣用的那隻手：",
@@ -195,7 +195,8 @@ ZH: dict[str, object] = {
     "Measures how quickly and accurately your eyes": "測量您的眼睛反應的速度與",
     "respond - a marker studied in early cognitive decline.":
         "準確度 — 這是早期認知衰退研究中的指標。",
-    "Two short parts, about 4 minutes total.": "兩個簡短部分，總共約 4 分鐘。",
+    "Three short parts, about 3 minutes total.":
+        "共三個部分，約 3 分鐘。",
     "Start Eye Movement Test": "開始眼球運動測驗",
     "Sit about arm's length from the screen, face the camera.":
         "請坐在離螢幕約一臂長的位置，並面向鏡頭。",
@@ -248,6 +249,7 @@ ZH: dict[str, object] = {
         "左右兩側的讀值重疊了 — 請保持頭部不動再試一次。",
 
     # ── Trials ─────────────────────────────────────────────────────────────
+    "replacing skipped trials": "補做略過的試驗",
     "Scored part - keep going": "計分部分 — 請繼續",
     "Practice": "練習",
     "practice": "練習",
@@ -268,11 +270,36 @@ ZH: dict[str, object] = {
     "Eyes read as closed": "眼睛被判讀為閉上",
     "Eyes readable": "眼睛可辨識比例",
 
+    # ── Between-parts summary + redo ───────────────────────────────────────
+    "{part} recorded": "{part} 已完成",
+    "How this part was recorded - your result comes at the end.":
+        "這是本部分的錄製狀況 — 結果會在最後呈現。",
+    "Recording quality": "錄製品質",
+    "Redo this part": "重做這部分",
+    "Redo used": "已重做過",
+    "Next part": "下一部分",
+    "Finish": "完成",
+    "Good": "良好",
+    "Fair": "普通",
+    "Poor": "不佳",
+    "Mean latency": "平均反應時間",
+    "Looked toward the dot": "看向圓點次數",
+    "Valid trials": "有效試驗",
+    "Tracked": "追蹤成功",
+    "Hold recorded": "凝視已錄製",
+    "not enough data": "資料不足",
+    "Fewer usable trials than planned.": "可用試驗少於預期。",
+    "Your eyes could not be read for part of this section.":
+        "本部分有一段時間無法辨識您的眼睛。",
+    "Several trials could not be scored.": "有數次試驗無法計分。",
+    "Parts re-recorded": "重做的部分",
+
     # ── Practice feedback badges ───────────────────────────────────────────
     "Correct": "正確",
     "Look AWAY from the dot": "請看向遠離光點的方向",
     "Look AT the dot": "請看向光點",
     "A little early - wait for the dot": "有點太早 — 請等光點出現",
+    "Look back at the +": "請看回中間的 +",
     "Eyes not detected - face the camera": "偵測不到眼睛 — 請面向鏡頭",
 
     # ── Fixation hold ──────────────────────────────────────────────────────
@@ -289,11 +316,9 @@ ZH: dict[str, object] = {
     "Latency CV": "延遲 CV",
     "Valid anti trials": "有效反向試次",
     "Valid pro trials": "有效順向試次",
-    "Excluded (too early)": "已排除（太早）",
+    "Started too early": "太早開始",
     "Fixation jitter": "注視抖動",
     "Gaze intrusions": "視線闖入",
-    "Short screening form - fewer trials than a clinical test.":
-        "簡短篩檢版本 — 試次數少於臨床測驗。",
 
     # ── Bands (core/gaze/metrics.py + fixation.py, drawn only) ─────────────
     "Mildly elevated - consider monitoring": "輕微偏高 — 建議持續追蹤",
@@ -337,7 +362,17 @@ ZH_RULES = (
     (re.compile(r"^(\d+) closures were too shallow to count as taps - "
                 r"open the hand fully between taps\.$"),
      "有 $1 次合攏幅度太小，未被計為敲擊 — 每次敲擊之間請將手完全張開。"),
+    (re.compile(r"^Tapping was too slow to score a rhythm "
+                r"\((\d+(?:\.\d+)?) taps/s - long pauses between taps leave no "
+                r"steady rhythm to measure\)\. Try to keep a continuous tapping "
+                r"motion\.$"),
+     "敲擊速度太慢，無法評估節奏（每秒 $1 次 — 敲擊之間停頓太久，沒有穩定的節奏"
+     "可供測量）。請保持連續的敲擊動作。"),
     # oculomotor
+    (re.compile(r"^Most trials started before the dot appeared - wait for "
+                r"the dot to appear before moving your eyes, then try "
+                r"again\.$"),
+     "多數試驗在圓點出現前就開始移動 — 請等圓點出現後再移動眼睛，然後再試一次。"),
     (re.compile(r"^Your eyes could only be read on (\d+)% of frames - add "
                 r"light, and raise the camera to eye level so your eyelids "
                 r"don't cover the iris\.$"),

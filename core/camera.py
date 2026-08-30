@@ -41,6 +41,20 @@ def describe_source(source: int | str) -> str:
     return f"webcam {source}" if isinstance(source, int) else str(source)
 
 
+def pause_before_exit() -> None:
+    """Keep a launcher-spawned console open long enough to read the error above.
+
+    launcher.py runs each tool in its own CREATE_NEW_CONSOLE window; with no
+    pause here that window closes the instant the process exits, so a camera
+    failure prints and is gone before anyone can read it — it just looks like
+    the test silently refused to launch.
+    """
+    try:
+        input("\nPress Enter to close...")
+    except EOFError:
+        pass
+
+
 def select_camera_source() -> int | str:
     preset = preset_camera_source()
     if preset is not None:

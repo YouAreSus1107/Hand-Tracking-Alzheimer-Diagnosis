@@ -34,6 +34,13 @@ window.ZH = {
 "nav.oculomotor": `眼球運動`,
 "nav.tracking": `手部追蹤`,
 "nav.dev": `開發者`,
+"nav.tests": `測驗`,
+"nav.about": `關於`,
+"nav.aboutMe": `關於我`,
+
+/* About me (placeholder page) */
+"about.h1": `關於我`,
+"about.intro": `目前還沒有內容。`,
 "bar.disclaimer": `篩檢工具，<strong>並非正式醫療診斷</strong> &#8212; 請諮詢專業醫療人員。
   &#160;&#183;&#160;
 `,
@@ -51,20 +58,66 @@ window.ZH = {
 "home.carousel.next": `下一個工具`,
 "home.carousel.dots": `選擇工具`,
 "home.sec.research": `研究依據`,
-/* ── get the app (published site only; see tools/web_static/static-api.js) ── */
+/* ── hub connection panel (published site only; tools/web_static/static-api.js) ──
+   Prose is translated, the machine words are not: run_hub.bat, setup.bat and
+   127.0.0.1:8770 stay Latin, and {addr} is the placeholder the connector fills
+   with the hub's address. */
+"get.eyebrow": `本機 Hub`,
 "get.h": `在您自己的電腦上執行測驗`,
 "get.lead": `篩檢測驗以 Python 撰寫並需要使用相機，因此在您的電腦上執行 &#8212;
   本頁只負責操作它們。安裝一次之後，這裡的每個按鈕都會生效。`,
+"get.s1.h": `下載`,
+"get.s1.p": `安裝包，8&#160;MB。`,
+"get.s1.tip": `Windows &#183; Python 3.9&#8211;3.12`,
+"get.s2.h": `安裝`,
+"get.s2.p": `解壓縮到任意位置，執行一次 <code>setup.bat</code>。`,
+"get.s2.tip": `它會建立執行環境並下載模型`,
+"get.s3.h": `連線`,
+"get.s3.p": `執行 <code>run_hub.bat</code> 後回到本頁。`,
+"get.s3.tip": `頁面會自動找到它 &#8212; 不需輸入任何內容`,
+/* the two steps already behind you, and the captions inside the artwork */
+"get.chip.dl": `已下載`,
+"get.chip.install": `已安裝`,
+"get.art.page": `本頁`,
+"get.art.machine": `您的電腦`,
 "get.dl": `下載 Windows 版`,
-"get.connect": `已偵測到 Hub &#8212; 連接本頁`,
-"get.step1": `將資料夾解壓縮到任意位置。`,
-"get.step2": `按兩下 <code>setup.bat</code>。它會建立執行環境並下載模型 &#8212;
-  只需一次，需要幾分鐘。`,
-"get.step3": `按兩下 <code>run_hub.bat</code>，然後回到本頁，頁面會自動連線。`,
+"get.connect": `連接本頁`,
+"get.connect.tip": `向 Hub 索取配對碼並交給本頁`,
+"get.connect.locked": `請先在您的電腦上啟動 Hub`,
+"get.recheck": `重新偵測`,
+"get.listen": `正在偵測 <code>127.0.0.1:8770</code> 上的 Hub &#8212; 已經安裝了嗎？請執行 <code>run_hub.bat</code>。`,
+"get.retry": `再試一次`,
+"get.state.probing": `偵測中&#8230;`,
+"get.state.offline": `尚未連線`,
+"get.state.unpaired": `已找到 Hub`,
+"get.state.connected": `已連線`,
+"get.err.unreachable": `無法連上 <code>{addr}</code> 上的 Hub，它可能已經停止 &#8212;
+  請在您的電腦上啟動 <code>run_hub.bat</code>，然後再試一次。`,
+"get.err.badcode": `這組配對碼未被接受。請從 Hub 主控台重新複製一次。`,
+"get.err.blocked": `您的瀏覽器封鎖了本頁連線至 <code>{addr}</code>。
+  Chrome 會先徵求同意，才允許網站與您自己的電腦通訊 &#8212; 出現詢問時請選擇
+  <strong>允許</strong>，或在網址列旁的鎖頭選單中為本網站開啟
+  <strong>區域網路存取</strong>，然後再試一次。`,
+"get.err.maybeblocked": `如果它已經在執行中，可能是瀏覽器尚未授予存取您電腦的權限 &#8212;
+  出現詢問時請選擇 <strong>允許</strong>，或在網址列旁的鎖頭選單中為本網站開啟
+  <strong>區域網路存取</strong>。`,
+"get.toast.connected": `已連上這台電腦上的 Hub。`,
+"get.toast.found": `已找到 Hub，請連接本頁以完成配對。`,
+"get.toast.nohub": `{addr} 上仍然沒有 Hub 回應。`,
+"get.toast.blocked": `仍然被封鎖。請在鎖頭選單中為本網站開啟區域網路存取。`,
+"get.msg.nohub": `{addr} 上沒有 Hub 回應 &#8212; 請在您的電腦上執行 run_hub.bat。`,
+"get.msg.blocked": `您的瀏覽器封鎖了本頁連線至 {addr} 上的 Hub。`,
+"get.msg.pairfirst": `請先將本頁與您的 Hub 配對。`,
 "get.note": `需要 Windows 與 Python 3.9&#8211;3.12，並使用 Chrome 或 Edge。Safari 會封鎖
   https 頁面存取本機 Hub。您錄下的資料不會上傳：本頁只與您的電腦通訊，不會送到伺服器。`,
+"get.manual.sum": `手動配對`,
 "get.manual": `或貼上 Hub 主控台顯示的配對碼：`,
 "get.pair": `配對`,
+"get.forget": `清除已儲存的配對碼`,
+"get.chip": `Hub`,
+"get.chip.title": `已配對的 Hub`,
+"get.chip.addr": `位址`,
+"get.chip.ver": `版本`,
 /* hand model state label (hand3d.js) */
 "anatomical": `解剖模型`,
 "digitalized": `數位化`,
@@ -96,16 +149,16 @@ window.ZH = {
 /* ── finger tapping ─────────────────────────────────────────────────── */
 "iiv.h1": `手指敲擊測驗`,
 "iiv.lede": `用食指有節奏地敲擊拇指。`,
-"iiv.tag1": `大幅快速（15 秒）`,
+"iiv.tag1": `大幅快速（20 秒）`,
 "iiv.tag2": `跟拍節奏（30 秒）`,
 "iiv.tag4": `主要指標 CV%`,
 "iiv.how.intro": `兩種模式共用同一套偵測引擎，校正流程也相同，差別只在敲擊的節奏由誰決定。`,
 "iiv.mode1.h": `大幅快速`,
-"iiv.mode1.badge": `15 秒 &#183; 自訂節奏 &#183; 主要模式`,
+"iiv.mode1.badge": `20 秒 &#183; 自訂節奏 &#183; 主要模式`,
 "iiv.mode1.s1.h": `校正`,
-"iiv.mode1.s1.p": `選擇網路攝影機或 IP 攝影機。MediaPipe 會追蹤手上的 21 個點；先做一次張開合攏的暖身，依你的手掌大小設定敲擊門檻。`,
+"iiv.mode1.s1.p": `選擇網路攝影機或 IP 攝影機。MediaPipe 會追蹤手上的 21 個點；先做一次張開合攏的暖身，依你的手掌大小設定起始的敲擊門檻，之後門檻會跟著你實際的動作幅度調整 — 幅度變小時仍能被計入。`,
 "iiv.mode1.s2.h": `又大又快地敲`,
-"iiv.mode1.s2.p": `用食指敲擊拇指，<strong>在 15 秒內盡可能敲得又大又快</strong>。程式會逐格量測指尖之間的距離。多數人的上限約在每秒 5 至 7 下。`,
+"iiv.mode1.s2.p": `用食指敲擊拇指，<strong>在 20 秒內盡可能敲得又大又快</strong>。程式會逐格量測指尖之間的距離。我們的實測結果約為每秒 1 至 2 下；TapTalk 在相同指示下測得每秒 5 至 7 下，這個差距目前尚未釐清。`,
 "iiv.mode1.s3.h": `評分`,
 "iiv.mode1.s3.p": `主要分數是敲擊間隔的 <strong>CV%</strong>。另外還會得到敲擊頻率、幅度變異度與速度衰減。`,
 "iiv.mode2.h": `跟拍節奏`,
@@ -124,8 +177,8 @@ window.ZH = {
 "iiv.m1.cite": `多個神經退化族群的 IIV 皆升高 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>`,
 "iiv.m2.h": `敲擊頻率（Hz）`,
 "iiv.m2.p": `每秒敲擊次數 = 1000 &#247; 平均敲擊間隔。`,
-"iiv.m2.num": `大幅快速模式預期約 4&#8211;7 Hz`,
-"iiv.m2.cite": `MediaPipe 測得的頻率有 90.3% 落在 Polhemus 感測器的 &#177;1 Hz 內 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>`,
+"iiv.m2.num": `大幅快速模式在完全張開合攏下約為 1&#8211;2 Hz`,
+"iiv.m2.cite": `MediaPipe 測得的頻率有 90.3% 落在 Polhemus 感測器的 &#177;1 Hz 內 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>。同一篇研究測得 5&#8211;7 Hz，而我們為 1&#8211;2 Hz；差距尚未釐清。`,
 "iiv.m3.h": `速度衰減（%/秒）`,
 "iiv.m3.p": `整段測驗中瞬時敲擊速率的斜率，用來捕捉疲勞造成的變慢。`,
 "iiv.m3.num": `負值 = 變慢`,
@@ -138,7 +191,7 @@ window.ZH = {
 "iiv.m5.p": `每次敲擊與最接近嗶聲之間延遲的標準差（在 &#177;500 毫秒視窗內配對）。`,
 "iiv.m5.num": `數值越低代表越貼合節拍`,
 "iiv.m5.cite": `本專案自訂的節奏指標 &#8212; 無引用的常模來源。`,
-"iiv.note": `一次測驗至少需要 <strong>6 次敲擊</strong>；每次結果都會依測得間隔的數量與品質顯示信賴程度。`,
+"iiv.note": `至少需要 6 次敲擊；每次結果都會附上信賴程度。<strong>*15% 與 25% 的切點是本專案自訂，並非文獻數值</strong> — 尚無常模資料。僅供參考，不是診斷。`,
 "iiv.p1.title": `<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">輕度認知障礙、阿茲海默症與帕金森氏症的量化手指敲擊</a>`,
 "iiv.p1.authors": `Roalf 等，2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087`,
 "iiv.p1.body": `研究以光二極體敲擊器測試 302 人（131 位 AD、63 位 PD、46 位 MCI、62 位健康對照）。所有神經退化族群的敲擊間隔變異都較高，且比敲擊次數或平均速度更能區分族群。我們引用它，是因為主要指標 <strong>CV% / IIV</strong> 出自此研究。`,
@@ -335,6 +388,60 @@ window.ZH = {
 "IP stream": `IP 串流`,
 "Stream URL": `串流網址`,
 "Applies to the next launch.": `於下次啟動時生效。`,
+
+/* ── patient profiles (profiles.js, the chip + the post-run card) ────── */
+"analysis.person.aria": `依受測者篩選`,
+"Who is being tested": `目前受測者`,
+"Who the next test records for": `下一次測驗要記錄給誰`,
+"No profile": `未指定受測者`,
+"Sessions save unassigned": `紀錄將不指定受測者`,
+"Add a person": `新增受測者`,
+"Edit": `編輯`,
+"Edit person": `編輯受測者`,
+"Edit details": `編輯資料`,
+"Edit {name}": `編輯 {name}`,
+"Name": `姓名`,
+"Name or initials": `姓名或縮寫`,
+"Sex": `性別`,
+"Age": `年齡`,
+"age {n}": `{n} 歲`,
+"Dominant hand": `慣用手`,
+"Female": `女性`,
+"Male": `男性`,
+"Other": `其他`,
+"Not specified": `未填寫`,
+"Right-handed": `右撇子`,
+"Left-handed": `左撇子`,
+"Ambidextrous": `雙手皆可`,
+"Back": `返回`,
+"Remove": `移除`,
+"Confirm removal": `確認移除`,
+"Their saved sessions stay, and keep the name they were recorded under.":
+  `已儲存的紀錄會保留，並維持當時記錄的姓名。`,
+
+/* the card shown once a run has finished */
+"{name} saved": `{name} 已儲存`,
+"Recorded for {name}": `已記錄給 {name}`,
+"Saved with no profile set.": `儲存時未指定受測者。`,
+"Who took this test?": `這次是誰受測？`,
+"Keep": `維持`,
+"Dismiss": `關閉`,
+
+/* the person filter on the Analysis page and the readings strip */
+"All people": `所有人`,
+"Unassigned": `未指定`,
+"Unassigned sessions": `未指定受測者的紀錄`,
+"Recorded with no profile set.": `錄製時未指定受測者。`,
+"Removed profile": `已移除的受測者`,
+"for {name}": `— {name}`,
+"unassigned sessions": `— 未指定受測者的紀錄`,
+"Nothing logged for this person yet": `這位受測者還沒有任何紀錄`,
+"Set them on the profile chip before you launch a test, or move an existing session to them from its report.":
+  `啟動測驗前先在受測者標籤選擇他們，或從報告把既有的紀錄改指定給他們。`,
+
+/* the report panel */
+"Belongs to": `所屬受測者`,
+"Age at test": `受測時年齡`,
 "Save": `儲存`,
 "Stop test": `停止測驗`,
 
@@ -734,6 +841,7 @@ window.ZH = {
 "Finger distance over the recording, with each tap marked": `錄製期間的手指距離，並標出每一次敲擊`,
 "tap": `敲擊`,
 "calibrated open / closed": `校正出的張開／閉合`,
+"tap thresholds": `敲擊判定門檻`,
 "metronome beat": `節拍聲`,
 "Interval by interval": `逐次間隔`,
 "Each interval between taps": `每兩次敲擊之間的間隔`,
@@ -849,6 +957,14 @@ exact: {
   "Banner declares an IMU but the six motion columns are missing from cols=.":
     `識別資訊宣告了 IMU，但 cols= 中缺少那六個動作欄位。`,
   "No motion samples in the buffer yet.": `緩衝區內還沒有動作取樣。`,
+  "Give the profile a name.": `請為這位受測者填寫姓名。`,
+  "Profile saved.": `受測者已儲存。`,
+  "Profile removed.": `受測者已移除。`,
+  "That profile no longer exists.": `那位受測者已不存在。`,
+  "That is as many profiles as this hub keeps.": `受測者數量已達這個 Hub 的上限。`,
+  "Sessions will be saved unassigned.": `之後的紀錄將不指定受測者。`,
+  "Session is now unassigned.": `這筆紀錄已改為未指定受測者。`,
+  "Session not found.": `找不到這筆紀錄。`,
 },
 
 rules: [
@@ -866,6 +982,10 @@ rules: [
   {re: /^'(.+)' is using the camera\. Stop it first\.$/, zh: `「$1」正在使用相機，請先停止它。`},
   {re: /^Script not found: (.+)$/,         zh: `找不到指令碼：$1`},
   {re: /^Camera set to (.+)\.$/,           zh: `相機已設為 $1。`},
+  {re: /^Recording for (.+)\.$/,           zh: `目前受測者為 $1。`},
+  {re: /^Session moved to (.+)\.$/,        zh: `紀錄已改指定給 $1。`},
+  {re: /^Could not save the profile: (.+)$/, zh: `無法儲存受測者資料：$1`},
+  {re: /^Unknown profile action: (.+)$/,    zh: `未知的受測者操作：$1`},
   {re: /^Could not save the camera choice: (.+)$/,
                                            zh: `無法儲存相機設定：$1`},
   {re: /^Failed to launch: (.+)$/,         zh: `啟動失敗：$1`},

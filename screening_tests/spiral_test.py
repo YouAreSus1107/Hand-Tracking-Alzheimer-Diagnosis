@@ -55,7 +55,7 @@ import numpy as np
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe)
 from core.camera import (select_camera_source, open_capture,
-                         create_display_window, window_closed)
+                         create_display_window, window_closed, pause_before_exit)
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.ui import theme
@@ -758,6 +758,7 @@ def main():
     cap = open_capture(source, fps=60)
     if cap is None:
         print("[ERROR] Could not open camera.")
+        pause_before_exit()
         sys.exit(1)
     App(cap).run()
 
