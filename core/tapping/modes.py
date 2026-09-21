@@ -73,22 +73,32 @@ MODES: dict[str, TapMode] = {
         title="Big & Fast",
         paced=False,
         # 20 s, against Suzumura 2022's (PMC9716461, the best MCI AUC in
-        # research/) 15 s. Suzumura's 15 s is plenty at the 4-7 Hz of
-        # small-amplitude tapping — 70+ intervals — but this is the
-        # big-amplitude paradigm at ~1.2 Hz, where 15 s yields about 15 scored
-        # intervals and the confidence score's precision factor cannot clear
-        # ~58% no matter how clean the run is. 20 s buys ~21 intervals (~70%).
-        # Literature comparability is not spent doing this: compat_window_s
-        # rescores a 10 s sub-window, which is what that field is for.
+        # research/) 15 s. Suzumura runs the same opposition paradigm at ~2 Hz,
+        # so 15 s buys them ~30 taps — exactly where their MCI cut-off falls,
+        # and where the confidence score's precision factor saturates. This
+        # pipeline measures ~1.2 Hz, where 15 s yields about 15 scored intervals
+        # and that factor cannot clear ~58% no matter how clean the run is.
+        # 20 s buys ~21 intervals (~70%). Literature comparability is not spent
+        # doing this: compat_window_s rescores a 10 s sub-window, which is what
+        # that field is for. NB the dependency — if coaching lifts the rate
+        # toward the ~2.5 Hz norm, 15 s becomes sufficient and this should be
+        # revisited (docs/TAPPING_PRACTICE_PLAN.md phase 3).
         duration_s=20.0,
         warmup_s=0.0,
         interval_s=0.0,
-        # 1.2 Hz, not the 4-7 Hz the small-amplitude literature reports: this
-        # is the BIG-amplitude paradigm (open wide, close fully), and a full
-        # excursion is inherently slower than a fingertip flutter. 1.2 Hz is
-        # the centre of what 75 recorded runs of this test actually produce
-        # (observed 0.38-2.42 Hz). It is also the pace the instructions now
-        # coach toward — see docs/TAPPING_PRACTICE_PLAN.md.
+        # 1.2 Hz. The 5-7 Hz figure that used to be quoted here belongs to a
+        # DIFFERENT test: key tapping (index finger on a switch, wrist resting,
+        # amplitude unconstrained), which is the Halstead-Reitan / BRAIN /
+        # TAS-Test-keyboard family. This is the opposition paradigm — thumb to
+        # index through the widest range of motion, the MDS-UPDRS 3.4 movement —
+        # and it runs at 2.4-3.6 Hz in the literature: TapTalk 2.55/2.70 Hz on
+        # the same instruction, Kwon 2022 2.69 Hz at 50-69 and 2.36 at 70-89.
+        # See research/01-webcam-hand-motor.md "Two tapping paradigms".
+        # 1.2 Hz is what 75 recorded runs of THIS pipeline actually produce
+        # (observed 0.38-2.42 Hz) — about half the age-matched norm, a gap the
+        # practice plan exists to test. It is the observed centre, not a
+        # normative rate, and not the pace to coach toward: see
+        # docs/TAPPING_PRACTICE_PLAN.md §2.
         expected_rate_hz=1.2,
         max_rate_hz=5.0,               # debounce ceiling — 100 ms, unchanged
         min_taps=6,                    # 5 intervals — below that an SD is noise

@@ -51,6 +51,45 @@ IMU_BANNER = (
     "gx:gyro,gy:gyro,gz:gyro")
 
 
+# Firmware 0.6.0, captured verbatim from COM10 on 2026-09-20: three FSRs, a
+# flex strip on its own 47k leg, and the IMU. This is the first layout that
+# mixes both analog kinds AHEAD of the motion columns, which is where an
+# off-by-one in the chan= parser would show up as a force curve applied to a
+# bending finger.
+MIXED_BANNER = (
+    "#GLOVE fw=0.6.0 proto=1 board=nano33ble rate=100 adc_bits=12 "
+    "adc_ref_mv=3300 vdiv_mv=3300 r_fixed=10000 imu=BMI270_BMM150 "
+    "imu_scale=1000 emg=0 cols=seq,t_us,p0,p1,p2,f0,ax,ay,az,gx,gy,gz "
+    "chan=p0:fsr:10000,p1:fsr:10000,p2:fsr:10000,f0:flex:47000,"
+    "ax:accel,ay:accel,az:accel,gx:gyro,gy:gyro,gz:gyro")
+
+
+def test_mixed_banner_keeps_kinds_and_resistors_in_column_order():
+    b = parse_banner(MIXED_BANNER)
+    assert b is not None and b.supported
+    assert b.channels == ("p0", "p1", "p2", "f0", "ax", "ay", "az",
+                          "gx", "gy", "gz")
+    meta = {m.name: m for m in b.channel_meta}
+    assert [m.kind for m in b.channel_meta] == [
+        KIND_FSR, KIND_FSR, KIND_FSR, KIND_FLEX,
+        KIND_ACCEL, KIND_ACCEL, KIND_ACCEL, KIND_GYRO, KIND_GYRO, KIND_GYRO]
+    # The flex strip's own leg, not the banner's legacy global r_fixed.
+    assert meta["f0"].r_fixed == 47000
+    assert meta["p2"].r_fixed == 10000
+    assert b.r_fixed == 10000
+
+
+def test_mixed_banner_frame_parses_at_full_width():
+    b = parse_banner(MIXED_BANNER)
+    line = "G,742,7425108,0,1,8,2396,15,-10,1011,183,-61,0"
+    f = parse_frame(line, len(b.channels))
+    assert f is not None
+    assert f.values == (0, 1, 8, 2396, 15, -10, 1011, 183, -61, 0)
+    # One column short must be refused, not silently shifted onto the IMU.
+    assert parse_frame("G,742,7425108,0,1,8,2396,15,-10,1011,183,-61",
+                       len(b.channels)) is None
+
+
 def _sine(hz, amp, n, fs, offset=0.0):
     import math
     return [offset + amp * math.sin(2 * math.pi * hz * i / fs) for i in range(n)]

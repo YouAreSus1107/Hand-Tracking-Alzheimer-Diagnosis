@@ -4,14 +4,16 @@
  * Implements the analog front end and serial protocol specified in
  * docs/GLOVE_FIRMWARE_PLAN.md (sections 3 and 4).
  *
- * Current hardware (build gate 3): two FSR402 pads, p0 on A0 and p1 on A2,
- * each wired as its own divider against the 3V3 rail:
+ * Current hardware (build gate 3): three FSR402 pads - p0 on A0, p1 on A2,
+ * p2 on A4 - plus one flex strip, f0 on A6. Each is its own divider against
+ * the 3V3 rail:
  *     3V3 --- SENSOR --- Ax --- rFixed --- GND
- * Both currently use 10k, but rFixed stays per-channel in CHANNELS[] rather
- * than one global: a divider is most sensitive where rFixed is near the
- * sensor's own resistance, and flex strips (when they return, on the odd pins)
- * sit in a very different resistance band from an FSR. Adding the remaining
- * sensors, and the CD74HC4067 mux, is a table edit rather than a rewrite.
+ * The three pads use 10k; the strip uses 47k. That is why rFixed is per
+ * channel in CHANNELS[] rather than one global: a divider is most sensitive
+ * where rFixed is near the sensor's own resistance, and a flex strip
+ * (~10k flat to ~110k bent) sits in a very different band from an FSR
+ * (1-30k in its rated range). Adding the remaining sensors, and the
+ * CD74HC4067 mux, is a table edit rather than a rewrite.
  *
  * The onboard IMU (gate 5) rides in the same frame as six extra columns. It is
  * NOT an analog channel: it never touches the divider maths, and its columns
@@ -79,8 +81,8 @@
  * GLOVE_IMU_NONE is a legitimate build: no motion columns, no IMU library
  * needed, everything else unchanged.
  */
-#define GLOVE_IMU_LSM9DS1     /* original Nano 33 BLE  */
-//#define GLOVE_IMU_BMI270    /* Nano 33 BLE Rev2      */
+//#define GLOVE_IMU_LSM9DS1   /* original Nano 33 BLE  */
+#define GLOVE_IMU_BMI270      /* Nano 33 BLE Rev2      */
 //#define GLOVE_IMU_NONE      /* build without motion  */
 
 #if defined(GLOVE_IMU_BMI270)
@@ -97,6 +99,39 @@
 #endif
 
 #include <math.h>   /* lroundf, for the IMU's float -> milli-unit step */
+#include <stdio.h>  /* snprintf, for the one-write frame in emitFrame() */
+
+#if HAS_IMU
+#include <Wire.h>   /* only to raise the IMU bus clock - see IMU_I2C_HZ */
+
+/*
+ * I2C clock for the onboard IMU, and the single most expensive constant in
+ * this file.
+ *
+ * NEITHER IMU LIBRARY SETS ONE. Arduino_BMI270_BMM150 and Arduino_LSM9DS1
+ * both call _wire->begin() and leave the bus at the Arduino default of
+ * 100 kHz. Reading the accelerometer and the gyroscope is four transactions a
+ * frame, and at 100 kHz that measured 10.6 ms on this board - the entire
+ * 10 ms frame budget spent on one sensor, before a single ADC read. It is
+ * what held the board at 59-72 Hz while its banner declared 100.
+ *
+ * 400 kHz (I2C fast mode) is within spec for BOTH parts: the BMI270 datasheet
+ * allows up to 1 MHz and the LSM9DS1 up to 400 kHz, so this value is capped by
+ * the LSM9DS1 and must not be raised without splitting it per library. The IMU
+ * sits on the board's own internal bus (Wire1 on the Nano 33 BLE, which is why
+ * both libraries construct against it) with fixed onboard pull-ups, so this
+ * does not depend on how anything is wired to the headers.
+ */
+static const uint32_t IMU_I2C_HZ = 400000;
+
+/* The bus the onboard IMU is on. Kept beside the library choice above rather
+ * than assumed, because it is the same fact stated twice. */
+#if defined(ARDUINO_ARDUINO_NANO33BLE) || defined(ARDUINO_ARCH_MBED)
+  #define IMU_WIRE Wire1
+#else
+  #define IMU_WIRE Wire
+#endif
+#endif
 
 /*
  * Transport scale for the IMU columns: values are emitted as integers in
@@ -116,7 +151,7 @@ static const char *IMU_COLS[6] = { "ax", "ay", "az", "gx", "gy", "gz" };
 
 /* ---------- configuration ------------------------------------------------ */
 
-#define FW_VERSION      "0.5.0"
+#define FW_VERSION      "0.6.0"
 /*
  * Frame layout is unchanged from proto 1 by the move to 12-bit: only the value
  * scale moved, and the banner's adc_bits already tells the host about that. So
@@ -148,9 +183,20 @@ static const uint32_t R_FIXED_DEFAULT_OHMS = 10000;
  * reads as large force swings; averaging more reads per timestep is the one
  * noise reduction plan section 2 allows, because it stays *within* a timestep
  * and so cannot touch the inter-sample dynamics (tremor) we are measuring.
- * BUDGET: this is affordable at 2 channels. 11 channels x 16 reads will not
- * fit the 10 ms frame period - bring this back down when the mux lands and
- * re-check the measured rate at gate 6.
+ * BUDGET, MEASURED 2026-09-20 at 4 channels on the Nano 33 BLE: one
+ * analogRead costs about 34 us, so a frame spends 4 x 17 x 34 us = ~2.3 ms
+ * here (16 reads plus the settling discard, per channel).
+ *
+ * The full frame now measures ~9.1 ms of its 10 ms slot: ~2.3 ms here,
+ * ~6.1 ms in the IMU, ~0.7 ms emitting. IT IS THE IMU, NOT THIS, THAT HAS
+ * NO HEADROOM LEFT - do not reach for this knob first when the rate sags.
+ * It was the obvious suspect when four channels dropped the board to 59 Hz
+ * and it was the wrong one: halving it to 8 recovered 1 ms of a 7 ms
+ * overrun. Run 'D' and read the timing line before changing anything.
+ *
+ * At 11 channels this phase alone becomes ~5.8 ms, which does not fit
+ * alongside the IMU. That is the gate-6 problem to solve when the mux lands,
+ * and lowering OVERSAMPLE is the intended lever then.
  */
 static const uint8_t OVERSAMPLE = 16;
 
@@ -179,9 +225,13 @@ struct AnalogChannel {
  * newtons for a bending finger.
  *
  * PIN CONVENTION: force sensors live on the EVEN analog pins, so p<n> is on
- * A(2n) - p0/A0, p1/A2, p2/A4, p3/A6. Odd pins are reserved for flex strips.
- * Adding the next FSR is one line here plus a flash; nothing on the host or
- * the dev page changes, because both read the layout from the boot banner.
+ * A(2n) - p0/A0, p1/A2, p2/A4. The bench build then ran out of even pins for
+ * the flex strip and put f0 on A6, so the convention now describes the force
+ * pads only; the odd pins stay free. Nothing enforces it either way, because
+ * every channel names its own pin in the table below and the host reads the
+ * layout from the boot banner - the convention is a habit for wiring, not a
+ * rule the code checks. Adding the next sensor is one line here plus a flash;
+ * nothing on the host or the dev page changes.
  *
  * ONLY DECLARE PINS THAT ARE PHYSICALLY FITTED. An unconnected analog pin
  * floats and produces convincing-looking garbage rather than an obvious zero.
@@ -197,11 +247,15 @@ struct AnalogChannel {
  *
  * 10k on an FSR402 centres on a moderate press, deliberately kept: plan 5b
  * weighed lowering it and rejected it, because the resolution gained sits
- * above the part's rated 20 N and costs light-touch resolution.
+ * above the part's rated 20 N and costs light-touch resolution. 47k on the
+ * flex strip is the geometric middle of its own ~10k-110k sweep, which is
+ * where the divider gives the most output swing per degree of bend.
  */
 static const AnalogChannel CHANNELS[] = {
-  { "p0", "fsr", A0, -1, 10000 },
-  { "p1", "fsr", A2, -1, 10000 },
+  { "p0", "fsr",  A0, -1, 10000 },
+  { "p1", "fsr",  A2, -1, 10000 },
+  { "p2", "fsr",  A4, -1, 10000 },
+  { "f0", "flex", A6, -1, 47000 },
 };
 static const uint8_t N_CHANNELS = sizeof(CHANNELS) / sizeof(CHANNELS[0]);
 
@@ -226,6 +280,21 @@ static uint16_t g_max[sizeof(CHANNELS) / sizeof(CHANNELS[0])];
  * banner says imu=none - the same rule the analog table follows, where only
  * physically fitted pins are declared.
  */
+/*
+ * Per-phase cost of the last frame, microseconds, plus the worst seen since
+ * the last 'Z'. Reported by the 'D' diagnostics only - it never touches a
+ * data frame.
+ *
+ * This exists because the frame budget has now been misattributed twice.
+ * Adding two sensors dropped the board from its declared 100 Hz to 59, and
+ * both obvious suspects (the oversampled analog reads, then the per-character
+ * USB writes) turned out to be a small part of it. Guessing costs a flash
+ * cycle each time; these three numbers cost nothing and answer it outright.
+ * Read them before touching OVERSAMPLE or the emit path.
+ */
+static uint16_t g_tSample = 0, g_tImu = 0, g_tTx = 0;
+static uint16_t g_tSampleMax = 0, g_tImuMax = 0, g_tTxMax = 0;
+
 static bool    g_imuOk   = false;
 static int32_t g_imu[6]  = {0, 0, 0, 0, 0, 0};   /* ax..az mg, gx..gz mdps */
 static uint32_t g_imuHeld = 0;   /* frames that reused the previous sample */
@@ -380,6 +449,13 @@ static void emitBanner() {
   Serial.println();
 }
 
+/*
+ * Frame scratch buffer. Worst case today is ~100 bytes; at the full 11
+ * channels plus the IMU it is ~135. 192 leaves headroom without being worth
+ * counting - this board has 256 KB of RAM.
+ */
+static char g_line[192];
+
 static void emitFrame() {
   /*
    * Native USB CDC blocks when the host is not draining the port, which would
@@ -406,21 +482,53 @@ static void emitFrame() {
     return;
   }
 
-  Serial.print(F("G,"));
-  Serial.print(g_seq);
-  Serial.print(',');
-  Serial.print(micros() - g_epochUs);
+  /*
+   * FORMAT THE WHOLE FRAME, THEN WRITE IT ONCE. Do not go back to a
+   * Serial.print() per field.
+   *
+   * The mbed core's USB CDC (PluggableUSBSerial.h) implements the single-byte
+   * write(uint8_t) as a _putc straight onto the endpoint, while the block
+   * write(buf, size) packs up to CDC_MAX_PACKET_SIZE (64) bytes into each
+   * USB transfer. Printing field by field therefore cost roughly one USB
+   * transaction PER CHARACTER - about 90 of them for a frame this wide.
+   *
+   * Measured 2026-09-20 with three FSRs, a flex strip and the IMU: this phase
+   * cost 2.7 ms field-at-a-time and 0.7 ms buffered. Worth having, but on its
+   * own it moved the board from 59 Hz only to 72 - the frame was also being
+   * held up by the IMU bus (see IMU_I2C_HZ), which was the larger half.
+   * Both had to be fixed to get back to 100 Hz.
+   *
+   * That is the lesson worth keeping: the rate sagged as channels were added,
+   * and the cost was NOT where it looked. It is why the 'D' diagnostics now
+   * time each phase, and why the rate is a measured gate (plan section 6)
+   * rather than an assumption.
+   */
+  int n = snprintf(g_line, sizeof(g_line), "G,%lu,%lu",
+                   (unsigned long)g_seq,
+                   (unsigned long)(micros() - g_epochUs));
   for (uint8_t i = 0; i < N_CHANNELS; i++) {
-    Serial.print(',');
-    Serial.print(g_sample[i]);
+    if (n < 0 || n >= (int)sizeof(g_line)) break;
+    n += snprintf(g_line + n, sizeof(g_line) - n, ",%u",
+                  (unsigned int)g_sample[i]);
   }
   if (g_imuOk) {
     for (uint8_t i = 0; i < 6; i++) {
-      Serial.print(',');
-      Serial.print(g_imu[i]);
+      if (n < 0 || n >= (int)sizeof(g_line)) break;
+      n += snprintf(g_line + n, sizeof(g_line) - n, ",%ld", (long)g_imu[i]);
     }
   }
-  Serial.println();
+  /* snprintf reports what it WOULD have written, so an overrun shows up as an
+   * n past the end. Drop the frame rather than emit a truncated line: the
+   * seq gap is auditable on the host, a short line is just corruption. */
+  if (n < 0 || n + 2 >= (int)sizeof(g_line)) {
+    g_missed++;
+    return;
+  }
+  /* Arduino's println() terminates CRLF; keep that exactly - the host's
+   * line splitting and the recorded CSVs both already expect it. */
+  g_line[n++] = '\r';
+  g_line[n++] = '\n';
+  Serial.write((const uint8_t *)g_line, (size_t)n);
 }
 
 static void emitDiag() {
@@ -440,6 +548,19 @@ static void emitDiag() {
     Serial.print(F(" missed="));
     Serial.println(g_missed);
   }
+  Serial.print(F("#DIAG timing us sample="));
+  Serial.print(g_tSample);
+  Serial.print('/');
+  Serial.print(g_tSampleMax);
+  Serial.print(F(" imu="));
+  Serial.print(g_tImu);
+  Serial.print('/');
+  Serial.print(g_tImuMax);
+  Serial.print(F(" tx="));
+  Serial.print(g_tTx);
+  Serial.print('/');
+  Serial.print(g_tTxMax);
+  Serial.println(F("  (last/max since Z; budget is 10000)"));
   if (g_imuOk) {
     Serial.print(F("#DIAG imu mg="));
     Serial.print(g_imu[0]); Serial.print(',');
@@ -479,6 +600,7 @@ static void handleCommand(char c) {
       g_epochUs = micros();
       g_missed  = 0;
       g_imuHeld = 0;
+      g_tSampleMax = g_tImuMax = g_tTxMax = 0;
       resetSpans();
       Serial.println(F("#ZERO"));
       break;
@@ -502,6 +624,9 @@ void setup() {
 
 #if HAS_IMU
   g_imuOk = IMU.begin();
+  /* AFTER begin(), never before: the library calls _wire->begin() itself, and
+   * on some cores that resets the clock to the default. */
+  if (g_imuOk) IMU_WIRE.setClock(IMU_I2C_HZ);
   if (!g_imuOk) {
     /* Say so loudly on the wire. Silence here is how "wrong library for this
      * board revision" hides for a week. */
@@ -531,11 +656,22 @@ void loop() {
     g_nextDueUs = micros() + FRAME_PERIOD_US;
   }
 
+  const uint32_t tA = micros();
   sampleAll();
+  const uint32_t tB = micros();
   sampleImu();
+  const uint32_t tC = micros();
   g_seq++;
 
   if (g_streaming) emitFrame();
+  const uint32_t tD = micros();
+
+  g_tSample = (uint16_t)(tB - tA);
+  g_tImu    = (uint16_t)(tC - tB);
+  g_tTx     = (uint16_t)(tD - tC);
+  if (g_tSample > g_tSampleMax) g_tSampleMax = g_tSample;
+  if (g_tImu    > g_tImuMax)    g_tImuMax    = g_tImu;
+  if (g_tTx     > g_tTxMax)     g_tTxMax     = g_tTx;
 
   if (g_diag) {
     static uint32_t lastDiagMs = 0;

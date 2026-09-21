@@ -34,7 +34,8 @@ const TOOLS = [
     tags:["30 s test","1 hand","Audio metronome","Paced tapping"],
     video:"/assets/finger-tapping.mp4" },
   { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py", icon:"spiral",
-    tags:["40 s test","1 hand","On-screen guide","Air tracing"] },
+    tags:["40 s test","1 hand","On-screen guide","Air tracing"],
+    video:"/assets/spiral-test.mp4" },
   { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py", icon:"eye",
     tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"],
     // This clip is a capture of the test UI, which already dims its own camera
@@ -332,7 +333,10 @@ function initCarousel(){
       const op = ad > 2 ? 0 : (isActive ? 1 : .55);
       card.style.transform =
         `translateX(-50%) translateX(${d*GAP}px) translateZ(${-ad*220}px) `+
-        `rotateY(${d*-34}deg) scale(${scale})`;
+        `rotateY(${d*-34}deg) scale(${scale}) `+
+        // Hover growth (styles.css): the translate cancels the upward half of
+        // the scale, so the card grows down and out, never into the header.
+        `translateY(calc((var(--hover-scale,1) - 1) * 50%)) scale(var(--hover-scale,1))`;
       card.style.opacity = op;
       card.style.filter = isActive ? "none" : "brightness(.6)";
       card.style.zIndex = String(100 - ad);
@@ -781,7 +785,7 @@ const ST = {
   bad: {word:"Follow-up", dot:"#EF4444", band:"rgba(239,68,68,.14)"},
   none:{word:"Logged",    dot:"#5197FB", band:"transparent"},
 };
-const INK_MUTED = "#94A3B8", INK_DIM = "#64748B", GRID = "#2A3442", LINE_C = "#5197FB";
+const INK_MUTED = "#B4C0D0", INK_DIM = "#8C9BB2", GRID = "#2A3442", LINE_C = "#5197FB";
 
 let analysisFilter = "all";
 /* Whose history is on screen. "all" pools everyone - what this page did before
@@ -1061,10 +1065,6 @@ function trendCard(key, allSessions){
       <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${t(st.word)}</span>
       ${prev ? deltaChip(latest.v, prev.v, h.lowerBetter) : ""}
     </div>`;
-  // The sentence the test itself showed at the end of that recording.
-  const verdict = latest.label
-    ? `<div class="trend-verdict vs-${latest.status}">${t(latest.label)}</div>` : "";
-
   const dateSpan = pts.length>1
     ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${t("{n} sessions",{n:pts.length})}`
     : t("1 session · a trend line appears after your next");
@@ -1081,7 +1081,7 @@ function trendCard(key, allSessions){
 
   // The legend explains the chart's dot colours, so it sits with the chart —
   // below the calendar it would be a key to something a screen away.
-  return `<div class="trend-card">${head}${modeBar}${readout}${verdict}
+  return `<div class="trend-card">${head}${modeBar}${readout}
     <div class="trend-span">${dateSpan}</div>
     <div class="trend-chart">${trendSvg(pts, h)}</div>
     ${legend}
@@ -1530,6 +1530,53 @@ function idleSpark(){
     <line x1="7" y1="${H/2}" x2="${W-7}" y2="${H/2}" stroke="${GRID}" stroke-width="2"
       stroke-linecap="round" stroke-dasharray="3 9"/></svg>`;
 }
+
+/* ── Disclaimer dock ──────────────────────────────────────────────────
+   The bar used to sit across the bottom of every page permanently. It is a
+   standing legal note, not a status line, so it now lives just below the
+   viewport edge and rises while the pointer is in the strip it occupies.
+
+   The zone is measured from the bar itself rather than hard-coded: a
+   transform does not change the layout box, so offsetHeight is the bar's
+   real height whether it is up or down, and the trigger is therefore exactly
+   where the bar lands. Pointer position is read instead of a CSS :hover on
+   an invisible catcher, so nothing transparent is sitting over the bottom of
+   the page swallowing clicks.
+
+   Touch has no hover at all, and this must stay reachable: the grabber is a
+   real target and a tap pins the bar open. */
+(function disclaimerDock(){
+  const dock = document.getElementById("disclaimer-dock");
+  if(!dock) return;
+  const bar = dock.querySelector(".disclaimer-bar");
+  const grab = dock.querySelector(".disclaimer-grab");
+  let near = false, pinned = false;
+
+  const apply = () => dock.classList.toggle("is-open", near || pinned);
+
+  // The report sheet sits at z-index 300, so a bar rising behind its backdrop
+  // would animate for nobody. Treat an open report as "not near".
+  const blocked = () => !document.getElementById("report")?.hidden;
+
+  addEventListener("mousemove", e => {
+    const zone = bar.offsetHeight || 40;
+    const n = !blocked() && (innerHeight - e.clientY) <= zone;
+    if(n === near) return;            // only touch the DOM on a real change
+    near = n; apply();
+  }, {passive:true});
+
+  // Leaving the window leaves no final mousemove, so the bar would stay up.
+  document.addEventListener("mouseleave", () => { near = false; apply(); });
+  addEventListener("blur", () => { near = false; apply(); });
+
+  grab.addEventListener("click", e => {
+    e.preventDefault(); pinned = !pinned; apply();
+  });
+  // Pinned is the touch path; any click elsewhere puts it back down.
+  addEventListener("click", e => {
+    if(pinned && !dock.contains(e.target)){ pinned = false; apply(); }
+  });
+})();
 
 /* ── Language switch ──────────────────────────────────────────────────
    Almost everything on these pages is built from JS, so a switch has to ask

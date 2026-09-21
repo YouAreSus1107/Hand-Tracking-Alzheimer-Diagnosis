@@ -190,7 +190,6 @@
           <div class="rep-vtext">
             <span class="badge badge-${st}"><span class="badge-dot"></span>${t(ST[st].word)}</span>
             <div class="rep-metricname">${t(h.name)}</div>
-            ${m.label ? `<div class="rep-label">${t(m.label)}</div>` : ""}
             ${rec.test === "finger_tapping" && m.cv_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
             ${rec.test === "oculomotor" && m.error_ci_low_pct != null
@@ -332,7 +331,7 @@
   /* ── Shared chart bits ──────────────────────────────────────────── */
 
   const svgWrap = inner => `<div class="rep-chart">${inner}</div>`;
-  const AX = "#64748B";
+  const AX = "#8593A8";
 
   function axisLabel(x, y, text, anchor) {
     return `<text x="${x}" y="${y}" text-anchor="${anchor || "start"}" font-size="11"

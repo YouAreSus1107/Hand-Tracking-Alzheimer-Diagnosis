@@ -29,7 +29,7 @@ ZH: dict[str, object] = {
     # ── Shared UI toolkit (core/ui) ────────────────────────────────────────
     "Motor Screening": "動作篩檢",
     "Screening tool, not a diagnosis - consult a healthcare professional.":
-        "此為篩檢工具，並非診斷結果 — 請諮詢醫療專業人員。",
+        "此為篩檢工具，並非診斷結果",
 
     # ── Buttons ────────────────────────────────────────────────────────────
     "Start Test": "開始測驗",

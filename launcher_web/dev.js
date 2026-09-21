@@ -42,12 +42,14 @@ const dev = {
   built: false, fastTimer: null, envTimer: null, imuTimer: null, raf: null,
   env: null, status: null, imu: null,
   channels: [], series: [], span: [],   // per channel: values[], {min,max}
+  bendSpan: [],                        // flex only: outlier-resistant {min,max}
   lastSeq: -1, paused: false,
   window_s: 5, yAuto: false, unit: "force", smooth: false,
   view: "stacked",     // "stacked" = one lane per channel | "overlaid" = shared axis
   console: [], autoscroll: true,
   selected: new Set(),
-  port: null,          // user's chosen port, survives re-renders
+  port: null,          // port shown in the select, survives re-renders
+  portPinned: false,   // true only once the user has picked one by hand
   connSig: null,       // last rendered connection-row signature
 };
 
@@ -162,9 +164,10 @@ function devFlexSpan(i){
   if(m && m.calibrated && m.usable){
     return {flat: m.flat_ohm, bent: m.bent_ohm, basis: "calibrated"};
   }
-  const ratio = (m && m.min_span_ratio) || 1.2;
+  // Deliberately NOT m.min_span_ratio: see DEV_OBSERVED_MIN_RATIO.
+  const ratio = DEV_OBSERVED_MIN_RATIO;
   const b = dev.status && dev.status.banner;
-  const s = dev.span[i];
+  const s = dev.bendSpan[i];
   if(s && s.min !== null && s.max !== null){
     const rf = devRFixed(i);
     const flat = devOhm(s.max, b, rf);      // highest count  -> lowest R
@@ -278,12 +281,55 @@ function devImuText(v, kind){
    same rule spiral_test.py enforces on the raw fingertip). Recording happens
    server-side from raw frames and does not pass through here. */
 const DEV_SMOOTH_N = 5;
+
+/* ── the bend span's own accumulator ───────────────────────────────────
+   dev.span is the RAW min/max, and it has to stay raw: it feeds the peak
+   readout, and a peak must never be quietly lowered by a display filter.
+
+   But the same raw min/max was also serving as the denominator for bend %,
+   and those two jobs want opposite things. A denominator built from raw
+   extremes is destroyed by a single sample:
+
+     * Measured 2026-09-20 on a 150 s recording, an untouched sensor's own
+       noise gave a raw min/max ratio of 1.377 — above MIN_SPAN_RATIO — so
+       pure jitter was promoted to an "observed span" and then mapped across
+       the full 0-100%. That is the trace filling the plot while nothing is
+       being bent.
+     * Worse, the span only ever widens. One touch transient took it to
+       241..4095 counts, and a genuine 11-36 kΩ bend then occupied 3.3% of
+       it. That is why a full bend was reading as a move from 1% to 26%.
+
+   So the bend denominator gets its own accumulator, fed a MEDIAN and with
+   the ADC rails excluded. This is not a display filter — it decides what the
+   number means, which is exactly why it must be robust. */
+const DEV_BEND_SPAN_N = 9;       // median width feeding the bend span
+const DEV_RAIL_MARGIN = 8;       // counts from either rail = saturation, not travel
+/* An OBSERVED span is inferred from live data, so it has to clear a higher
+   bar than a span somebody deliberately recorded. flex.py's MIN_SPAN_RATIO
+   (1.2) is the latter; at these resistances it is inside the noise. */
+const DEV_OBSERVED_MIN_RATIO = 1.5;
 function devMedian(values){
   const v = values.filter(x => x !== null && x !== undefined);
   if(!v.length) return null;
   const s = v.slice().sort((a,b)=>a-b);
   return s[Math.floor(s.length/2)];
 }
+/* Widen a flex channel's bend span, from a median and never from a rail.
+   Called per sample; cheap because it only medians the tail of the buffer. */
+function devTrackBendSpan(c, buf){
+  if(buf.length < DEV_BEND_SPAN_N) return;
+  const v = devMedian(buf.slice(-DEV_BEND_SPAN_N));
+  if(v === null) return;
+  const b = dev.status && dev.status.banner;
+  const full = (1 << ((b && b.adc_bits) || 10)) - 1;
+  // A reading pinned at either rail is saturation - an open sensor, a short,
+  // or a transient - and admitting it would define the span by the fault.
+  if(v <= DEV_RAIL_MARGIN || v >= full - DEV_RAIL_MARGIN) return;
+  const s = dev.bendSpan[c];
+  if(s.min === null || v < s.min) s.min = v;
+  if(s.max === null || v > s.max) s.max = v;
+}
+
 function devSmoothSeries(data){
   if(!dev.smooth || data.length < DEV_SMOOTH_N) return data;
   const out = new Array(data.length);
@@ -452,7 +498,7 @@ function devChange(e){
   if(el.dataset.dev === "view") dev.view = el.value;
   if(el.dataset.dev === "smooth") dev.smooth = el.checked;
   if(el.dataset.dev === "autoscroll") dev.autoscroll = el.checked;
-  if(el.dataset.dev === "port") dev.port = el.value;
+  if(el.dataset.dev === "port"){ dev.port = el.value; dev.portPinned = true; }
   if(el.dataset.dev === "chan"){
     const i = +el.dataset.i;
     if(el.checked){
@@ -474,6 +520,7 @@ function devResetBuffers(){
   dev.lastSeq = -1;
   dev.series = dev.channels.map(()=>[]);
   dev.span = dev.channels.map(()=>({min:null, max:null}));
+  dev.bendSpan = dev.channels.map(()=>({min:null, max:null}));
 }
 
 function devSetChannels(names){
@@ -542,6 +589,7 @@ async function devPollSamples(){
             const s = dev.span[c];
             if(s.min === null || v < s.min) s.min = v;
             if(s.max === null || v > s.max) s.max = v;
+            if(devKind(c) === "flex") devTrackBendSpan(c, buf);
           }
         }
         devRenderChannelValues();
@@ -671,13 +719,24 @@ function devRenderConn(){
       : devBtn("connect",t("Connect"), I.play, "btn-primary")}
     ${devPill(connected?"ok":"warn",t("Serial"), connected ? (st.port || t("connected")) : t("Disconnected"))}`;
 
-  // Restore the port: what the board reports, else the user's pick, else the
-  // one that looks like an Arduino.
+  // Restore the port: what the board reports, else a pick the user actually
+  // made, else the one that looks like an Arduino. The pin is what separates
+  // those last two -- dev.port is also written from whatever the box happened
+  // to be showing, so without it a board plugged in while this page was
+  // already open loses to the Bluetooth port that was sitting in the select,
+  // and each Refresh re-selects that dead port instead of the Arduino.
+  // A pinned port that has gone away releases the pin rather than holding a
+  // selection that cannot be opened: flashing re-enumerates the board on a
+  // different COM number (GLOVE_FIRMWARE_PLAN.md 7.2), so the port the user
+  // picked by hand a minute ago is routinely not the port it is on now.
   const sel = document.querySelector('[data-dev="port"]');
   if(sel){
-    const want = (st && st.port) || dev.port ||
-                 (ports.find(p=>p.is_glove) || {}).port;
-    if(want && [...sel.options].some(o=>o.value === want)) sel.value = want;
+    const has = v => !!v && [...sel.options].some(o => o.value === v);
+    if(dev.portPinned && !has(dev.port)) dev.portPinned = false;
+    const want = (st && st.port) ||
+                 (dev.portPinned ? dev.port : null) ||
+                 (ports.find(p => p.is_glove) || {}).port;
+    if(has(want)) sel.value = want;
     dev.port = sel.value;
   }
   const cbtn = document.querySelector('[data-dev="connect"]');

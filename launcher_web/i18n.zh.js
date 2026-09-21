@@ -41,9 +41,7 @@ window.ZH = {
 /* About me (placeholder page) */
 "about.h1": `關於我`,
 "about.intro": `目前還沒有內容。`,
-"bar.disclaimer": `篩檢工具，<strong>並非正式醫療診斷</strong> &#8212; 請諮詢專業醫療人員。
-  &#160;&#183;&#160;
-`,
+"bar.disclaimer": `篩檢工具，<strong>並非正式醫療診斷</strong> &#8212; 請諮詢專業醫療人員。`,
 
 /* ── dashboard ──────────────────────────────────────────────────────── */
 "home.h1": `以相機進行的<br><span class="grad">認知篩檢</span>`,
@@ -118,10 +116,6 @@ window.ZH = {
 "get.chip.title": `已配對的 Hub`,
 "get.chip.addr": `位址`,
 "get.chip.ver": `版本`,
-/* hand model state label (hand3d.js) */
-"anatomical": `解剖模型`,
-"digitalized": `數位化`,
-"morphing…": `變形中…`,
 "home.footer": `本機服務 &#183; 127.0.0.1 &#183; 資料不會離開這台電腦 &#183;
       <a href="/analysis" target="_blank">完整研究分析</a>
     `,
@@ -158,7 +152,7 @@ window.ZH = {
 "iiv.mode1.s1.h": `校正`,
 "iiv.mode1.s1.p": `選擇網路攝影機或 IP 攝影機。MediaPipe 會追蹤手上的 21 個點；先做一次張開合攏的暖身，依你的手掌大小設定起始的敲擊門檻，之後門檻會跟著你實際的動作幅度調整 — 幅度變小時仍能被計入。`,
 "iiv.mode1.s2.h": `又大又快地敲`,
-"iiv.mode1.s2.p": `用食指敲擊拇指，<strong>在 20 秒內盡可能敲得又大又快</strong>。程式會逐格量測指尖之間的距離。我們的實測結果約為每秒 1 至 2 下；TapTalk 在相同指示下測得每秒 5 至 7 下，這個差距目前尚未釐清。`,
+"iiv.mode1.s2.p": `用食指敲擊拇指，<strong>在 20 秒內盡可能敲得又大又快</strong>。程式會逐格量測指尖之間的距離。這種全幅度的敲擊，健康成人約為<strong>每秒 2 至 3 下</strong>；我們的實測結果約為每秒 1 至 2 下，這個差距尚未釐清。`,
 "iiv.mode1.s3.h": `評分`,
 "iiv.mode1.s3.p": `主要分數是敲擊間隔的 <strong>CV%</strong>。另外還會得到敲擊頻率、幅度變異度與速度衰減。`,
 "iiv.mode2.h": `跟拍節奏`,
@@ -171,14 +165,15 @@ window.ZH = {
 "iiv.mode2.s3.p": `<strong>每一聲嗶敲一下</strong>，持續 30 秒，每秒一聲。保持穩定比完全準時更重要。`,
 "iiv.mode2.s4.h": `評分`,
 "iiv.mode2.s4.p": `主要分數是 <strong>CV%</strong>，也就是節奏一致性。<strong>節拍同步 SD</strong> 顯示敲擊落點與嗶聲的接近程度。前 3 下暖身敲擊不計入。`,
+"iiv.paradigm": `這是 <strong>MDS-UPDRS 的手指敲擊動作</strong> — 拇指與食指以你能做到的最大幅度開合，手懸在空中。它不是桌面敲擊測驗：後者手腕貼桌、用一根手指敲鍵，幅度並不重要。這個區別決定了整個尺度：桌面敲擊每秒 5 至 7 下，全幅度敲擊則是 2.4 至 3.6 下，並隨年齡下降。拿錯測驗當標準，看似異常緩慢的速率，其實再平常不過。`,
 "iiv.m1.h": `節奏變異度（CV%）`,
 "iiv.m1.p": `測驗記錄敲擊間隔的標準差，是不受尺度影響的主要生物標記。`,
 "iiv.m1.num": `&lt;15% 一般 &#183; 15&#8211;25% 觀察 &#183; &gt;25% 建議追蹤*`,
 "iiv.m1.cite": `多個神經退化族群的 IIV 皆升高 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>`,
 "iiv.m2.h": `敲擊頻率（Hz）`,
 "iiv.m2.p": `每秒敲擊次數 = 1000 &#247; 平均敲擊間隔。`,
-"iiv.m2.num": `大幅快速模式在完全張開合攏下約為 1&#8211;2 Hz`,
-"iiv.m2.cite": `MediaPipe 測得的頻率有 90.3% 落在 Polhemus 感測器的 &#177;1 Hz 內 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>。同一篇研究測得 5&#8211;7 Hz，而我們為 1&#8211;2 Hz；差距尚未釐清。`,
+"iiv.m2.num": `大幅快速模式約為 1&#8211;2 Hz &#183; 50 歲以上常模 2.4&#8211;2.7 Hz`,
+"iiv.m2.cite": `MediaPipe 測得的頻率有 90.3% 落在 Polhemus 感測器的 &#177;1 Hz 內 &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>，同一份指示下測得 2.6 Hz；<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener">Kwon 2022</a> 在 50&#8211;69 歲測得 2.69 Hz。我們為 1&#8211;2 Hz；差距尚未釐清。`,
 "iiv.m3.h": `速度衰減（%/秒）`,
 "iiv.m3.p": `整段測驗中瞬時敲擊速率的斜率，用來捕捉疲勞造成的變慢。`,
 "iiv.m3.num": `負值 = 變慢`,
@@ -204,6 +199,10 @@ window.ZH = {
 "iiv.p3.authors": `Li 等，2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC10809289`,
 "iiv.p3.body": `404 位沒有認知症狀的成人在家完成 10 秒的網路攝影機敲擊測驗。加入手部動作特徵後，對記憶、執行功能與工作記憶的預測都變好。我們引用它，是因為它證明這項測驗在家中無人監督也能運作。`,
 "iiv.p3.tag": `居家網路攝影機驗證`,
+"iiv.p4.title": `<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener">手指敲擊的年齡差異</a>`,
+"iiv.p4.authors": `Kwon 等，2022 &#183; Technology and Health Care 30(S1) &#183; PMC9028619`,
+"iiv.p4.body": `83 位 20 至 89 歲的健康成人，在手指上裝感測器，以「盡可能又快又大幅度」敲擊拇指與食指 15 秒 — 與我們的指示完全一致。速率從二十多歲的 3.53 Hz，降到 50&#8211;69 歲的 2.69 Hz 與 70&#8211;89 歲的 2.36 Hz。我們引用它，是因為它是這項測驗最接近常模的速率依據，而且與桌面敲擊的數字相差甚遠。`,
+"iiv.p4.tag": `本範式的速率常模`,
 
 /* ── spiral tracing ─────────────────────────────────────────────────── */
 "spiral.h1": `螺旋描繪測驗`,

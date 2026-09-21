@@ -4,7 +4,7 @@
   --interactive:#2D7FF9;--interactive-hover:#5197FB;
   --success:#22C55E;--warning:#F5A524;--danger:#EF4444;--info:#38BDF8;
   --bg:#0E1520;--surface:#111827;--surface-2:#1C2430;
-  --border:#2A3442;--text:#F8FAFC;--text-muted:#94A3B8;--text-disabled:#64748B;
+  --border:#2A3442;--text:#F8FAFC;--text-muted:#B4C0D0;--text-disabled:#8C9BB2;
   --radius:16px;--radius-btn:12px;
   /* Inter and JetBrains Mono carry no CJK glyphs; Traditional Chinese falls
      through to this stack so both languages look like one system. */
@@ -144,12 +144,6 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
                   opacity:0;animation:dotAppear .3s ease forwards}
 @keyframes drawLine{to{stroke-dashoffset:0}}
 @keyframes dotAppear{to{opacity:1}}
-/* morph state label */
-.hand-state-label{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
-  font-size:11px;font-family:'JetBrains Mono',var(--font-cjk),monospace;letter-spacing:.08em;
-  text-transform:uppercase;color:var(--brand);opacity:.7;
-  transition:opacity .4s,color .4s;pointer-events:none;white-space:nowrap}
-.hand-state-label.digital{color:var(--info)}
 
 /* ── Section headers ───────────────────────────────────────────────── */
 .section{padding:0 48px 48px;max-width:1200px;margin:0 auto}
@@ -179,6 +173,16 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
                  opacity .5s ease,filter .5s ease,box-shadow .3s ease}
 .card.is-active{box-shadow:0 24px 70px rgba(0,0,0,.55),
                 0 0 0 1px rgba(18,165,148,.35),0 0 30px rgba(18,165,148,.18)}
+/* Hovering the centred card lifts it forward. The ring's transform is written
+   inline by layout(), so the enlargement rides a variable it multiplies in;
+   layout() pins the top edge so the growth never climbs into the header.
+   A shorter duration while hovered makes the grow snappy; the ring's own
+   rotation keeps .5s. */
+.card.is-active:hover{--hover-scale:1.16;
+                      transition:transform .18s cubic-bezier(.2,0,0,1),
+                                 opacity .5s ease,filter .5s ease,box-shadow .18s ease;
+                      box-shadow:0 30px 90px rgba(0,0,0,.6),
+                      0 0 0 1px rgba(18,165,148,.5),0 0 40px rgba(18,165,148,.25)}
 /* Circular prev/next controls + dot indicators */
 .carousel-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:200;
               width:44px;height:44px;border-radius:50%;cursor:pointer;
@@ -194,6 +198,11 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
 .carousel-nav svg{width:20px;height:20px}
 .carousel-dots{position:absolute;left:0;right:0;bottom:-2px;z-index:200;
                display:flex;gap:9px;justify-content:center}
+/* The hovered card grows down over the dots, so they step aside; the carousel
+   stacks above the next section so the grown card is never painted under it. */
+.carousel{z-index:5}
+.carousel-dots{transition:opacity .18s ease}
+.carousel:has(.card.is-active:hover) .carousel-dots{opacity:0;pointer-events:none}
 .carousel-dot{width:8px;height:8px;padding:0;border-radius:50%;cursor:pointer;
               background:var(--surface-2);border:1px solid var(--border);
               transition:background .2s,border-color .2s,transform .2s}
@@ -466,13 +475,39 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .paper-link svg{width:13px;height:13px}
 
 /* ── Disclaimer bar ────────────────────────────────────────────────── */
-.disclaimer-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;
-                background:rgba(8,14,24,.95);backdrop-filter:blur(12px);
+/* The dock is the fixed box; the bar inside it is what moves. Transforms do
+   not change layout, so the dock keeps the bar's height whether it is up or
+   down and the grabber can be positioned against the real bottom edge. */
+.disclaimer-dock{position:fixed;bottom:0;left:0;right:0;z-index:100;
+                 pointer-events:none}
+.disclaimer-bar{background:rgba(8,14,24,.95);backdrop-filter:blur(12px);
                 border-top:1px solid rgba(245,165,36,.15);
                 padding:10px 24px;text-align:center;
                 font-size:13px;color:var(--warning);
-                box-shadow:0 -2px 16px rgba(0,0,0,.3)}
+                box-shadow:0 -2px 16px rgba(0,0,0,.3);
+                transform:translateY(102%);opacity:0;
+                transition:transform .34s cubic-bezier(.22,1,.36,1),
+                           opacity .2s ease}
 .disclaimer-bar strong{color:var(--text)}
+.disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0);opacity:1}
+
+/* Always visible, so the bar is discoverable without a stray mouse finding
+   it by accident. It ducks out of the way as the bar comes up. */
+.disclaimer-grab{position:absolute;left:50%;bottom:5px;width:44px;height:4px;
+                 border-radius:999px;background:rgba(245,165,36,.3);
+                 transform:translateX(-50%);pointer-events:auto;cursor:pointer;
+                 transition:opacity .2s ease,transform .3s cubic-bezier(.22,1,.36,1),
+                            background .2s ease}
+.disclaimer-grab:hover{background:rgba(245,165,36,.6)}
+/* A 4 px line is not a touch target. This is the one people actually hit. */
+.disclaimer-grab::before{content:"";position:absolute;inset:-12px -18px}
+.disclaimer-dock.is-open .disclaimer-grab{opacity:0;pointer-events:none;
+                 transform:translateX(-50%) translateY(6px)}
+@media (prefers-reduced-motion:reduce){
+  .disclaimer-bar,.disclaimer-grab{transition:opacity .15s ease}
+  .disclaimer-bar{transform:translateY(102%)}
+  .disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0)}
+}
 
 /* ── Toast ─────────────────────────────────────────────────────────── */
 .toast{position:fixed;left:50%;bottom:56px;z-index:200;
@@ -1322,20 +1357,13 @@ body[data-hub="connected"] .hub-slot{display:inline-flex}
 .rs-inbox-note{font-size:12px;color:var(--text-muted)}
 .rs-inbox .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
 
-/* ── Analysis: verdict line, clickable points, session calendar ────── */
+/* ── Analysis: clickable points, session calendar ──────────────────── */
 /* A dot's colour is the verdict the test itself recorded, so the four states
    are spelled the same way here as in .badge-*. */
-.trend-verdict{font-size:13.5px;font-weight:500;margin:2px 0 10px;
-               display:flex;align-items:center;gap:8px}
-.trend-verdict::before{content:"";width:6px;height:6px;border-radius:50%;flex:none}
 .vs-ok{color:var(--success)}
 .vs-warn{color:var(--warning)}
 .vs-bad{color:var(--danger)}
 .vs-none{color:var(--text-muted)}
-.trend-verdict.vs-ok::before{background:var(--success)}
-.trend-verdict.vs-warn::before{background:var(--warning)}
-.trend-verdict.vs-bad::before{background:var(--danger)}
-.trend-verdict.vs-none::before{background:var(--text-disabled)}
 
 /* The hint rests as a bare ⓘ and unfurls its sentence to the right on hover or
    keyboard focus. The text is never removed from the document — it is clipped,

@@ -64,16 +64,11 @@ FOOTER_OLD = """    <div class="footer" data-i18n="home.footer">
       <a href="/analysis" target="_blank">Full research analysis</a>
     </div>"""
 
-FOOTER_NEW = """    <div class="footer" data-i18n="home.footer">
-      Published dashboard &#183; drives the hub on your own machine &#183;
-      results stay there, nothing is stored on this site
-    </div>"""
-
-FOOTER_ZH = (
-    "\n/* Hosted-preview override, appended by tools/build_web.py. */\n"
-    "window.ZH[\"home.footer\"] = `線上儀表板 &#183; 由您自己電腦上的 Hub 執行 &#183;\n"
-    "      結果留在該電腦，本站不儲存任何資料`;\n"
-)
+# The published page keeps the element -- it carries the bottom spacing the
+# home page is laid out with -- and loses the copy. With nothing to say there
+# is no data-i18n key either: leaving one on an empty div would have pulled
+# the *local-hub* Chinese string onto the public site.
+FOOTER_NEW = """    <div class="footer"></div>"""
 
 
 def fail(msg: str) -> None:
@@ -164,9 +159,6 @@ def main() -> None:
     html = replace_once(html, SHIM_ANCHOR, SHIM_TAG + SHIM_ANCHOR, "i18n.zh.js script tag")
     html = replace_once(html, FOOTER_OLD, FOOTER_NEW, "local-hub footer")
     index.write_text(html, encoding="utf-8")
-
-    zh = OUT / "i18n.zh.js"
-    zh.write_text(zh.read_text(encoding="utf-8") + FOOTER_ZH, encoding="utf-8")
 
     build_release.main()   # after clean(), which would have removed download/
 

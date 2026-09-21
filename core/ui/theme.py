@@ -26,8 +26,8 @@ HEX = {
     "surface-2":     "#1C2430",
     "border":        "#2A3442",
     "text":          "#F8FAFC",
-    "text-muted":    "#94A3B8",
-    "text-disabled": "#64748B",
+    "text-muted":    "#B4C0D0",
+    "text-disabled": "#8C9BB2",
 }
 
 

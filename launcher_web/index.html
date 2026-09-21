@@ -84,7 +84,6 @@ button,input{font:inherit;color:inherit}
       <p class="sub" data-i18n="home.sub">made by Adam Chung.</p>
       <div class="hand-viz" id="hand-viz">
         <canvas id="hand3d"></canvas>
-        <div class="hand-state-label" id="hand-label">anatomical</div>
       </div>
     </div>
 
@@ -250,6 +249,16 @@ button,input{font:inherit;color:inherit}
       </div>
     </div>
 
+    <div class="section">
+      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="hub-slot" data-hub-chip></span><span class="cam-slot" data-cam></span><span class="pf-slot" data-profile></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
+      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
+        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
+        <div class="carousel-stage" id="cards"></div>
+        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool" data-i18n-aria="home.carousel.next"></button>
+        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool" data-i18n-aria="home.carousel.dots"></div>
+      </div>
+    </div>
+
     <!-- Live readings strip. One tile per test, drawn from the sessions on
          this machine (/api/sessions) - the same headline metric the Analysis
          page charts. With nothing logged yet each tile states the metric it
@@ -260,16 +269,6 @@ button,input{font:inherit;color:inherit}
         <button class="sh-link" onclick="showPage('analysis')" data-i18n="home.vitals.link">Full trend &#8594;</button></div>
       <div class="run-assign" id="run-assign" hidden></div>
       <div class="vitals" id="vitals"></div>
-    </div>
-
-    <div class="section">
-      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="hub-slot" data-hub-chip></span><span class="cam-slot" data-cam></span><span class="pf-slot" data-profile></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
-      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
-        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
-        <div class="carousel-stage" id="cards"></div>
-        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool" data-i18n-aria="home.carousel.next"></button>
-        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool" data-i18n-aria="home.carousel.dots"></div>
-      </div>
     </div>
 
     <div class="section reveal">
@@ -418,7 +417,7 @@ button,input{font:inherit;color:inherit}
             <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">20 s &#183; self-paced &#183; primary</span></div>
             <div class="steps">
               <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the starting tap threshold for your hand size, and from there it follows the excursion you are actually making — so taps still count as they get shallower through the run.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 20 seconds</strong>. The app measures tip-to-tip distance on every frame. Our runs land around 1 to 2 taps per second. TapTalk reports 5 to 7 for the same instruction, and we have not explained the gap yet.</p></div></div>
+              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 20 seconds</strong>. The app measures tip-to-tip distance on every frame. Full-excursion tapping like this runs at <strong>2 to 3 taps per second</strong> in healthy adults. Our runs land around 1 to 2, and that gap is still open.</p></div></div>
               <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode1.s3.h">Score</h4><p data-i18n="iiv.mode1.s3.p">The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
             </div>
           </div>
@@ -432,11 +431,12 @@ button,input{font:inherit;color:inherit}
             </div>
           </div>
         </div>
+        <p class="band-note" data-i18n="iiv.paradigm">This is the <strong>MDS-UPDRS finger-tapping movement</strong> &#8212; thumb to index through the widest range you can manage, hand in the air. It is not the desk-tapping test, where one finger taps a key with the wrist resting and the amplitude does not matter. That distinction sets the whole scale: desk tapping runs at 5&#8211;7 taps per second, full-excursion tapping at 2.4&#8211;3.6, falling with age. A rate that looks alarmingly slow against the wrong test is unremarkable against the right one.</p>
       </div>
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="iiv.m1.h">Rhythm variability (CV%)</h4><p data-i18n="iiv.m1.p">The test captures the Standard Deviation of inter-tap intervals. The scale-invariant prime biomarker.</p><div class="metric-num" data-i18n="iiv.m1.num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite" data-i18n="iiv.m1.cite">IIV elevated across neurodegenerative groups &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
-          <div class="metric-card"><h4 data-i18n="iiv.m2.h">Tap frequency (Hz)</h4><p data-i18n="iiv.m2.p">Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num" data-i18n="iiv.m2.num">Big &amp; Fast runs ~1&#8211;2 Hz at full excursion</div><div class="metric-cite" data-i18n="iiv.m2.cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>. Same paper measures 5&#8211;7 Hz where we see 1&#8211;2; gap still open.</div></div>
+          <div class="metric-card"><h4 data-i18n="iiv.m2.h">Tap frequency (Hz)</h4><p data-i18n="iiv.m2.p">Taps per second = 1000 &#247; mean inter-tap interval.</p><div class="metric-num" data-i18n="iiv.m2.num">Big &amp; Fast runs ~1&#8211;2 Hz &#183; norm 2.4&#8211;2.7 Hz at 50+</div><div class="metric-cite" data-i18n="iiv.m2.cite">MediaPipe frequency 90.3% within &#177;1 Hz of a Polhemus sensor &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a>, which measures 2.6 Hz on this instruction; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener">Kwon 2022</a> 2.69 Hz at 50&#8211;69. We see 1&#8211;2; gap still open.</div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m3.h">Speed decrement (%/s)</h4><p data-i18n="iiv.m3.p">Slope of the instantaneous tap rate over the trial. This captures fatigue slowdown.</p><div class="metric-num" data-i18n="iiv.m3.num">negative = slowing</div><div class="metric-cite" data-i18n="iiv.m3.cite">&#8220;Big &amp; Fast&#8221; decrement measure &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m4.h">Amplitude CV (%)</h4><p data-i18n="iiv.m4.p">Variability of the valley-to-peak opening excursion from tap to tap.</p><div class="metric-num" data-i18n="iiv.m4.num">span-normalized per tap</div><div class="metric-cite" data-i18n="iiv.m4.cite">Magnetic-sensor tap amplitude/regularity &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9716461/" target="_blank" rel="noopener">Suzumura 2022</a></div></div>
           <div class="metric-card"><h4 data-i18n="iiv.m5.h">Beat-sync SD (ms) &#183; paced only</h4><p data-i18n="iiv.m5.p">Standard Deviation of each tap&#8217;s latency to its nearest beep (matched within a &#177;500 ms window).</p><div class="metric-num" data-i18n="iiv.m5.num">lower = tighter to the beat</div><div class="metric-cite" data-i18n="iiv.m5.cite">Project-specific rhythm metric &#8212; no cited normative source.</div></div>
@@ -447,6 +447,7 @@ button,input{font:inherit;color:inherit}
         <div class="paper"><h4 data-i18n="iiv.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Quantitative Finger Tapping in MCI, Alzheimer's &amp; Parkinson's</a></h4><div class="paper-authors" data-i18n="iiv.p1.authors">Roalf et al., 2018 &#183; J Neurol 265:1365&#8211;1375 &#183; PMC5992087</div><p data-i18n="iiv.p1.body">They tested 302 people (131 AD, 63 PD, 46 MCI, 62 healthy) with a light-diode finger tapper. Variability in the gaps between taps was higher in every neurodegenerative group, and it separated the groups better than tap count or average speed. We cite it because our headline <strong>CV% / IIV</strong> metric comes from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p1.tag">Source of our IIV / CV metric</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="iiv.p2.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk: Smartphone Motor + Speech Testing Across 20 Devices</a></h4><div class="paper-authors" data-i18n="iiv.p2.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC11496774</div><p data-i18n="iiv.p2.body">They checked MediaPipe hand tracking against Polhemus electromagnetic sensors across 31 people and 20 phone models. 90.3% of tap-frequency readings landed within &#177;1 Hz of the sensor. We cite it because it shows a plain camera is accurate enough for this test.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p2.tag">Directly validates our approach</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="iiv.p3.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener">TAS Test: Webcam Hand Movements Predict Cognition</a></h4><div class="paper-authors" data-i18n="iiv.p3.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC10809289</div><p data-i18n="iiv.p3.body">404 adults with no cognitive symptoms did a 10-second webcam tapping test at home. Adding their hand-motor features improved predictions of memory, executive function, and working memory. We cite it because it shows the test works unsupervised at home.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p3.tag">At-home webcam validation</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="iiv.p4.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener">Age-Related Differences in Finger Tapping</a></h4><div class="paper-authors" data-i18n="iiv.p4.authors">Kwon et al., 2022 &#183; Technology and Health Care 30(S1) &#183; PMC9028619</div><p data-i18n="iiv.p4.body">83 healthy adults aged 20 to 89 tapped index finger to thumb for 15 seconds &#8220;as rapidly as possible and with as large amplitude as possible&#8221; &#8212; our instruction, word for word &#8212; with a sensor on the finger. Rates fell from 3.53 Hz in the twenties to 2.69 at 50&#8211;69 and 2.36 at 70&#8211;89. We cite it because it is the closest thing to a normative rate for this test, and it is nowhere near the desk-tapping figure.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p4.tag">Rate norms for this paradigm</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
     </div>
   </div>
@@ -637,9 +638,16 @@ button,input{font:inherit;color:inherit}
   </div>
 </div>
 
-<div class="disclaimer-bar" data-i18n="bar.disclaimer">
-  Screening tool, <strong>not an official medical diagnosis</strong> &#8212; consult a healthcare professional.
-  &#160;&#183;&#160;
+<!-- Disclaimer dock. The bar sits below the viewport edge and rises only
+     while the pointer is in the strip it occupies (app.js, disclaimerDock).
+     The dock itself is pointer-transparent so a hidden bar cannot swallow a
+     click; the grabber is the only always-visible part, and it is what tells
+     anyone the bar is down there at all. -->
+<div class="disclaimer-dock" id="disclaimer-dock">
+  <span class="disclaimer-grab" aria-hidden="true"></span>
+  <div class="disclaimer-bar" data-i18n="bar.disclaimer">
+    Screening tool, <strong>not an official medical diagnosis</strong>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>

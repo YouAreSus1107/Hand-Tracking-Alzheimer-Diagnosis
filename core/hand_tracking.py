@@ -67,7 +67,8 @@ UDP_IP = "127.0.0.1"
 UDP_PORT = 5052
 
 # ── Tap detection tuning (mirrors the max-speed tapping mode) ───────────────
-MIN_INTERTAP_S = 0.5 / 5.0      # fastest plausible tap at ~5 Hz max-speed
+MIN_INTERTAP_S = 0.5 / 5.0      # debounce ceiling: 5 Hz is the key-tapping
+                                # rate limit, generous for this paradigm
 EMA_ALPHA = 0.6                 # detector smoothing (EMA_ALPHA_FAST)
 TAP_CLOSE = 0.20               # tap registers when normalized distance < this
 TAP_OPEN = 0.30                # hysteresis: must re-open above this before next tap
