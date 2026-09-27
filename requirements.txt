@@ -3,3 +3,4 @@ mediapipe>=0.10
 pillow>=9.2
 sounddevice>=0.4
 pyserial>=3.5
+praat-parselmouth>=0.4.5

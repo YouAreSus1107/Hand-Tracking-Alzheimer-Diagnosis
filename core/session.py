@@ -34,6 +34,18 @@ _INDEX_FIELDS = [
     "sparc", "smoothness_index", "vel_cv_pct", "norm_jerk",
     "tremor_power_frac", "tremor_dominant_hz", "mean_dev_pct",
     "vel_mean_px_s", "completion_pct", "active_ratio_pct",
+    # speech rhythm (DDK) columns — decrement_pct_per_s, n_intervals and the
+    # confidence columns above are shared with tapping (same definitions)
+    "syllables", "syllable_rate_hz", "rhythm_cv_pct", "npvi", "snr_db",
+    "sequence_error_pct", "count_agreement_pct",
+    # sustained phonation columns — snr_db above is shared with DDK
+    "jitter_pct", "shimmer_pct", "hnr_db", "f0_mean_hz", "f0_sd_hz",
+    "vocal_tremor_hz", "voiced_pct",
+    # hand tremor columns (TREMOR_TEST_PLAN.md) — confidence_pct is shared
+    "tremor_amp_pct", "tremor_peak_hz", "rest_amp_left_pct",
+    "rest_amp_right_pct", "rest_peak_hz", "count_amp_pct", "postural_amp_pct",
+    "postural_peak_hz", "asymmetry_ratio", "emergence_ratio",
+    "glove_rest_peak_hz", "cam_glove_hz_diff",
     # provenance — "local" for a test run on this machine, "remote" for one
     # that arrived from a participant's phone (REMOTE_SESSION_PLAN.md §3.4).
     "source", "participant",
@@ -94,6 +106,9 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
         "test": test,
         "mode": mode,
         "hand": hand,
+        # Hand labels from here on use core/hand_utils.true_hand(); older
+        # records carry the reversed label until tools/fix_hand_labels.py runs.
+        "hand_label_fixed": True,
         "duration_s": _round(duration_s),
         "source": source,
         "participant": participant,

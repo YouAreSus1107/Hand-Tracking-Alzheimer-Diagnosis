@@ -4,6 +4,7 @@
 Run this once after cloning the repo:
 
     python install.py            # or double-click setup.bat on Windows
+    python install.py --speech-ml   # also the optional speech phoneme model
 
 It is stdlib-only (no third-party imports) so it can bootstrap before any
 dependencies exist. It will:
@@ -12,7 +13,11 @@ dependencies exist. It will:
   2. Create a local virtual environment in .venv/ (if not already there).
   3. Install the pip dependencies from requirements.txt into that venv.
   4. Download any missing MediaPipe model bundles into model/.
-  5. Print how to launch the suite.
+  5. With --speech-ml only: install PyTorch (CPU build) + transformers and
+     pre-download the speech test's phoneme model (~1.2 GB in the Hugging Face
+     cache, outside the repo). Optional — the speech test runs without it and
+     simply skips the sequencing measure (core/speech/phonemes.py).
+  6. Print how to launch the suite.
 """
 
 import os
@@ -41,6 +46,11 @@ MODELS = {
 }
 
 IS_WINDOWS = os.name == "nt"
+
+# Optional speech-test ML stack. The CPU wheel index keeps torch at ~200 MB
+# instead of the multi-GB CUDA build nobody here needs.
+TORCH_INDEX = "https://download.pytorch.org/whl/cpu"
+SPEECH_ML_PACKAGES = ("transformers>=4.40", "huggingface_hub>=0.23")
 
 
 def log(msg):
@@ -110,6 +120,27 @@ def download_models():
             log(f"  Download it manually into model/ from:\n    {url}")
 
 
+def install_speech_ml():
+    """torch (CPU) + transformers, then fetch the phoneme model once, so the
+    test never starts a 1.2 GB download mid-run (it loads local files only)."""
+    py = venv_python()
+    log("Installing PyTorch (CPU build) for the speech phoneme model ...")
+    subprocess.check_call([py, "-m", "pip", "install", "torch",
+                           "--index-url", TORCH_INDEX])
+    log("Installing transformers ...")
+    subprocess.check_call([py, "-m", "pip", "install", *SPEECH_ML_PACKAGES])
+    log("Downloading the phoneme model (~1.2 GB, one time) ...")
+    code = ("import sys; sys.path.insert(0, '.'); "
+            "from core.speech import phonemes; print(phonemes.download())")
+    try:
+        subprocess.check_call([py, "-c", code], cwd=REPO_ROOT)
+        log("Phoneme model ready.")
+    except subprocess.CalledProcessError:
+        log("ERROR: the phoneme model could not be downloaded. The speech test "
+            "still runs without it; re-run 'python install.py --speech-ml' "
+            "to try again.")
+
+
 def print_next_steps():
     py = venv_python()
     # Show a repo-relative, shell-friendly path for the interpreter.
@@ -132,6 +163,11 @@ def main():
     create_venv()
     install_requirements()
     download_models()
+    if "--speech-ml" in sys.argv[1:]:
+        install_speech_ml()
+    else:
+        log("Optional: 'python install.py --speech-ml' adds the speech test's "
+            "phoneme model (~1.4 GB download).")
     print_next_steps()
 
 
