@@ -19,9 +19,16 @@ tracking lag / drift / occlusion:
     with x / y / z.
 
 Overlay is styled with the shared core/ui Canvas toolkit per
-docs/UI_STYLE_GUIDE.md. UDP broadcast is unchanged.
+docs/design/UI_STYLE_GUIDE.md. UDP broadcast is unchanged.
 
-Keys:  q quit   c reset counters   r toggle raw-landmark readout
+The frame is NOT mirrored, so the UDP pixel-x stays in camera space for
+consumers. (A camera that mirrors its own picture is undone by open_capture
+after the once-per-camera check in core/mirror_check.py, so "unmirrored"
+holds for every camera.) On an unmirrored frame MediaPipe's handedness label
+is the user's real hand (core/hand_utils.true_hand), so the UDP L/R prefix
+and the panel titles both name the hand actually held up.
+
+Keys:  q or window X quit   c reset counters   r toggle raw-landmark readout
 """
 
 from __future__ import annotations
@@ -50,9 +57,11 @@ import mediapipe as mp
 _splash.step()               # MediaPipe in
 
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
-                             smooth_landmarks, preprocess_for_mediapipe)
-from core.camera import (open_capture, preset_camera_source,
-                         describe_source, pause_before_exit)
+                             smooth_landmarks, preprocess_for_mediapipe,
+                             true_hand)
+from core.camera import (select_camera_source, open_capture,
+                         create_display_window, window_closed, pause_before_exit)
+from core.mirror_check import ensure_orientation
 from core.tapping.detector import TapDetector, thumb_index_distance
 from core.ui import theme
 from core.ui.anim import ease_out_cubic, lerp
@@ -156,9 +165,10 @@ class Inspector:
         for i, hand_landmarks in enumerate(result.hand_landmarks):
             if i not in keep:
                 continue
-            # Frame is NOT flipped (preserves UDP pixel-x for consumers), so this
-            # is MediaPipe's raw label, not the user's true hand.
-            side = result.handedness[i][0].category_name[0]      # "L" or "R"
+            # Frame is NOT flipped (preserves UDP pixel-x for consumers), and
+            # on an unflipped frame the label is the user's real hand.
+            side = true_hand(result.handedness[i][0].category_name,
+                             selfie=False)[0].upper()          # "L" or "R"
             fx, fy = self.lm_filters[side]
             smoothed = smooth_landmarks(hand_landmarks, fx, fy, now)
             d = thumb_index_distance(smoothed)
@@ -242,7 +252,7 @@ class Inspector:
     def _render_raw(self, c: Canvas, col_x: int, smoothed):
         ry, rph = 180, 180
         c.panel(col_x, ry, PANEL_W, rph)
-        c.text(col_x + 12, ry + 8, i18n.t("Landmarks Coordination"),
+        c.text(col_x + 12, ry + 8, i18n.t("Landmark Coordinates"),
                role="body_sb")
         for hx, htxt in ((100, "x"), (150, "y"), (200, "z")):
             c.text(col_x + hx, ry + 30, htxt, role="caption",
@@ -270,13 +280,16 @@ class Inspector:
 
     # ── main loop ─────────────────────────────────────────────────────────
     def run(self):
-        win = "Hand Detection 3D - Data Inspector  |  Q to quit"
-        cv2.namedWindow(win)
+        win = "Hand Detection 3D - Data Inspector  |  Q or window ✕ to quit"
+        window_ready = False
         while self.cap.isOpened():
             ok, frame = self.cap.read()
             if not ok:
                 print("[WARNING] Ignoring empty camera frame.")
                 continue
+            if not window_ready:
+                create_display_window(win, frame.shape[1], frame.shape[0])
+                window_ready = True
             now = time.time()
             if self._last_frame_t is not None:
                 dt = max(1e-3, now - self._last_frame_t)
@@ -294,6 +307,8 @@ class Inspector:
                     hs.reset()
             elif key == ord("r"):
                 self.show_raw = not self.show_raw
+            if window_closed(win):
+                break
 
         self.cap.release()
         cv2.destroyAllWindows()
@@ -302,36 +317,19 @@ class Inspector:
         print("\n[INFO] Hand tracking stopped. Goodbye!")
 
 
-def _select_source():
-    preset = preset_camera_source()      # chosen in the launcher UI
-    if preset is not None:
-        print(f"  Camera source: {describe_source(preset)}"
-              f"  (set in the launcher)\n")
-        return preset
-    print("\n--- Camera Selection ---")
-    print("1. Default Laptop/USB Camera")
-    print("2. Phone Camera (via IP Webcam app or similar)")
-    choice = input("Enter 1 or 2 [Default 1]: ").strip()
-    if choice == "2":
-        print("\nTo use your phone, install an app like 'IP Webcam' (Android).")
-        print("Ensure your phone and computer are on the SAME Wi-Fi network.")
-        return input("Enter the video stream URL "
-                     "(e.g., http://192.168.1.5:8080/video): ").strip()
-    return 0
-
-
 def main():
-    source = _select_source()
+    source = select_camera_source()
     cap = open_capture(source)
     if cap is None:
         print(f"[ERROR] Could not open camera source: {source}. "
               "Please check your connection.")
         pause_before_exit()
         sys.exit(1)
+    ensure_orientation(cap)   # once per camera: undo its own mirroring
 
     print("=" * 52)
     print(f"  Broadcasting UDP landmarks to {UDP_IP}:{UDP_PORT}")
-    print("  Keys:  q quit   c reset counters   r toggle raw readout")
+    print("  Keys:  q or window X quit   c reset counters   r toggle raw readout")
     print(f"  A tap registers when thumb-index distance drops below {TAP_CLOSE}.")
     print("=" * 52)
 

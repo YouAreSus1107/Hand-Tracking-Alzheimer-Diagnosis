@@ -7,6 +7,9 @@ launched tool never stops to ask. Running a script straight from a terminal
 still gets the interactive prompt: [1] local webcam (optionally an index) or
 [2] an IP-camera stream URL, with Enter defaulting to webcam 0 so a bare
 double-click keeps working.
+
+open_capture() also undoes a camera that mirrors its own picture, so every
+tool reads the same unmirrored frame from any camera (core/orientation.py).
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ import sys
 from pathlib import Path
 
 import cv2
+
+from core import orientation
 
 # Remembers the capture config that actually worked, so a later run opens the
 # camera once instead of probing (each probe = a visible camera-LED flash and
@@ -118,14 +123,40 @@ def _store_cached(key: str, combo: tuple) -> None:
         pass
 
 
+class Capture:
+    """A cv2.VideoCapture whose read() undoes a camera's own mirroring.
+
+    `mirrored` starts from the answer saved for this source (core/orientation.py)
+    and is set by core/mirror_check.py when the source has never been checked.
+    Everything else is passed straight through to the wrapped capture.
+    """
+
+    def __init__(self, cap, source: int | str):
+        self._cap = cap
+        self.source = source
+        self.mirrored = bool(orientation.load(source))
+
+    def read(self):
+        ok, frame = self._cap.read()
+        if ok and self.mirrored:
+            frame = cv2.flip(frame, 1)
+        return ok, frame
+
+    def __getattr__(self, name):
+        return getattr(self._cap, name)
+
+
 def open_capture(source: int | str, width: int = 640, height: int = 480,
-                 fps: int | None = None):
-    """Open the capture; returns cv2.VideoCapture or None on failure.
+                 fps: int | None = None) -> Capture | None:
+    """Open the capture; returns a Capture (see above) or None on failure.
+
+    Frames come back unmirrored whatever the camera does, provided the camera
+    has been checked (core/mirror_check.ensure_orientation).
 
     For integer webcam sources on Windows we prefer the DirectShow backend over
     OpenCV's default (MSMF): measured lower read latency and no MSMF decode-thread
     contention spikes that otherwise stall MediaPipe inference (see
-    docs/FPS_FINDINGS.md). Each candidate is verified with a real test read, and
+    docs/performance/FPS_FINDINGS.md). Each candidate is verified with a real test read, and
     we fall back gracefully so a camera that works today never regresses:
     DSHOW+MJPG -> DSHOW (no MJPG) -> MSMF+MJPG -> MSMF (no MJPG).
 
@@ -140,7 +171,7 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
     """
     if not isinstance(source, int):
         cap = cv2.VideoCapture(source)
-        return cap if cap.isOpened() else (cap.release() or None)
+        return Capture(cap, source) if cap.isOpened() else (cap.release() or None)
 
     if sys.platform.startswith("win"):
         candidates = [(cv2.CAP_DSHOW, True), (cv2.CAP_DSHOW, False),
@@ -166,7 +197,7 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
             if ok:
                 if cached != [combo[0], combo[1]]:
                     _store_cached(key, combo)
-                return cap
+                return Capture(cap, source)
         cap.release()
     return None
 

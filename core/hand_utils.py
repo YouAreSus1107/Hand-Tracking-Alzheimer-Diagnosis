@@ -7,6 +7,7 @@ Provides:
   make_landmark_filters()   -- create a fresh (filters_x, filters_y) pair
   smooth_landmarks()        -- apply One-Euro filtering, return list of (x, y, z) tuples
   preprocess_for_mediapipe()-- CLAHE + sharpening to improve detection under varied lighting
+  true_hand()               -- MediaPipe's handedness label -> the user's real hand
 """
 
 import math
@@ -21,6 +22,28 @@ HAND_CONNECTIONS = [
     (9,13), (13,14), (14,15), (15,16),
     (13,17), (0,17), (17,18), (18,19), (19,20),
 ]
+
+# ── Handedness ─────────────────────────────────────────────────────────────
+
+def true_hand(category_name: str, selfie: bool) -> str:
+    """The user's real hand ("left"/"right") from MediaPipe's handedness label.
+
+    MediaPipe's docs say the label assumes a mirrored (selfie) picture. The
+    Tasks HandLandmarker in use here does the opposite: on the picture as the
+    camera sends it, the label already names the real hand. Verified
+    2026-09-27 on a camera whose frames were confirmed unmirrored (printed
+    text read normally): on the tests' selfie-flipped frame, 14/14 tapping and
+    7/7 spiral runs by a right-dominant user had been saved as "left".
+
+    So the label is the real hand on an unmirrored frame and the opposite one
+    on a selfie-flipped frame. core/camera.open_capture() un-mirrors cameras
+    that mirror their own picture, so "unmirrored" means every tool's raw read.
+    """
+    label = category_name.strip().lower()
+    if not selfie:
+        return label
+    return {"left": "right", "right": "left"}.get(label, label)
+
 
 # ── One-Euro Filter ────────────────────────────────────────────────────────
 
