@@ -26,13 +26,12 @@ model/face_landmarker.task
 # Health-adjacent personal data, never published (core/profiles.py).
 .launcher_profiles.json
 # Invite ledger for remote sessions — local bookkeeping, holds participant
-# names and live tokens (docs/REMOTE_SESSION_PLAN.md).
+# names and live tokens (docs/platform/REMOTE_SESSION_PLAN.md).
 .remote_sessions.json
 
-# Working material — kept locally, not published
+# Working material — kept locally, not published (docs/ also holds research/
+# and reference/)
 docs/
-research/
-reference/
 
 # Local tool settings
 .claude/

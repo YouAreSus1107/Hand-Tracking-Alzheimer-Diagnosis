@@ -96,9 +96,9 @@ let modelLoaded = false;
 
 function tryLoad(url){
   loader.load(url, onModel, undefined, (err) => {
-    if(url === '/assets/hand.glb'){
+    if(url === '/assets/models/hand.glb'){
       console.warn('.glb not found, trying .gltf…');
-      tryLoad('/assets/hand.gltf');
+      tryLoad('/assets/models/hand.gltf');
     } else {
       console.warn('Hand model failed, showing SVG fallback:', err);
       showFallback();
@@ -176,7 +176,7 @@ function onModel(gltf){
   handGroup.add(model);
   modelLoaded = true;
 }
-tryLoad('/assets/hand.glb');
+tryLoad('/assets/models/hand.glb');
 
 function showFallback(){
   canvas.style.display = 'none';
