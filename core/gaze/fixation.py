@@ -1,5 +1,5 @@
 """
-Fixation stability (research/04-oculomotor-gaze.md §10.3): the user holds gaze
+Fixation stability (docs/research/04-oculomotor-gaze.md §10.3): the user holds gaze
 on the central cross while we quantify how steady that fixation is. Elevated
 instability and saccadic intrusions are markers in AD and especially PSP.
 

@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Security rules for the remote-session relay (docs/REMOTE_SESSION_PLAN.md §3).
+// Security rules for the remote-session relay (docs/platform/REMOTE_SESSION_PLAN.md §3).
 //
 // Two parties reach this database and they are not equals:
 //

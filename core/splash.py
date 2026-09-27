@@ -5,7 +5,7 @@ Console loading screen for the cold-start import gap.
 launch after a reboot, or any time Defender/OneDrive has to re-scan the ~130 MB
 of native extensions under `.venv`. All of it happens *before* a tool's first
 `print()`, so the console the launcher opens sits completely blank and reads as
-hung (that is the wait, not the camera). See docs/COLD_START.md.
+hung (that is the wait, not the camera). See docs/performance/COLD_START.md.
 
 This module is deliberately stdlib-only and import-cheap, because it runs above
 those imports:
@@ -44,6 +44,8 @@ import time
 IMPORT_STEPS = (("OpenCV", 0.40), ("MediaPipe", 0.54), ("Test engine", 0.06))
 # The oculomotor test never imports mediapipe directly; core.gaze.tracker does.
 GAZE_IMPORT_STEPS = (("OpenCV", 0.42), ("Gaze engine + MediaPipe", 0.58))
+# The speech test has no camera and no MediaPipe; OpenCV is only its window.
+SPEECH_IMPORT_STEPS = (("OpenCV", 0.70), ("Audio engine", 0.30))
 
 # ── Palette (mirrors core/ui/theme.py; duplicated so this stays import-cheap)
 _BRAND = (0x12, 0xA5, 0x94)
@@ -223,7 +225,7 @@ class Splash:
         if not self._final and elapsed > _SLOW_S:
             hint = "First launch reads ~130 MB of vision libraries from disk."
         elif self._final and elapsed > _SLOW_S + 2.0:
-            hint = "Slow cold start - see docs/COLD_START.md to speed it up."
+            hint = "Slow cold start - see docs/performance/COLD_START.md to speed it up."
         if hint:
             hint = f"  {_rgb(_DIM)}{hint}{_RESET}"
 

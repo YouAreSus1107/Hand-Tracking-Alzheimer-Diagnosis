@@ -1,7 +1,7 @@
 """
 Oculomotor Test (Pro/Anti-saccade)
 ==================================
-Webcam-only saccadic eye-movement screening (docs/OCULOMOTOR_TEST_PLAN.md):
+Webcam-only saccadic eye-movement screening (docs/tests/OCULOMOTOR_TEST_PLAN.md):
 
   Part 1 - Look Toward  -- prosaccade block, 16 trials (per-user latency
                            baseline; look AT the dot).
