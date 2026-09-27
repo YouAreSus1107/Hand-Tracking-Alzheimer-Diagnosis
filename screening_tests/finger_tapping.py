@@ -45,17 +45,22 @@ _splash.step()               # MediaPipe in
 
 from core import i18n
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
-                             smooth_landmarks, preprocess_for_mediapipe)
+                             smooth_landmarks, preprocess_for_mediapipe,
+                             true_hand)
 from core.camera import (select_camera_source, open_capture,
                          create_display_window, window_closed, pause_before_exit)
+from core.mirror_check import ensure_orientation
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.tapping.detector import Calibrator, TapDetector, thumb_index_distance
 from core.tapping.metrics import compute_metrics
 from core.tapping.modes import MODES, DEFAULT_MODE, TapMode
 from core.ui import theme
-from core.ui.anim import CountUp, ease_out_cubic, fade_in_out, lerp
+from core.ui.anim import CountUp, ease_out_cubic, lerp
 from core.ui.components import Canvas, draw_hand_skeleton, get_font
+from core import framing
+from core.ui.framing_ui import framing_chips, draw_framing
+from core.ui.coach import Coach, PROMPT_Y, PRI_HAND, PRI_SETUP
 
 _splash.done()   # imports are in; the camera prompt follows immediately
 
@@ -66,33 +71,14 @@ COUNTDOWN_FROM = 3
 AUDIO_LEAD = 0.200          # fire beeps early to offset OS audio latency
 EMA_ALPHA_PACED = 0.4
 EMA_ALPHA_FAST = 0.6        # less smoothing lag for max-speed tapping
+# After a pause for the hand leaving the frame, taps this soon after resuming
+# are not trusted either: the detector's state is from before the pause.
+RESUME_GUARD_S = 0.25
 
 # ── States ─────────────────────────────────────────────────────────────────
 IDLE, INSTRUCTION, CALIBRATION, COUNTDOWN, WARMUP, RECORDING, COMPLETE = (
     "idle", "instruction", "calibration", "countdown", "warmup", "recording",
     "complete")
-
-
-class Toasts:
-    """One coach message at a time; base-duration fade in/out (§6.2)."""
-
-    def __init__(self):
-        self.msg = ""
-        self.status = "info"
-        self.t0 = -1e9
-        self.hold = 2.0
-
-    def show(self, msg: str, status: str = "info", hold: float = 2.0,
-             now: float | None = None):
-        now = time.time() if now is None else now
-        # don't restart an identical, still-visible toast
-        if msg == self.msg and now - self.t0 < self.hold + 0.4:
-            return
-        self.msg, self.status, self.t0, self.hold = msg, status, now, hold
-
-    def render(self, canvas: Canvas, now: float):
-        a = fade_in_out(self.t0, now, theme.DUR_BASE, self.hold)
-        canvas.toast(self.msg, self.status, a)
 
 
 class App:
@@ -115,7 +101,9 @@ class App:
 
         self.mode: TapMode = MODES[DEFAULT_MODE]
         self.state = IDLE
-        self.toasts = Toasts()
+        self.coach = Coach()           # the one place prompts appear
+        self.framing = framing.FramingMonitor()
+        self._raw_pts = None
         self.lm_filters_x, self.lm_filters_y = make_landmark_filters()
 
         self.mouse = (0, 0)
@@ -141,11 +129,19 @@ class App:
         self.hand_frames = 0
         self.visible_frames = 0
         self.hand_labels: dict[str, int] = {}
+        # Pause-and-resume while the hand is out of frame. The scored clock is
+        # wall time minus time spent paused, so the pause vanishes from every
+        # timeline; the one interval that spans it is dropped via a blackout.
+        self.paused_total = 0.0
+        self.paused_since: float | None = None
+        self.pauses: list[tuple[float, float]] = []      # (scored t, wall s)
+        self.blackouts: list[tuple[float, float]] = []   # scored clock
         self.results = None
         self.saved_path = None
         self.countup: CountUp | None = None
 
     def goto(self, state: str, now: float):
+        self.coach.clear()       # a prompt never outlives its screen
         self.state = state
         self.t_state = now
 
@@ -176,8 +172,10 @@ class App:
             beat_t = self.grid_t0 + k_due * interval   # fire only the latest due
             self.audio.play(self.beep_wav)
             self.last_beat_t = beat_t
-            if self.state == RECORDING and beat_t >= self.recording_start:
-                self.beat_times.append(beat_t)
+            scored_beat = beat_t - self.paused_total
+            if (self.state == RECORDING and self.paused_since is None
+                    and scored_beat >= self.recording_start):
+                self.beat_times.append(scored_beat)
             self.next_beat_k = k_due + 1
 
     # ── per-frame pipeline ────────────────────────────────────────────────
@@ -187,14 +185,17 @@ class App:
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self.landmarker.detect_for_video(mp_img, int(now * 1000))
         if not result.hand_landmarks:
-            return None
-        # Frame is flipped to selfie view, which matches MediaPipe's handedness
-        # convention -- the reported label IS the user's true hand (audit A15).
+            return None, None
+        # Frame is flipped to selfie view, so MediaPipe's label names the
+        # OTHER hand -- true_hand() undoes that (core/hand_utils.py).
         if result.handedness:
-            label = result.handedness[0][0].category_name.lower()
+            label = true_hand(result.handedness[0][0].category_name,
+                              selfie=True)
             self.hand_labels[label] = self.hand_labels.get(label, 0) + 1
+        raw_pts = [(lm.x, lm.y) for lm in result.hand_landmarks[0]]
         return smooth_landmarks(result.hand_landmarks[0],
-                                self.lm_filters_x, self.lm_filters_y, now)
+                                self.lm_filters_x, self.lm_filters_y,
+                                now), raw_pts
 
     # ── screens ───────────────────────────────────────────────────────────
     def screen_idle(self, c: Canvas, now: float):
@@ -263,7 +264,8 @@ class App:
         if landmarks is not None and d is not None:
             self.calibrator.update(now, d)
         pw = min(520, w - 2 * theme.SAFE_MARGIN)
-        px, py, ph = (w - pw) // 2, h - 190, 118
+        ph = 118
+        px, py = (w - pw) // 2, h - PROMPT_Y - 8 - ph   # clear of the prompt
         c.panel(px, py, pw, ph)
         c.text(w // 2, py + 28, i18n.t("Warm-up: open and close your hand"),
                role="body_l", anchor="mm")
@@ -274,12 +276,10 @@ class App:
                        self.calibrator.progress, color="warning",
                        label=f"{int(self.calibrator.progress * 100)} %")
         if landmarks is None:
-            self.toasts.show(i18n.t("Show your hand to the camera"), "warning",
-                             now=now)
+            self.coach.say(i18n.t("Show your hand to the camera"), PRI_HAND)
         elif self.calibrator.timed_out(now) and not self.calibrator.done:
-            self.toasts.show(
-                i18n.t("Having trouble? Move a little closer to the camera"),
-                "info", hold=3.0, now=now)
+            self.coach.say(i18n.t("Move your hand a little closer to the camera"),
+                           PRI_SETUP)
         if self.calibrator.done:
             self.d_closed, self.d_open = self.calibrator.result()
             self.goto(COUNTDOWN, now)
@@ -334,15 +334,54 @@ class App:
         self.beat_times = []
         self.hand_frames = 0
         self.visible_frames = 0
+        self.paused_total = 0.0
+        self.paused_since = None
+        self.pauses = []
+        self.blackouts = []
+        self.framing = framing.FramingMonitor()
         self.goto(RECORDING, now)
 
-    def _run_detector(self, c: Canvas, now: float, landmarks, d) -> None:
-        tapped = self.detector.update(now, d)
+    def _run_detector(self, c: Canvas, now: float, landmarks, d,
+                      t: float | None = None) -> None:
+        tapped = self.detector.update(now if t is None else t, d)
         if tapped and landmarks is not None:
             fx = int((landmarks[4][0] + landmarks[8][0]) / 2 * c.w)
             fy = int((landmarks[4][1] + landmarks[8][1]) / 2 * c.h)
             self.ripples.append((now, fx, fy))
             self.glow_t = now
+
+    def _scored(self, now: float) -> float:
+        """Wall time minus time spent paused; frozen while paused."""
+        if self.paused_since is not None:
+            now = self.paused_since
+        return now - self.paused_total
+
+    def _update_pause(self, now: float):
+        """Pause the scored run while the hand is (partly) out of frame and
+        resume once the framing monitor trusts it again."""
+        if self.framing.untrusted and self.paused_since is None:
+            self.paused_since = now
+        elif not self.framing.untrusted and self.paused_since is not None:
+            at = self.paused_since - self.paused_total   # scored time paused
+            wall = now - self.paused_since
+            self.paused_total += wall
+            self.paused_since = None
+            self.blackouts.append((at - framing.PRE_ROLL_S,
+                                   at + RESUME_GUARD_S))
+            self.pauses.append((round(at - self.recording_start, 3),
+                                round(wall, 2)))
+
+    def _paused_panel(self, c: Canvas):
+        w, h = c.w, c.h
+        pw = min(520, w - 2 * theme.SAFE_MARGIN)
+        px, py = (w - pw) // 2, h // 2 - 50
+        # what to do about it is the prompt channel's job, below
+        c.panel(px, py, pw, 76)
+        c.text(w // 2, py + 28, i18n.t("Paused - your hand is out of view"),
+               role="body_l", anchor="mm", color="warning")
+        c.text(w // 2, py + 54,
+               i18n.t("The test continues when your whole hand is back."),
+               role="caption", color="text-muted", anchor="mm")
 
     def _render_feedback(self, c: Canvas, now: float):
         # tap ripple: success ring expanding from the fingertips (§6.3)
@@ -377,7 +416,7 @@ class App:
         self._run_detector(c, now, landmarks, d)   # feedback only, not scored
         self._beat_ring(c, now)
         pw = min(480, w - 2 * theme.SAFE_MARGIN)
-        px, py = (w - pw) // 2, h - 160
+        px, py = (w - pw) // 2, h - PROMPT_Y - 8 - 88   # clear of the prompt
         c.panel(px, py, pw, 88)
         c.text(w // 2, py + 26, i18n.t("Practice - not scored yet"),
                role="body_l", anchor="mm", color="warning")
@@ -388,20 +427,24 @@ class App:
                        elapsed / self.mode.warmup_s, color="warning",
                        label=i18n.t("warm-up"))
         if landmarks is None:
-            self.toasts.show(i18n.t("Keep your hand in the frame"), "warning",
-                             now=now)
+            self.coach.say(i18n.t("Show your hand to the camera"), PRI_HAND)
 
     def screen_recording(self, c: Canvas, now: float, landmarks, d):
         w, h = c.w, c.h
-        elapsed = now - self.recording_start
+        self._update_pause(now)
+        st = self._scored(now)
+        elapsed = st - self.recording_start
         remaining = self.mode.duration_s - elapsed
-        self.hand_frames += 1
-        if landmarks is not None:
-            self.visible_frames += 1
+        paused = self.paused_since is not None
+        if not paused:
+            self.hand_frames += 1
+            if landmarks is not None:
+                self.visible_frames += 1
         if remaining <= 0:
             self._finish(now)
             return
-        self._run_detector(c, now, landmarks, d)
+        if not paused:
+            self._run_detector(c, now, landmarks, d, t=st)
         self._beat_ring(c, now)
 
         # live metric chips (top-left, under status bar)
@@ -422,25 +465,31 @@ class App:
 
         # sparkline of the distance signal with tap dots (§5)
         sw = min(320, w - 2 * theme.SAFE_MARGIN)
-        c.sparkline(w - sw - theme.SAFE_MARGIN, h - 130, sw, 70,
-                    self.detector.series, self.detector.tap_times, now,
+        c.sparkline(w - sw - theme.SAFE_MARGIN, h - PROMPT_Y - 8 - 70, sw, 70,
+                    self.detector.series, self.detector.tap_times, st,
                     lo=self.d_closed, hi=self.d_open)
 
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        elapsed / self.mode.duration_s, color="success",
                        label=i18n.t("{secs} s left", secs=f"{remaining:.0f}"))
+        if paused:
+            self._paused_panel(c)
         if landmarks is None:
-            self.toasts.show(i18n.t("Keep your hand in the frame"), "warning",
-                             now=now)
+            self.coach.say(i18n.t("Show your hand to the camera"), PRI_HAND)
 
     def _finish(self, now: float):
         visible_ratio = (self.visible_frames / self.hand_frames
                          if self.hand_frames else 0.0)
         self.results = compute_metrics(
             self.mode, self.detector.tap_times, self.detector.series,
-            self.recording_start, now, beat_times=self.beat_times,
+            self.recording_start, self._scored(now),
+            beat_times=self.beat_times,
             hand_visible_ratio=visible_ratio, camera_fps=self.fps,
-            near_miss=self.detector.near_miss)
+            near_miss=self.detector.near_miss, blackouts=self.blackouts)
+        # provenance, not part of the score
+        self.results["pause_count"] = len(self.pauses)
+        self.results["paused_s"] = round(self.paused_total, 1)
+        self.results["edge_clipped_pct"] = round(self.framing.clipped_pct, 1)
         self.audio.play(self.done_wav)
         hand = max(self.hand_labels, key=self.hand_labels.get) \
             if self.hand_labels else None
@@ -457,6 +506,11 @@ class App:
             "hand_visible_ratio": round(visible_ratio, 3),
             "near_miss_taps": self.detector.near_miss,
             "closed_dwell_frac": round(self.detector.closed_dwell_frac, 3),
+            # times are on the scored clock (pauses removed); each pause is
+            # (scored time it began, wall seconds it lasted)
+            "pauses": [list(pz) for pz in self.pauses],
+            "blackouts_s": [[round(a - t0, 3), round(b - t0, 3)]
+                            for a, b in self.blackouts],
         }
         try:
             self.saved_path = save_session(
@@ -500,9 +554,11 @@ class App:
             # 480p camera window while retaining legible caption-sized labels.
             nlines = (len(rows) + 2) // 3
             metrics_off = 248
-            note_off = metrics_off + nlines * 22 + 2
-            edge_off = note_off + (20 if r.get("band_edge") else 0)
-            btn_off = edge_off + 8
+            # the band scale sits in its own gap below the rows so it never
+            # crowds the last row's values
+            note_off = metrics_off + nlines * 22 + 12
+            edge_off = note_off + (18 if r.get("band_edge") else 0)
+            btn_off = edge_off + 16
         else:
             reason = r["reason"] or "Something went wrong - please try again."
             # i18n.wrap, not split(): Chinese has no spaces, so splitting on
@@ -553,23 +609,36 @@ class App:
                              pct=f"{conf:.0f}"),
                 detail="",
                 progress=conf / 100.0, status=conf_status)
-            col_w = (pw - 4 * theme.SPACE[4]) // 3
+            # Columns are sized to what they hold, not split evenly: an even
+            # split left "Speed change" and its value running into each other
+            # while the other columns had room to spare.
+            need = [0, 0, 0]
             for i, (label, val) in enumerate(rows):
-                rx = px + theme.SPACE[4] + (i % 3) * (col_w + theme.SPACE[4])
+                need[i % 3] = max(need[i % 3],
+                                  c.text_width(i18n.t(label), "caption")
+                                  + theme.SPACE[2]
+                                  + c.text_width(val, "caption", mono=True))
+            spare = max(0, pw - 4 * theme.SPACE[4] - sum(need))
+            col_ws = [n + spare // 3 for n in need]
+            col_xs = [px + theme.SPACE[4]]
+            for cw in col_ws[:2]:
+                col_xs.append(col_xs[-1] + cw + theme.SPACE[4])
+            for i, (label, val) in enumerate(rows):
+                rx, cw = col_xs[i % 3], col_ws[i % 3]
                 ry = py + metrics_off + (i // 3) * 22
                 c.text(rx, ry, i18n.t(label), role="caption",
                        color="text-muted")
-                c.text(rx + col_w, ry, val, role="caption", anchor="ra", mono=True)
+                c.text(rx + cw, ry, val, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
                    i18n.t("Typical < {typical}% | monitor {typical}-{monitor}% "
                           "| elevated > {monitor}%",
                           typical=f"{self.mode.cv_typical:.0f}",
                           monitor=f"{self.mode.cv_monitor:.0f}"),
-                   role="caption", color="text-muted", anchor="mm")
+                   role="small", color="text-muted", anchor="mm")
             if r.get("band_edge"):
-                c.text(w // 2, py + note_off + 20,
+                c.text(w // 2, py + note_off + 18,
                        i18n.t("Close to a band edge - repeat for a firmer reading."),
-                       role="caption", color="text-muted", anchor="mm")
+                       role="small", color="text-muted", anchor="mm")
         else:
             c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
                     "warning")
@@ -612,8 +681,14 @@ class App:
                 self.fps = 0.9 * self.fps + 0.1 * (1.0 / dt)
             self._last_frame_t = now
 
-            landmarks = self.detect_hand(frame, now)
-            d = thumb_index_distance(landmarks) if landmarks is not None else None
+            landmarks, self._raw_pts = self.detect_hand(frame, now)
+            self.framing.update(self._raw_pts, now)
+            # A hand partly out of frame jitters (core/framing.py): its
+            # distance is not trusted -- calibration, warm-up and the scored
+            # run all see nothing rather than a guess.
+            d = (thumb_index_distance(landmarks)
+                 if landmarks is not None and not self.framing.untrusted
+                 else None)
             self.run_metronome(now)
 
             if landmarks is not None:
@@ -622,12 +697,8 @@ class App:
 
             c = Canvas(frame)
             # persistent status bar (§5): hand + FPS quality + mode
-            chips = [(i18n.t("Hand detected"), "success")
-                     if landmarks is not None
-                     else (i18n.t("Show your hand"), "warning")]
-            if self.fps < 24:
-                chips.append((f"{self.fps:.0f} fps", "warning"))
-            c.status_bar(chips, i18n.t(self.mode.title))
+            c.status_bar(framing_chips(self.framing, landmarks, self.fps),
+                         i18n.t(self.mode.title))
 
             if self.state == IDLE:
                 self.screen_idle(c, now)
@@ -646,7 +717,9 @@ class App:
 
             if self.state in (WARMUP, RECORDING):
                 self._render_feedback(c, now)
-            self.toasts.render(c, now)
+            if self.state in (CALIBRATION, WARMUP, RECORDING):
+                draw_framing(c, self.framing, self._raw_pts, self.coach)
+            self.coach.render(c, now)
 
             cv2.imshow(win, c.compose())
             self.click = None
@@ -671,6 +744,7 @@ def main():
         print("[ERROR] Could not open camera.")
         pause_before_exit()
         sys.exit(1)
+    ensure_orientation(cap)   # once per camera: undo its own mirroring
     App(cap).run()
 
 

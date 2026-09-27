@@ -1,7 +1,7 @@
 """
 Spiral metrics (pure) — literature-standard movement-quality scoring for a
 self-paced spiral trace. No camera, no UI; unit-tested against synthetic traces
-in screening_tests/tests/test_spiral.py. See docs/SPIRAL_TEST_PLAN.md §3.
+in screening_tests/tests/test_spiral.py. See docs/tests/SPIRAL_TEST_PLAN.md §3.
 
 Headline is movement smoothness:
   sparc / smoothness_index  Spectral Arc Length (Balasubramanian et al., J
@@ -17,7 +17,7 @@ Support:
                             GATE, not the headline.
 
 Jitter is measured on the *raw* (minimally filtered) fingertip: the One-Euro
-smoothing used for display would erase it (docs/SPIRAL_TEST_PLAN.md §3.1).
+smoothing used for display would erase it (docs/tests/SPIRAL_TEST_PLAN.md §3.1).
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ TREMOR_BAND = (3.5, 12.0)
 # ── SPARC → smoothness-index / band anchors (PROVISIONAL) ───────────────────
 # SPARC is negative; nearer zero = smoother. Anchors below are bracketed from
 # our own traces + the literature's direction, NOT clinically validated — to be
-# calibrated on public HandPD/NewHandPD spiral data (docs/SPIRAL_TEST_PLAN.md §4).
+# calibrated on public HandPD/NewHandPD spiral data (docs/tests/SPIRAL_TEST_PLAN.md §4).
 SAL_SMOOTH = -1.5          # maps to smoothness index 100
 SAL_ROUGH = -6.0           # maps to smoothness index 0
 SAL_TYPICAL = -3.2         # success ↔ warning boundary
@@ -187,7 +187,7 @@ def compute_tremor(ts, xs, ys, band=TREMOR_BAND):
     """High-pass the position path, then report the fraction of spectral power in
     the tremor band and its peak frequency. Bounded by the actual Nyquist — the
     band's upper edge is clamped to what the sampling rate can resolve. Returns a
-    dict or None. SECONDARY, caveated readout (docs/SPIRAL_TEST_PLAN.md §3.3)."""
+    dict or None. SECONDARY, caveated readout (docs/tests/SPIRAL_TEST_PLAN.md §3.3)."""
     prof = _speed_profile(ts, xs, ys)
     if prof is None:
         return None
@@ -252,7 +252,8 @@ def compute_active_ratio(ts, xs, ys, threshold=IDLE_VEL_THRESHOLD):
 # ── orchestrator ─────────────────────────────────────────────────────────────
 
 def compute_metrics(ts, xs, ys, dev_pct, sp_np, *, min_frames=MIN_FRAMES,
-                    min_duration_s=MIN_DURATION_S, min_completion=MIN_COMPLETION):
+                    min_duration_s=MIN_DURATION_S, min_completion=MIN_COMPLETION,
+                    blackouts=None):
     """Score one self-paced spiral trace. Always returns a dict; `scoreable` is
     False with a specific human-readable `reason` when it can't be scored
     (mirrors core/tapping/metrics.compute_metrics).
@@ -260,7 +261,28 @@ def compute_metrics(ts, xs, ys, dev_pct, sp_np, *, min_frames=MIN_FRAMES,
     ts/xs/ys  : raw fingertip time + pixel path (jitter lives here).
     dev_pct   : per-frame radial deviation (% of radius) from the run loop, or [].
     sp_np     : (N,2) template points for the completion gate.
+    blackouts : (start, end) times the hand was part-way out of frame or lost
+                (core/framing.py). Samples inside are dropped and the rest is
+                scored as one trace, exactly as a run with a gap always has
+                been. Scoring each clean stretch separately was tried and
+                rejected: replaying 41 recorded runs with their bottom arcs
+                blanked out, per-stretch SPARC landed a median 13 index points
+                from the run's own clean score (short stretches bias it), the
+                single bridged trace 3. None/[] leaves the input untouched.
     """
+    skipped_pct = None
+    if blackouts and len(ts) > 1:
+        keep = [i for i, t in enumerate(ts)
+                if not any(b0 <= t <= b1 for b0, b1 in blackouts)]
+        total = float(ts[-1] - ts[0])
+        inside = sum(max(0.0, min(b1, ts[-1]) - max(b0, ts[0]))
+                     for b0, b1 in blackouts)
+        skipped_pct = round(100.0 * min(1.0, inside / total), 1) if total > 0 else None
+        ts = [ts[i] for i in keep]
+        xs = [xs[i] for i in keep]
+        ys = [ys[i] for i in keep]
+        if dev_pct is not None and len(dev_pct) > 0:
+            dev_pct = [dev_pct[i] for i in keep]
     n = len(ts)
     out: dict = {
         "scoreable": False, "reason": None, "frames": n, "duration_s": None,
@@ -270,6 +292,8 @@ def compute_metrics(ts, xs, ys, dev_pct, sp_np, *, min_frames=MIN_FRAMES,
         "mean_dev_pct": None, "completion_pct": None, "active_ratio_pct": None,
         "status": None, "label": None,
     }
+    if skipped_pct is not None:
+        out["skipped_pct"] = skipped_pct      # provenance, not part of the score
 
     if n < min_frames:
         out["reason"] = (f"Not enough data frames ({n} < {min_frames}). "

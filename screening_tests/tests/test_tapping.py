@@ -225,5 +225,74 @@ class AdaptiveThresholdTests(unittest.TestCase):
                 self.assertLessEqual(len(adaptive.tap_times), 1, where)
 
 
+class BlackoutTests(unittest.TestCase):
+    """Pauses for a hand out of frame (core/framing.py): the interval that
+    spans a pause is not a real interval and must not reach CV%."""
+
+    def steady(self, n=30, iti=0.4):
+        return [1.0 + i * iti for i in range(n)]
+
+    def test_no_blackouts_changes_nothing(self):
+        t = self.steady()
+        self.assertEqual(score(t), score(t, blackouts=None))
+        self.assertEqual(score(t), score(t, blackouts=[]))
+
+    def test_interval_spanning_a_pause_is_dropped(self):
+        t = self.steady()
+        # a detector-state glitch at resume: one interval comes out short
+        t[15] = t[14] + 0.05
+        bad = score(t)
+        good = score(t, blackouts=[(t[14] - 0.01, t[15] + 0.01)])
+        self.assertGreater(bad["cv_pct"], 10.0)
+        self.assertLess(good["cv_pct"], 1.0)
+        # the blackout reaches both taps, so their neighbours go too
+        self.assertEqual(good["n_intervals"], bad["n_intervals"] - 3)
+
+    def test_blackout_between_taps_drops_only_that_interval(self):
+        t = self.steady()
+        m = score(t, blackouts=[(t[10] + 0.1, t[10] + 0.2)])
+        self.assertEqual(m["n_intervals"], score(t)["n_intervals"] - 1)
+
+
+class ParkinsonianSignsAreScoredTests(unittest.TestCase):
+    """Ragged opening size and incomplete closures are what Parkinsonian
+    tapping looks like, so they must never make a run unscoreable. A gate on
+    exactly these signals (near misses, amplitude CV >= 40%) was tried in
+    2026-09 to stop camera tracking failures reading as "follow-up"; on the
+    HUBU-FIS patient videos it withheld 11 of 26 UPDRS-3 hands. Removed."""
+
+    @staticmethod
+    def trace(times, amps):
+        """Closes to 0.2 at every tap and opens by amps[k] midway."""
+        series = []
+        for k, (a, b) in enumerate(zip(times, times[1:])):
+            series += [(a, 0.2), ((a + b) / 2, 0.2 + amps[k])]
+        return series + [(times[-1], 0.2)]
+
+    def test_wildly_varying_opening_still_gets_a_verdict(self):
+        t = [1.0 + i * 0.5 for i in range(30)]
+        amps = [0.15 if k % 2 else 1.0 for k in range(len(t))]
+        m = compute_metrics(MODE, t, self.trace(t, amps), 0.0, 20.0)
+        self.assertGreaterEqual(m["amplitude_cv_pct"], 40.0)
+        self.assertTrue(m["scoreable"])
+        self.assertIsNotNone(m["cv_pct"])
+
+    def test_many_incomplete_closures_still_get_a_verdict(self):
+        t = [1.0 + i * 0.5 for i in range(30)]
+        m = compute_metrics(MODE, t, self.trace(t, [0.8] * len(t)), 0.0, 20.0,
+                            near_miss=10)
+        self.assertTrue(m["scoreable"])
+
+    def test_irregular_rhythm_is_flagged(self):
+        rng = random.Random(4)
+        t = [1.0]
+        for _ in range(29):
+            t.append(t[-1] + 0.5 * min(3.0, max(0.6, math.exp(rng.gauss(0, 0.45)))))
+        m = compute_metrics(MODE, t, self.trace(t, [0.8] * len(t)), 0.0, t[-1] + 0.5)
+        self.assertTrue(m["scoreable"])
+        self.assertGreater(m["cv_pct"], 25.0)
+        self.assertEqual(m["status"], "danger")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,7 @@ Fixes over the old fixed-threshold approach:
     two intervals into a double-length one and inflates CV% far more than the
     lost tap itself. The fractions below are now applied to a rolling estimate
     of the recent excursion, with calibration as the seed and the floor guard.
-    This is the threshold-free direction research/01-webcam-hand-motor.md
+    This is the threshold-free direction docs/research/01-webcam-hand-motor.md
     recommends (peak detection on the displacement curve, as TapTalk does).
 """
 

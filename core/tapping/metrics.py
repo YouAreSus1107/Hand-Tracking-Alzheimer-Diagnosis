@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import math
 
+from core.framing import overlaps
+
 from .confidence import confidence, straddles_band
 from .modes import TapMode
-
 
 def _sd(vals: list[float]) -> float | None:
     if len(vals) < 2:
@@ -56,12 +57,22 @@ def band(cv_pct: float, mode: TapMode) -> tuple[str, str]:
     return "danger", "Elevated variability - recommend follow-up"
 
 
-def _interval_stats(mode: TapMode, tap_times: list[float]) -> dict | None:
+def _pairs(tap_times: list[float], blackouts=None):
+    """Consecutive tap pairs, minus any that touch a blackout -- a stretch when
+    the hand was part-way out of frame and the run was paused. The interval
+    spanning a pause is not a real one, so it is dropped rather than scored."""
+    return [(tap_times[i], tap_times[i + 1]) for i in range(len(tap_times) - 1)
+            if not overlaps(tap_times[i], tap_times[i + 1], blackouts)]
+
+
+def _interval_stats(mode: TapMode, tap_times: list[float],
+                    blackouts=None) -> dict | None:
     """Return the shared temporal core for a run or compatibility sub-window."""
     if len(tap_times) < 2:
         return None
-    iti_all = [(tap_times[i + 1] - tap_times[i]) * 1000
-               for i in range(len(tap_times) - 1)]
+    iti_all = [(b - a) * 1000 for a, b in _pairs(tap_times, blackouts)]
+    if not iti_all:
+        return None
     cutoff = mode.max_iti_ms if mode.paced else 3.0 * _median(iti_all)
     iti = [v for v in iti_all if v <= cutoff]
     if len(iti) < 2:
@@ -85,9 +96,14 @@ def compute_metrics(mode: TapMode,
                     beat_times: list[float] | None = None,
                     hand_visible_ratio: float = 1.0,
                     camera_fps: float | None = None,
-                    near_miss: int = 0) -> dict:
+                    near_miss: int = 0,
+                    blackouts: list[tuple[float, float]] | None = None) -> dict:
     """Score one recording. Always returns a dict; `scoreable` is False with a
-    specific human-readable `reason` when a score can't be computed (audit A10)."""
+    specific human-readable `reason` when a score can't be computed (audit A10).
+
+    `blackouts` are (start, end) stretches, on the same clock as the taps,
+    when the hand was out of frame (core/framing.py); intervals touching them
+    are excluded. None -- the remote port's only case -- changes nothing."""
     out: dict = {
         "scoreable": False,
         "reason": None,
@@ -121,7 +137,7 @@ def compute_metrics(mode: TapMode,
     if len(taps) - mode.trim_taps >= mode.min_taps:
         taps = taps[mode.trim_taps:]
 
-    stats = _interval_stats(mode, taps)
+    stats = _interval_stats(mode, taps, blackouts)
     iti = stats["iti"] if stats else []
     if len(iti) < mode.min_taps - 1:
         out["reason"] = ("Tapping was too irregular to score - large pauses "
@@ -141,7 +157,7 @@ def compute_metrics(mode: TapMode,
     # merely unhurried one. CV% cannot tell a genuine maximum effort from a
     # comfortable pace, and a scoring gate is the wrong place to try: the
     # remedy for "fast" meaning different things to different people is
-    # coaching the pace during practice (docs/TAPPING_PRACTICE_PLAN.md).
+    # coaching the pace during practice (docs/tests/TAPPING_PRACTICE_PLAN.md).
     if mode.min_effort_hz and stats["frequency_hz"] < mode.min_effort_hz:
         out["reason"] = (
             f"Tapping was too slow to score a rhythm "
@@ -165,7 +181,7 @@ def compute_metrics(mode: TapMode,
     compat_taps = taps_w10
     if len(compat_taps) - mode.trim_taps >= mode.min_taps:
         compat_taps = compat_taps[mode.trim_taps:]
-    compat = _interval_stats(mode, compat_taps)
+    compat = _interval_stats(mode, compat_taps, blackouts)
     if compat:
         out["frequency_hz_w10"] = compat["frequency_hz"]
         out["cv_pct_w10"] = compat["cv_pct"]
@@ -173,10 +189,10 @@ def compute_metrics(mode: TapMode,
     # Speed decrement: slope of instantaneous rate at interval midpoints,
     # as % of mean rate per second (negative = slowing over the trial).
     mids, rates = [], []
-    for i in range(len(taps) - 1):
-        iti_i = (taps[i + 1] - taps[i]) * 1000
+    for a, b in _pairs(taps, blackouts):
+        iti_i = (b - a) * 1000
         if iti_i <= cutoff:
-            mids.append((taps[i] + taps[i + 1]) / 2 - t_start)
+            mids.append((a + b) / 2 - t_start)
             rates.append(1000.0 / iti_i)
     sl = _slope(mids, rates)
     if sl is not None and rates:
@@ -186,8 +202,8 @@ def compute_metrics(mode: TapMode,
 
     # Amplitude per tap: max-min of the distance signal between taps.
     amps = []
-    for i in range(len(taps) - 1):
-        seg = [d for (t, d) in series if taps[i] <= t < taps[i + 1]]
+    for a, b in _pairs(taps, blackouts):
+        seg = [d for (t, d) in series if a <= t < b]
         if len(seg) >= 2:
             amps.append(max(seg) - min(seg))
     if len(amps) >= 2:

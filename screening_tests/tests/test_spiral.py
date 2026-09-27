@@ -17,13 +17,15 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
 from core.spiral.geometry import scale_spiral_to_frame
+from core.spiral import practice as pr
+from core.spiral.progress import SpiralProgress
 from core.spiral.metrics import (compute_metrics, sparc, smoothness_index,
                                  sparc_band, compute_normalized_jerk,
                                  compute_velocity_cv, compute_tremor,
                                  compute_completion, SAL_TYPICAL, SAL_CONCERN)
 
 FW, FH = 640, 480
-SP, WU, CENTER, B = scale_spiral_to_frame(FW, FH)
+SP, PRACTICE_SP, CENTER, B = scale_spiral_to_frame(FW, FH)
 SP_NP = np.array(SP, dtype=np.float32)
 
 # Arc-length parameterization of the template, so a synthetic trace can follow
@@ -187,6 +189,211 @@ def test_completion_full_vs_partial():
     partial = compute_completion(xp, yp, SP_NP)
     assert full > 0.8
     assert partial < full
+
+
+# ── Practice spiral coaching (core/spiral/practice.py) ──────────────────────
+
+def test_practice_spiral_is_smaller_and_shares_the_centre():
+    assert pr.arc_length(PRACTICE_SP) < pr.arc_length(SP)
+    r_test = max(np.hypot(x - CENTER[0], y - CENTER[1]) for x, y in SP)
+    r_prac = max(np.hypot(x - CENTER[0], y - CENTER[1]) for x, y in PRACTICE_SP)
+    assert r_prac < r_test
+    assert PRACTICE_SP[0] == SP[0] == tuple(CENTER)
+
+
+def test_target_speed_traces_the_test_spiral_in_target_time():
+    v = pr.target_speed_px_s(SP)
+    assert abs(pr.arc_length(SP) / v - pr.TARGET_TRACE_S) < 1e-6
+    assert pr.recommended_time_s(PRACTICE_SP, v) < pr.TARGET_TRACE_S
+
+
+def test_pace_band_edges():
+    t = 100.0
+    assert pr.pace_band(None, t) is None
+    assert pr.pace_band(100.0, t) == "good"
+    assert pr.pace_band(61.0, t) == "good"
+    assert pr.pace_band(139.0, t) == "good"
+    assert pr.pace_band(55.0, t) == "slow"
+    assert pr.pace_band(150.0, t) == "fast"
+
+
+def test_progress_speed_needs_enough_history():
+    assert pr.progress_speed([], 1.0) is None
+    assert pr.progress_speed([(0.9, 0.0), (1.0, 10.0)], 1.0) is None
+    hist = [(i / 30.0, 50.0 * i / 30.0) for i in range(61)]   # 50 px/s, 2 s
+    v = pr.progress_speed(hist, 2.0)
+    assert abs(v - 50.0) < 1e-6
+    # progress never runs backwards, so a stalled hand reads as zero, not less
+    stalled = [(i / 30.0, 40.0) for i in range(61)]
+    assert pr.progress_speed(stalled, 2.0) == 0.0
+
+
+def test_expected_index_starts_at_zero_and_is_monotonic():
+    n, total, v = 600, 900.0, 90.0
+    assert pr.expected_index(0.0, v, total, n) == 0
+    idx = [pr.expected_index(t / 10.0, v, total, n) for t in range(150)]
+    assert all(b >= a for a, b in zip(idx, idx[1:]))
+    assert idx[-1] == n - 1                       # clamps at the rim
+    assert pr.expected_index(5.0, v, total, n) == round(0.5 * (n - 1))
+
+
+def test_coach_priority_line_then_pace_then_smoothness():
+    assert pr.coach_message("good", False, "success")[0] == pr.MSG_OFF_LINE
+    assert pr.coach_message(None, True, "danger")[0] == pr.MSG_START
+    assert pr.coach_message("fast", True, "danger")[0] == pr.MSG_SLOWER
+    assert pr.coach_message("slow", True, "danger")[0] == pr.MSG_FASTER
+    assert pr.coach_message("good", True, "danger")[0] == pr.MSG_SMOOTHER
+    msg, status = pr.coach_message("good", True, "success")
+    assert msg == pr.MSG_GOOD and status == "success"
+
+
+def test_practice_summary_takeaways():
+    good = pr.practice_summary(10.0, 10.0, ["good"] * 5, [True] * 50)
+    assert good["takeaway"] == pr.TAKE_GOOD and good["good_pace_pct"] == 100.0
+    assert pr.practice_summary(25.0, 10.0, ["slow"], [True])["takeaway"]         == pr.TAKE_FASTER
+    assert pr.practice_summary(5.0, 10.0, ["fast"], [True])["takeaway"]         == pr.TAKE_SLOWER
+    off = pr.practice_summary(10.0, 10.0, ["good"], [False] * 6 + [True] * 4)
+    assert off["takeaway"] == pr.TAKE_LINE
+    empty = pr.practice_summary(10.0, 10.0, [None], [])
+    assert empty["good_pace_pct"] is None and empty["on_line_pct"] is None
+
+
+# ── Swept-angle progress (core/spiral/progress.py) ──────────────────────────
+
+import math as _m
+
+_TURNS, _N = 3.5, len(SP)
+_GAP = 2 * _m.pi * B
+
+
+def _pt(theta, dr=0.0):
+    """Point at swept angle theta, pushed dr px radially outward."""
+    r = B * theta + dr
+    return CENTER[0] + r * _m.cos(theta), CENTER[1] - r * _m.sin(theta)
+
+
+def _outside_centre(thetas, out):
+    """Deviations outside the centre dead-zone, where the angle is defined."""
+    from core.spiral.progress import ANGLE_MIN_RADIUS
+    return [o[0] for th, o in zip(thetas, out) if B * th > ANGLE_MIN_RADIUS + 2]
+
+
+def _run(thetas, drs=None, fps=30.0):
+    tr = SpiralProgress(CENTER, B, _TURNS, _N)
+    out = []
+    for i, th in enumerate(thetas):
+        x, y = _pt(th, drs[i] if drs else 0.0)
+        out.append(tr.update(x, y, i / fps))
+    return tr, out
+
+
+def test_index_at_matches_the_resampled_template():
+    tr = SpiralProgress(CENTER, B, _TURNS, _N)
+    for frac in (0.1, 0.35, 0.6, 0.9):
+        th = frac * _TURNS * 2 * _m.pi
+        x, y = SP[tr.index_at(th)]
+        ex, ey = _pt(th)
+        assert _m.hypot(x - ex, y - ey) < 3.0
+
+
+def test_clean_trace_reaches_the_end():
+    thetas = np.linspace(0.0, _TURNS * 2 * _m.pi, 900)
+    tr, out = _run(thetas)
+    assert tr.progress >= 0.985
+    assert tr.off_arm_frames == 0 and tr.glitch_frames == 0
+    assert max(_outside_centre(thetas, out)) < 1.0   # deviation stays tiny
+
+
+def test_drift_onto_next_arm_does_not_skip_a_layer():
+    """Half-way round turn 2, drift a full gap outward and keep circling. The
+    old nearest-point progress jumped a whole turn here; this must freeze."""
+    t1 = np.linspace(0.0, 1.5 * 2 * _m.pi, 300)
+    t2 = np.linspace(t1[-1], t1[-1] + 0.5 * 2 * _m.pi, 100)
+    thetas = np.concatenate([t1, t2[1:]])
+    drs = [0.0] * len(t1) + [min(1.0, i / 30) * _GAP for i in range(1, len(t2))]
+    tr, out = _run(thetas, drs)
+    frozen_at = SpiralProgress(CENTER, B, _TURNS, _N).index_at(t1[-1])
+    assert tr.max_idx < frozen_at + 0.05 * _N    # held near where it left
+    assert tr.off_arm_frames > 0
+    # the old logic, for contrast: nearest template point to the last sample
+    x, y = _pt(thetas[-1], drs[-1])
+    old = int(np.argmin(np.hypot(SP_NP[:, 0] - x, SP_NP[:, 1] - y)))
+    assert old > tr.max_idx + 0.15 * _N
+
+
+def test_single_frame_teleport_is_a_glitch():
+    thetas = list(np.linspace(0.0, 2 * 2 * _m.pi, 400))
+    tr = SpiralProgress(CENTER, B, _TURNS, _N)
+    for i, th in enumerate(thetas[:200]):
+        tr.update(*_pt(th), i / 30.0)
+    before = tr.max_idx
+    ex, ey = _pt(thetas[199], 0.0)
+    _, idx, _, glitch = tr.update(ex + 300.0, ey + 200.0, 200 / 30.0)
+    assert glitch and idx == before and tr.glitch_frames == 1
+    for i, th in enumerate(thetas[200:], start=201):
+        tr.update(*_pt(th), i / 30.0)
+    assert tr.index_at(thetas[-1]) - 2 <= tr.max_idx   # carries on normally
+
+
+def test_hand_drop_mid_turn_resyncs_without_a_phantom_gap():
+    """Hidden for a third of a turn: the angle swept out of view is recovered
+    rather than leaving a permanent lag that reads as deviation."""
+    thetas = np.linspace(0.0, 3.0 * 2 * _m.pi, 900)
+    tr = SpiralProgress(CENTER, B, _TURNS, _N)
+    devs = []
+    for i, th in enumerate(thetas):
+        if 400 <= i < 440:                       # hand out of frame
+            if i == 400:
+                tr.reset_angle()
+            continue
+        dev, *_ = tr.update(*_pt(th), i / 30.0)
+        if i >= 440:
+            devs.append(dev)
+    assert max(devs) < 1.0
+    assert tr.off_arm_frames == 0
+
+
+def test_seed_uses_the_real_exit_direction():
+    """Leaving the centre dead-zone off-angle must not bias the whole run: the
+    seed snaps to the wrap of the real angle, so deviation stays tiny."""
+    thetas = np.linspace(0.0, 2 * 2 * _m.pi, 600)
+    tr, out = _run(thetas)
+    assert max(_outside_centre(thetas, out)) < 1.0
+
+
+def test_untrusted_stretch_keeps_the_angle_and_can_be_skipped():
+    """Hand clipped for a 200-degree stretch of the bottom: nothing counts
+    there, but the angle is followed, so progress resumes on the right arm
+    rather than sticking (a reset would lose more than half a turn)."""
+    thetas = np.linspace(0.0, 3.0 * 2 * _m.pi, 900)
+    tr = SpiralProgress(CENTER, B, _TURNS, _N)
+    hidden = range(500, 560)                     # ~200 degrees of sweep
+    for i, th in enumerate(thetas):
+        _, idx, _, _ = tr.update(*_pt(th), i / 30.0, trusted=i not in hidden)
+        if i == 559:
+            held = idx
+    assert held == tr.index_at(thetas[499])      # frozen while untrusted
+    assert tr.max_idx >= tr.index_at(thetas[-1]) - 2   # and carried on after
+    assert tr.off_arm_frames == 0
+
+
+def test_no_blackouts_scores_exactly_as_before():
+    t, x, y = make_trace()
+    a = compute_metrics(t, x, y, [], SP_NP)
+    assert compute_metrics(t, x, y, [], SP_NP, blackouts=None) == a
+    assert compute_metrics(t, x, y, [], SP_NP, blackouts=[]) == a
+    assert "skipped_pct" not in a
+
+
+def test_blackout_samples_are_dropped_and_reported():
+    t, x, y = make_trace(duration=20.0)
+    bo = [(8.0, 11.0)]
+    m = compute_metrics(t, x, y, [], SP_NP, blackouts=bo)
+    keep = [i for i, tt in enumerate(t) if not 8.0 <= tt <= 11.0]
+    ref = compute_metrics([t[i] for i in keep], [x[i] for i in keep],
+                          [y[i] for i in keep], [], SP_NP)
+    assert m["sparc"] == ref["sparc"] and m["frames"] == ref["frames"]
+    assert abs(m["skipped_pct"] - 15.0) < 0.5
 
 
 if __name__ == "__main__":
