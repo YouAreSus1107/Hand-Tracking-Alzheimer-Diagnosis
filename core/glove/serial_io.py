@@ -483,6 +483,52 @@ class GloveReader:
                 f"resolves {TREMOR_BAND[0]}–{TREMOR_BAND[1]} Hz."),
         }
 
+    def imu_series(self, t0: float, t1: float) -> dict:
+        """IMU samples whose host arrival time falls in [t0, t1], in g and °/s.
+
+        For a test that records the glove beside the camera (the tremor test,
+        docs/tests/TREMOR_TEST_PLAN.md §5): the host clock is the only one
+        both streams share, so it selects the window. The **device** clock
+        spaces the samples, though — host arrival times come in USB bursts —
+        so ``t`` is the device timestamp in seconds and ``fs`` the measured
+        device rate, which is what the spectral maths needs.
+
+        Returns ``{"fs", "t", "accel", "gyro"}`` with accel/gyro as lists of
+        (x, y, z), or ``{"fs": 0.0, ...}`` with empty lists when there is no
+        banner, no IMU or no samples in the window.
+        """
+        with self._lock:
+            banner = self._acc.banner
+            frames = [f for f, ts in self._frames if t0 <= ts <= t1]
+            measured_hz = self._acc.rate_hz
+        empty = {"fs": 0.0, "t": [], "accel": [], "gyro": []}
+        if banner is None or not banner.imu_present:
+            return empty
+        idx = banner.imu_index()
+        if not idx or not frames:
+            return empty
+        scale = banner.imu_scale
+        fs = measured_hz if measured_hz > 1 else float(banner.rate or 100)
+
+        ts, accel, gyro = [], [], []
+        for f in frames:
+            if max(idx.values()) >= len(f.values):
+                continue
+            a = tuple(to_units(f.values[idx[k]], scale) for k in ("ax", "ay", "az"))
+            g = tuple(to_units(f.values[idx[k]], scale) for k in ("gx", "gy", "gz"))
+            if None in a or None in g:
+                continue
+            ts.append(f.t_us / 1_000_000.0)
+            accel.append(a)
+            gyro.append(g)
+        return {"fs": fs, "t": ts, "accel": accel, "gyro": gyro}
+
+    def imu_name(self) -> str | None:
+        """The IMU the banner names, or None when there is none."""
+        with self._lock:
+            banner = self._acc.banner
+        return banner.imu if banner is not None and banner.imu_present else None
+
     def _meta_for(self, banner, channel: int | str | None) -> ChannelMeta:
         """Channel details for an index or name, with a safe fallback.
 

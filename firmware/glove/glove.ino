@@ -2,13 +2,15 @@
  * glove.ino - analog acquisition for the sensor-glove digital twin
  *
  * Implements the analog front end and serial protocol specified in
- * docs/GLOVE_FIRMWARE_PLAN.md (sections 3 and 4).
+ * docs/glove/GLOVE_FIRMWARE_PLAN.md (sections 3 and 4).
  *
- * Current hardware (build gate 3): three FSR402 pads - p0 on A0, p1 on A2,
- * p2 on A4 - plus one flex strip, f0 on A6. Each is its own divider against
- * the 3V3 rail:
+ * Current hardware (2026-09-26, the last direct-wired prototype before the
+ * perfboard, the A401 palm pads and the mux): two FSR402 pads - p0 on A0
+ * (thumb tip), p1 on A1 (index tip) - and four flex strips, thumb -> ring:
+ * f0 on A2, f1 on A3, f2 on A6, f3 on A7. A4/A5 are left unconnected. Every
+ * sensor is soldered, and each is its own divider against the 3V3 rail:
  *     3V3 --- SENSOR --- Ax --- rFixed --- GND
- * The three pads use 10k; the strip uses 47k. That is why rFixed is per
+ * The pads use 10k; the strips use 47k. That is why rFixed is per
  * channel in CHANNELS[] rather than one global: a divider is most sensitive
  * where rFixed is near the sensor's own resistance, and a flex strip
  * (~10k flat to ~110k bent) sits in a very different band from an FSR
@@ -151,7 +153,7 @@ static const char *IMU_COLS[6] = { "ax", "ay", "az", "gx", "gy", "gz" };
 
 /* ---------- configuration ------------------------------------------------ */
 
-#define FW_VERSION      "0.6.0"
+#define FW_VERSION      "0.8.0"
 /*
  * Frame layout is unchanged from proto 1 by the move to 12-bit: only the value
  * scale moved, and the banner's adc_bits already tells the host about that. So
@@ -198,7 +200,11 @@ static const uint32_t R_FIXED_DEFAULT_OHMS = 10000;
  * alongside the IMU. That is the gate-6 problem to solve when the mux lands,
  * and lowering OVERSAMPLE is the intended lever then.
  */
-static const uint8_t OVERSAMPLE = 16;
+/* 10 since fw 0.8.0 (12 at 0.7.0, 16 before). The sample phase is held near
+ * ~2.2 ms as channels are added: six channels x 11 reads x 34 us = ~2.2 ms,
+ * where 12 would have put the frame at ~9.8 ms of its 10 ms slot. Confirm
+ * with the D timing line after any change. */
+static const uint8_t OVERSAMPLE = 10;
 
 /* Mux settle time. Raise this if adjacent channels bleed into each other. */
 static const uint8_t MUX_SETTLE_US = 5;
@@ -224,10 +230,10 @@ struct AnalogChannel {
  * flex strip. Mislabel a channel here and the dev page will print confident
  * newtons for a bending finger.
  *
- * PIN CONVENTION: force sensors live on the EVEN analog pins, so p<n> is on
- * A(2n) - p0/A0, p1/A2, p2/A4. The bench build then ran out of even pins for
- * the flex strip and put f0 on A6, so the convention now describes the force
- * pads only; the odd pins stay free. Nothing enforces it either way, because
+ * PIN LAYOUT (fw 0.8.0): force pads first, then flex strips, each group in
+ * finger order thumb -> ring, skipping A4/A5. The old even-pins-for-force
+ * convention was dropped with this build; the mux replaces direct pins next.
+ * Nothing enforces a layout either way, because
  * every channel names its own pin in the table below and the host reads the
  * layout from the boot banner - the convention is a habit for wiring, not a
  * rule the code checks. Adding the next sensor is one line here plus a flash;
@@ -252,10 +258,12 @@ struct AnalogChannel {
  * where the divider gives the most output swing per degree of bend.
  */
 static const AnalogChannel CHANNELS[] = {
-  { "p0", "fsr",  A0, -1, 10000 },
-  { "p1", "fsr",  A2, -1, 10000 },
-  { "p2", "fsr",  A4, -1, 10000 },
-  { "f0", "flex", A6, -1, 47000 },
+  { "p0", "fsr",  A0, -1, 10000 },   /* thumb tip  */
+  { "p1", "fsr",  A1, -1, 10000 },   /* index tip  */
+  { "f0", "flex", A2, -1, 47000 },   /* thumb      */
+  { "f1", "flex", A3, -1, 47000 },   /* index      */
+  { "f2", "flex", A6, -1, 47000 },   /* middle     */
+  { "f3", "flex", A7, -1, 47000 },   /* ring       */
 };
 static const uint8_t N_CHANNELS = sizeof(CHANNELS) / sizeof(CHANNELS[0]);
 

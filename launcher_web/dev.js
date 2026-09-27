@@ -160,6 +160,10 @@ function devFlexModel(){
    rising resistance pulls the count down. Bending a flex strip raises its
    resistance, so the HIGHEST count is flattest and the LOWEST is most bent. */
 function devFlexSpan(i){
+  // A span recorded on purpose (open hand, then a fist) beats everything
+  // below: it is per strip, and it spans the travel a hand really has.
+  const cal = dev.flexCal[dev.channels[i]];
+  if(cal && cal.fw === devFirmware()) return {flat: cal.flat, bent: cal.bent, basis: "calibrated"};
   const m = devFlexModel();
   if(m && m.calibrated && m.usable){
     return {flat: m.flat_ohm, bent: m.bent_ohm, basis: "calibrated"};
@@ -181,6 +185,55 @@ function devFlexSpan(i){
   if(m && m.usable) return {flat: m.flat_ohm, bent: m.bent_ohm, basis: "provisional"};
   return null;
 }
+
+/* ── finger calibration: a recorded span per flex strip ──────────────────
+   The observed span above is inferred, and it switches on once a strip has
+   moved 1.5x in resistance. On a glove that can be a strap tugging, not a
+   bend, and a span that narrow maps a small shift onto half the scale. So the
+   glove map offers a deliberate recording: open hand = flat, fist = bent,
+   per strip (plan §5c, gate 9). Kept in this browser, keyed by channel name
+   AND the firmware version it was recorded under: a reflash is when strips get
+   rewired onto different pins, and a range recorded on one strip must never be
+   applied to another. Re-record after moving a strip or changing its resistor. */
+const DEV_FLEXCAL_KEY = "hand3d.flexCal";
+const DEV_FLEXCAL_MIN_RATIO = 1.2;   // flex.py MIN_SPAN_RATIO: narrower is noise
+const DEV_FLEXCAL_WINDOW = 80;       // samples medianed per pose (0.8 s at 100 Hz)
+dev.flexCal = (() => {
+  try { return JSON.parse(localStorage.getItem(DEV_FLEXCAL_KEY) || "{}") || {}; }
+  catch(e){ return {}; }
+})();
+
+/* Each flex strip's resistance now, as the median of its last 0.8 s. */
+function devFlexCalCapture(){
+  const b = dev.status && dev.status.banner;
+  const out = {};
+  dev.channels.forEach((name, i) => {
+    if(devKind(i) !== "flex") return;
+    const buf = dev.series[i] || [];
+    if(buf.length < DEV_FLEXCAL_WINDOW / 2) return;
+    const r = devOhm(devMedian(buf.slice(-DEV_FLEXCAL_WINDOW)), b, devRFixed(i));
+    if(r !== null && r > 0) out[name] = r;
+  });
+  return out;
+}
+/* Store the strips whose two poses differ enough to be travel; report the rest
+   rather than quietly keeping a span made of noise. */
+function devFlexCalSave(flat, bent){
+  const ok = [], weak = [];
+  for(const name of Object.keys(flat)){
+    const f = flat[name], k = bent[name];
+    if(!k || Math.max(f, k) / Math.min(f, k) < DEV_FLEXCAL_MIN_RATIO){ weak.push(name); continue; }
+    dev.flexCal[name] = {flat: f, bent: k, fw: devFirmware()};
+    ok.push(name);
+  }
+  try { localStorage.setItem(DEV_FLEXCAL_KEY, JSON.stringify(dev.flexCal)); } catch(e){}
+  return {ok, weak};
+}
+function devFirmware(){
+  const b = dev.status && dev.status.banner;
+  return b ? b.fw : null;
+}
+window.devFlexCal = {capture: devFlexCalCapture, save: devFlexCalSave};
 
 // Linear in resistance, mirroring flex.bend_fraction(). Clamped at both ends:
 // past the span the sensor has left the range that was recorded, and
@@ -578,6 +631,10 @@ async function devPollSamples(){
 
     if(d.frames && d.frames.length){
       dev.lastSeq = d.frames[d.frames.length-1][0];
+      // The glove map fuses the raw IMU columns into an orientation, so it
+      // needs every frame in order, not the latest value. Fed even while the
+      // scope is paused: pausing freezes the trace, not the hand.
+      window.glove3dFeed?.(d.frames, dev.channels);
       if(!dev.paused){
         for(const f of d.frames){
           for(let c=0; c<dev.channels.length; c++){
@@ -802,6 +859,18 @@ function devSetBar(i, kind, ohm, b, rf){
   const notch = document.getElementById("dev-barpk-" + i);
   if(!fill && !notch) return;
 
+  const {cur, peak} = devFractions(i, kind, ohm, b, rf);
+  const pct = x => (x === null ? 0 : Math.max(0, Math.min(1, x)) * 100).toFixed(1) + "%";
+  if(fill) fill.style.width = pct(cur);
+  if(notch){
+    notch.style.display = peak === null ? "none" : "block";
+    notch.style.left = pct(peak);
+  }
+}
+
+/* The same two fractions, without the DOM. Shared by the tile bars and the
+   3D glove map (glove3d.js), so "how full" means one thing on both. */
+function devFractions(i, kind, ohm, b, rf){
   let cur = null, peak = null;
   if(devIsImu(kind)){
     // Signed value, unsigned bar: the tile shows HOW MUCH this axis is moving,
@@ -832,13 +901,42 @@ function devSetBar(i, kind, ohm, b, rf){
       peak = pn === null ? null : pn / max;
     }
   }
-  const pct = x => (x === null ? 0 : Math.max(0, Math.min(1, x)) * 100).toFixed(1) + "%";
-  if(fill) fill.style.width = pct(cur);
-  if(notch){
-    notch.style.display = peak === null ? "none" : "block";
-    notch.style.left = pct(peak);
-  }
+  return {cur, peak};
 }
+
+/* What the 3D glove map (glove3d.js, an ES module) reads each tick. Every
+   number here goes through the same conversions as the channel tiles, so the
+   map cannot show a force the tile does not. The map only decides WHERE a
+   channel sits; it never converts a count itself. */
+function devGloveSnapshot(){
+  const b = dev.status && dev.status.banner;
+  const channels = dev.channels.map((name, i) => {
+    const kind = devKind(i);
+    if(devIsImu(kind)) return {name, kind};
+    const buf = dev.series[i] || [];
+    if(!buf.length) return {name, kind, cur: null, peak: null, text: "—", state: "waiting"};
+    const v = dev.smooth ? devMedian(buf.slice(-DEV_SMOOTH_N)) : buf[buf.length-1];
+    const rf = devRFixed(i);
+    const ohm = devOhm(v, b, rf);
+    const {cur, peak} = devFractions(i, kind, ohm, b, rf);
+    let text, state = "live", basis = null;
+    if(kind === "flex"){
+      const span = devFlexSpan(i);
+      basis = span ? span.basis : null;
+      text = devBendText(devBend(ohm, span));
+    } else if(kind === "fsr"){
+      const n = devForce(ohm);
+      text = devForceText(n);
+      if(devForceRange(n) === "above") state = "above";
+    } else {
+      text = devOhmText(ohm);
+      state = "raw";
+    }
+    return {name, kind, cur, peak, text, state, basis};
+  });
+  return {connected: !!(dev.status && dev.status.connected), channels, imu: dev.imu};
+}
+window.devGloveSnapshot = devGloveSnapshot;
 
 /* One motion channel's tile: value, full-scale bar, and the extreme seen
    since the last Z. Peak is |value|: an accelerometer swings both ways, and
@@ -1410,6 +1508,9 @@ function startDev(){
   // raw motion columns are already live in the scope at DEV_POLL_MS.
   if(!dev.imuTimer) dev.imuTimer = setInterval(devPollImu, DEV_IMU_MS);
   if(!reducedMotion && !dev.raf) dev.raf = requestAnimationFrame(devLoop);
+  // glove3d.js is a module and loads after this file; if it is not there yet
+  // it starts itself once it sees this page is showing.
+  window.glove3d?.start();
 }
 
 function stopDev(){
@@ -1417,6 +1518,7 @@ function stopDev(){
   clearInterval(dev.envTimer);  dev.envTimer = null;
   clearInterval(dev.imuTimer);  dev.imuTimer = null;
   if(dev.raf){ cancelAnimationFrame(dev.raf); dev.raf = null; }
+  window.glove3d?.stop();
 }
 
 /* A language switch redraws everything this page built. If the page has not

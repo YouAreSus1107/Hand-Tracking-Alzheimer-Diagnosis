@@ -1,7 +1,7 @@
 """Sensor-glove wire protocol — pure parsing, no I/O.
 
 Implements the frame and banner format specified in
-``docs/GLOVE_FIRMWARE_PLAN.md`` §4 and emitted by ``firmware/glove/glove.ino``.
+``docs/glove/GLOVE_FIRMWARE_PLAN.md`` §4 and emitted by ``firmware/glove/glove.ino``.
 
 Everything here is deliberately hardware-free and total: no function raises on
 malformed input, they return ``None`` instead. A glove on a USB cable produces
