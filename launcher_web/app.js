@@ -3,7 +3,9 @@ const I = {
   hand: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.25 1.25 0 0 1 2.5 0V11"/><path d="M10.5 11V5a1.25 1.25 0 0 1 2.5 0v6"/><path d="M13 11.5V6a1.25 1.25 0 0 1 2.5 0v6"/><path d="M15.5 12.5V9a1.25 1.25 0 0 1 2.5 0v4.5a6 6 0 0 1-6 6h-.5a6 6 0 0 1-5.3-3.2l-1.5-2.9a1.25 1.25 0 0 1 2.1-1.3L10 13"/></svg>',
   spiral: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 12a1.5 1.5 0 0 1 1.5 1.5A3 3 0 0 1 10.5 16.5 4.5 4.5 0 0 1 6 12a6 6 0 0 1 6-6 7.5 7.5 0 0 1 7.5 7.5A9 9 0 0 1 10.5 22.5"/></svg>',
   broadcast: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="13" rx="2"/><circle cx="12" cy="11.5" r="3.5"/><circle cx="17.5" cy="7.5" r="1" fill="currentColor" stroke="none"/><path d="M8 21h8"/><path d="M12 18v3"/></svg>',
+  mic: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>',
   eye: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  wave: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l2-5 3 10 3-12 3 12 2-5h4"/></svg>',
   play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6,3 20,12 6,21"/></svg>',
   stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
   check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -26,24 +28,60 @@ const I = {
   shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>',
   camera: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   person: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>',
+  image: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>',
   chevron: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
 };
 
 const TOOLS = [
   { key:"iiv", title:"Finger Tapping Test", file:"finger_tapping.py", icon:"hand",
     tags:["30 s test","1 hand","Audio metronome","Paced tapping"],
-    video:"/assets/finger-tapping.mp4" },
+    video:"/assets/videos/finger-tapping.mp4" },
   { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py", icon:"spiral",
     tags:["40 s test","1 hand","On-screen guide","Air tracing"],
-    video:"/assets/spiral-test.mp4" },
+    video:"/assets/videos/spiral-test.mp4" },
   { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py", icon:"eye",
     tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"],
     // This clip is a capture of the test UI, which already dims its own camera
     // feed; the idle veil on top of that leaves it unreadable. Play it bright.
-    video:"/assets/eye-movement.mp4", dimPreview:false },
+    video:"/assets/videos/eye-movement.mp4", dimPreview:false },
+  { key:"ddk", title:"Speech Test", file:"speech_test.py", icon:"mic",
+    tags:["2 short parts","Microphone only","Pa-ta-ka","Sustained ahh"],
+    // No preview clip yet: a still of the loudness envelope the test scores,
+    // one peak per syllable with its onset dot, stands in for it.
+    art:(()=>{
+      const xs = [0,1,2,3,4,5,6,7,8,9,10,11].map(i => 22 + i*30);
+      const peaks = xs.map((x,i)=>{
+        const h = 38 + ((i*37)%3)*9;
+        return `M${x-10},120 C${x-6},120 ${x-5},${120-h} ${x},${120-h} C${x+5},${120-h} ${x+6},120 ${x+12},120`;
+      }).join(" ");
+      return `<svg class="card-art" viewBox="0 0 380 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <line x1="10" y1="120" x2="370" y2="120" stroke="var(--border)" stroke-width="1"/>
+        <path d="${peaks}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/>
+        ${xs.map(x=>`<circle cx="${x-5}" cy="120" r="3" fill="var(--success)"/>`).join("")}
+      </svg>`;
+    })() },
+  { key:"tremor", title:"Hand Tremor Test", file:"tremor_test.py", icon:"wave",
+    tags:["~2 min test","2 hands","Rest + arms out","Glove IMU optional"],
+    // No preview clip yet: a still of what the test computes — one hand's
+    // tremor-band spectrum with a single peak standing out of the noise.
+    art:(()=>{
+      const pts = [];
+      for(let i=0;i<=60;i++){
+        const f = i/60, x = 20 + f*340;
+        const peak = 70*Math.exp(-Math.pow((f-0.36)/0.035,2));
+        const noise = 6 + 4*Math.abs(Math.sin(i*1.7)) + 3*Math.abs(Math.sin(i*0.61));
+        pts.push(`${x.toFixed(1)},${(122-noise-peak).toFixed(1)}`);
+      }
+      return `<svg class="card-art" viewBox="0 0 380 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <rect x="${20+340*0.15}" y="20" width="${340*0.72}" height="102" fill="var(--brand)" opacity=".07"/>
+        <line x1="10" y1="122" x2="370" y2="122" stroke="var(--border)" stroke-width="1"/>
+        <polyline points="${pts.join(" ")}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/>
+        <circle cx="${20+340*0.36}" cy="${122-6-70}" r="4" fill="var(--warning)"/>
+      </svg>`;
+    })() },
   { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py", icon:"broadcast",
     tags:["Live stream","2 hands","UDP :5052","21 landmarks"],
-    video:"/assets/hand-tracking.mp4" },
+    video:"/assets/videos/hand-tracking.mp4" },
 ];
 
 const RESEARCH = [
@@ -53,26 +91,26 @@ const RESEARCH = [
   { icon:"eye", title:"Oculomotor \u2014 inhibitory control",
     text:"The anti-saccade error rate counts how often the eyes are pulled toward a target you were told to look away from. Meta-analysis puts the effect separating Alzheimer's groups from controls at SMD 1.59.",
     cite:"Opwonya et al. (2022) \u00b7 Crawford et al. (2005) \u00b7 PMC9090874" },
-  { icon:"beaker", title:"Speech \u2014 not built yet",
-    text:"Word-finding pauses, flat prosody, and reduced vocabulary are among the earliest reported signs of decline. A microphone-only speech task is the next modality planned here.",
-    cite:"Planned \u2014 see docs/ROADMAP.md" },
+  { icon:"mic", title:"Speech \u2014 articulatory rhythm",
+    text:"Repeating pa-ta-ka as fast and evenly as possible is the speech counterpart of finger tapping, scored the same way: how much the gaps between syllables vary. Language measures such as word-finding pauses are planned next.",
+    cite:"Li et al., TapTalk (2024) \u00b7 docs/tests/SPEECH_TEST_PLAN.md" },
   { icon:"home", title:"The method works at home",
     text:"MediaPipe tapping matched Polhemus electromagnetic sensors within \u00b11 Hz about 90% of the time, and 404 adults with no symptoms completed unsupervised webcam testing at home. Both studies validate the approach, not this implementation.",
     cite:"Li et al., TapTalk (2024) \u00b7 TAS Test (2022\u20132025) \u00b7 PMC10809289" },
 ];
 
 /* ── "Why This" page data (differentiation) ──────────────────────────
-   Source of truth: research/README.md (TAS Test framing),
-   research/01-webcam-hand-motor.md (finger-tapping vs TapTalk table),
-   docs/ROADMAP.md §1 & §7. Keep claims honest — the validation row
+   Source of truth: docs/research/README.md (TAS Test framing),
+   docs/research/01-webcam-hand-motor.md (finger-tapping vs TapTalk table),
+   docs/overview/ROADMAP.md §1 & §7. Keep claims honest — the validation row
    deliberately shows where TAS Test is ahead. */
 const WHY_PILLARS = [
   { icon:"code", title:"Open source",
     text:"Every script is on GitHub, including the scoring code." },
   { icon:"lock", title:"Runs locally",
     text:"Nothing leaves the machine. The hub serves on 127.0.0.1 and results stay on disk." },
-  { icon:"layers", title:"Two domains, one system",
-    text:"Hand-motor and oculomotor tests in the same session, written to the same results format." },
+  { icon:"layers", title:"Three domains, one system",
+    text:"Hand-motor, oculomotor and speech tests in the same session, written to the same results format." },
   { icon:"shield", title:"Thresholds shown as provisional",
     text:"Each metric links the paper it came from, and bands not yet fitted to data are labelled as such." },
 ];
@@ -90,13 +128,14 @@ const CMP_COLS = ["This suite", "Consumer apps", "TAS Test (research)"];
 const WHY_MATRIX = [
   { cap:"Motor biomarkers (tapping, spiral)",      cells:["yes","no","yes"] },
   { cap:"Oculomotor anti-saccade",                 cells:["yes","no","no"] },
-  { cap:"Speech tasks",                            cells:["planned","no","yes"] },
+  { cap:"Speech tasks",                            cells:["partial","no","yes"] },
   { cap:"Camera-only, no wearable needed",         cells:["yes","yes","yes"] },
   { cap:"Open-source / inspectable",               cells:["yes","no","no"] },
   { cap:"Fully local, no data upload",             cells:["yes","no","no"] },
   { cap:"Longitudinal self-tracking",              cells:["yes","partial","yes"] },
   { cap:"Literature-cited metrics shown in-app",   cells:["yes","no","partial"] },
-  { cap:"Validated on patient cohorts",            cells:["notyet","no","yes"] },
+  // Partial: tapping checked on HUBU-FIS (Parkinson's, UPDRS), not yet on cognitive decline.
+  { cap:"Validated on patient cohorts",            cells:["partial","no","yes"] },
   { cap:"Wearable co-contraction twin",            cells:["planned","no","no"] },
 ];
 
@@ -112,7 +151,7 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
 /* ── Inject SVG icons into detail pages + research cards ─────────── */
 function renderStaticBits(){
   // Detail page icons
-  const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", tracking:"broadcast"};
+  const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", ddk:"mic", tremor:"wave", tracking:"broadcast"};
   for(const [k,v] of Object.entries(map)){
     const el = document.getElementById("detail-icon-"+k);
     if(el) el.innerHTML = I[v];
@@ -121,6 +160,8 @@ function renderStaticBits(){
   document.querySelectorAll(".detail-back").forEach(b=>{
     b.innerHTML = I.arrowLeft + " " + t("Back to Dashboard");
   });
+  // Placeholder frames for illustrations not drawn yet
+  document.querySelectorAll(".art-slot .slot-ico").forEach(el => el.innerHTML = I.image);
   // Analysis header icon
   const ai = document.getElementById("analysis-icon");
   if(ai) ai.innerHTML = I.chart;
@@ -248,7 +289,7 @@ function buildCards(){
         <div class="card-header"><div class="card-icon">${I[tool.icon]}</div><div class="card-tags">${tagsHtml}</div></div>
         <h3>${title}</h3>
         <div class="live-badge ${on?"on":""}"><span class="live-pulse"></span>${t("Running — check the camera window")}</div>
-        <div class="card-video${tool.video?" has-video":""}${tool.dimPreview===false?" no-veil":""}">${tool.video?`<video muted loop autoplay playsinline preload="auto" src="${tool.video}"></video>`:""}</div>
+        <div class="card-video${tool.video?" has-video":""}${tool.dimPreview===false?" no-veil":""}">${tool.video?`<video muted loop autoplay playsinline preload="auto" src="${tool.video}"></video>`:(tool.art||"")}</div>
         <div class="card-actions">
           <button class="btn btn-primary" data-go="${tool.key}" ${on?"disabled":""} aria-label="${t("Launch {name}",{name:title})}">${on?t("Running..."):I.play+" "+t("Launch")}</button>
           <button class="btn btn-danger" data-stop="${tool.key}" ${on?"":"disabled"} aria-label="${t("Stop {name}",{name:title})}">${I.stop} ${t("Stop")}</button>
@@ -455,15 +496,24 @@ function renderDetailActions(key){
    inputs when clicked, since almost nobody changes it. One shared
    setting rendered into every `[data-cam]` slot: the dashboard section
    head and each test page's action row. */
-let camState = {mode:"webcam", index:0, url:"", label:"Webcam 0"};
+let camState = {mode:"webcam", index:0, url:"", name:"", label:"Webcam 0", mirror:null};
 let camSeq = 0;   // radio groups need a unique name per instance
+// Cameras plugged in, by name, in index order (GET /api/cameras, from
+// core/camera_list.py). null until first asked; [] when the OS would not say,
+// in which case the chip keeps the plain index box.
+let camList = null;
 
 const esc = s => String(s??"").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function camChipText(){
   return camState.mode === "stream" ? t("IP stream")
-                                    : t("Webcam {n}", {n: camState.index});
+       : camState.name || t("Webcam {n}", {n: camState.index});
+}
+
+// camState.mirror is true / false / null (never checked), from core/orientation.py
+function mirrorVal(){
+  return camState.mirror === true ? "on" : camState.mirror === false ? "off" : "auto";
 }
 
 function buildCamChip(root){
@@ -482,11 +532,12 @@ function buildCamChip(root){
       <div class="cam-row">
         <label class="cam-opt">
           <input type="radio" name="${name}" value="webcam" ${stream?"":"checked"}>
-          <span>${t("Webcam")}</span>
+          <span>${t("Camera")}</span>
         </label>
         <input class="cam-idx" type="number" min="0" max="9" step="1"
                value="${camState.index}" aria-label="${t("Webcam index")}">
       </div>
+      <select class="cam-dev" aria-label="${t("Camera device")}" hidden></select>
       <div class="cam-row">
         <label class="cam-opt">
           <input type="radio" name="${name}" value="stream" ${stream?"checked":""}>
@@ -495,6 +546,14 @@ function buildCamChip(root){
       </div>
       <input class="cam-url" type="url" placeholder="http://192.168.1.5:8080/video"
              value="${esc(camState.url||"")}" aria-label="${t("Stream URL")}">
+      <div class="cam-row" title="${esc(t("Some cameras send a mirrored picture. The hand tests check each camera once and correct it."))}">
+        <span class="cam-opt">${t("Picture")}</span>
+        <select class="cam-mirror" aria-label="${t("Mirrored picture")}">
+          <option value="auto" ${mirrorVal()==="auto"?"selected":""}>${t("Check at next launch")}</option>
+          <option value="on" ${mirrorVal()==="on"?"selected":""}>${t("Mirrored")}</option>
+          <option value="off" ${mirrorVal()==="off"?"selected":""}>${t("Not mirrored")}</option>
+        </select>
+      </div>
       <div class="cam-foot">
         <span class="cam-note">${t("Applies to the next launch.")}</span>
         <button class="cam-save btn-mini" type="button">${t("Save")}</button>
@@ -508,7 +567,15 @@ function buildCamChip(root){
   // "typed the URL, forgot to tick IP stream" mistake.
   const pick = v => root.querySelector(`input[value='${v}']`).checked = true;
   root.querySelector(".cam-idx").addEventListener("input", () => pick("webcam"));
+  root.querySelector(".cam-dev").addEventListener("change", e => {
+    e.target.dataset.touched = "1";               // survives the list refresh
+    root.querySelector(".cam-idx").value = e.target.value;
+    pick("webcam");
+  });
   root.querySelector(".cam-url").addEventListener("input", () => pick("stream"));
+  // Sent only once touched: switching camera must not copy the old camera's
+  // answer onto the new one.
+  root.querySelector(".cam-mirror").addEventListener("change", e => e.target.dataset.dirty = "1");
   root.querySelector(".cam-save").addEventListener("click", () => saveCam(root));
   root.addEventListener("click", e => e.stopPropagation());
   root.addEventListener("keydown", e => {
@@ -520,7 +587,7 @@ function buildCamChip(root){
 function renderCamChips(){
   // Signature covers the setting *and* its rendered text, so a language
   // switch rebuilds but the 3 s status poll does not churn the DOM.
-  const sig = [camState.mode, camState.index, camState.url||"", camChipText()].join("|");
+  const sig = [camState.mode, camState.index, camState.url||"", mirrorVal(), camChipText()].join("|");
   document.querySelectorAll("[data-cam]").forEach(root => {
     // Never rebuild a chip the user has open — it would wipe what they typed.
     if(root.classList.contains("open") || root.dataset.camSig === sig) return;
@@ -534,7 +601,44 @@ function toggleCam(root, open){
   root.classList.toggle("open", open);
   root.querySelector(".cam-pop").hidden = !open;
   root.querySelector(".cam-chip").setAttribute("aria-expanded", String(open));
-  if(open) root.querySelector(".cam-idx").focus();
+  if(!open) return;
+  fillCamDevices(root);                           // last known list, instantly
+  loadCamList().then(() => { if(root.classList.contains("open")) fillCamDevices(root); });
+  const dev = root.querySelector(".cam-dev");
+  (dev.hidden ? root.querySelector(".cam-idx") : dev).focus();
+}
+
+// Re-listed on every open, so a camera plugged in since the last look appears.
+async function loadCamList(){
+  try{
+    const r = await fetch("/api/cameras");
+    const data = await r.json();
+    camList = Array.isArray(data.cameras) ? data.cameras : [];
+  }catch(e){ camList = camList || []; }
+}
+
+function fillCamDevices(root){
+  const sel = root.querySelector(".cam-dev");
+  const idx = root.querySelector(".cam-idx");
+  const cams = camList || [];
+  sel.hidden = !cams.length;
+  idx.hidden = !!cams.length;
+  if(!cams.length) return;
+  const want = parseInt(idx.value, 10) || 0;
+  const opts = cams.map(c => ({index:c.index, name:c.name}));
+  // The saved camera is unplugged: keep it listed rather than silently
+  // showing a different one as the choice.
+  if(camState.name && !cams.some(c => c.name === camState.name))
+    opts.push({index:camState.index, name:camState.name, gone:true});
+  // Prefer the saved name (its index may have shifted), then the index.
+  const hit = opts.find(o => o.name === camState.name && o.index === want)
+           || (camState.name && opts.find(o => o.name === camState.name))
+           || opts.find(o => o.index === want);
+  const prev = sel.value;
+  sel.innerHTML = opts.map(o => `<option value="${o.index}" data-name="${esc(o.name)}"
+      ${o === hit ? "selected" : ""}>${esc(o.name)}${o.gone ? " " + esc(t("(not plugged in)")) : ""}</option>`).join("");
+  if(prev && sel.dataset.touched) sel.value = prev;
+  idx.value = sel.value;
 }
 
 function closeCamChips(){
@@ -549,7 +653,14 @@ async function saveCam(root){
     mode,
     index: parseInt(root.querySelector(".cam-idx").value, 10) || 0,
     url: root.querySelector(".cam-url").value.trim(),
+    // Keep the device name, so the launch can find it again if the indices
+    // shift; a hand-typed index has none.
+    name: "",
   }};
+  const dev = root.querySelector(".cam-dev");
+  if(!dev.hidden && dev.selectedOptions[0]) body.camera.name = dev.selectedOptions[0].dataset.name || "";
+  const mirror = root.querySelector(".cam-mirror");
+  if(mirror.dataset.dirty) body.camera.mirror = mirror.value;
   try{
     const r = await fetch("/api/camera", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -777,8 +888,46 @@ const TREND = {
       {key:"valid_trials", name:"Valid trials", unit:""},
     ],
   },
+  ddk: {
+    label:"Speech Rhythm", icon:"mic", page:"ddk",
+    headline:{ key:"rhythm_cv_pct", name:"Syllable rhythm variability", unit:"%", lowerBetter:true,
+      bands:[{max:15,status:"ok"},{max:25,status:"warn"},{max:Infinity,status:"bad"}] },
+    // Not the phoneme model's order errors: they are experimental and not
+    // charted until validated on real voices (SPEECH_TEST_PLAN.md §3.1b).
+    supporting:[
+      {key:"syllable_rate_hz", name:"Syllable rate", unit:"/s"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
+      {key:"npvi", name:"nPVI", unit:""},
+      {key:"decrement_pct_per_s", name:"Speed decrement", unit:"%/s"},
+    ],
+  },
+  phonation: {
+    label:"Voice Steadiness", icon:"mic", page:"ddk",
+    // Lower edge is the MDVP jitter threshold (1.04%); the upper edge is not
+    // from a source — both provisional (core/speech/tasks.py).
+    headline:{ key:"jitter_pct", name:"Jitter", unit:"%", lowerBetter:true,
+      bands:[{max:1.04,status:"ok"},{max:2.08,status:"warn"},{max:Infinity,status:"bad"}] },
+    supporting:[
+      {key:"shimmer_pct", name:"Shimmer", unit:"%"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
+      {key:"hnr_db", name:"HNR", unit:"dB"},
+      {key:"vocal_tremor_hz", name:"Vocal tremor", unit:"Hz"},
+    ],
+  },
+  tremor: {
+    label:"Hand Tremor", icon:"wave", page:"tremor",
+    // No bands: a tremor is detected or not (metrics.status), and the size is
+    // an estimate. The dot colour is that recorded verdict.
+    headline:{ key:"tremor_amp_pct", name:"Tremor-band movement", unit:"%", lowerBetter:true, bands:null },
+    supporting:[
+      {key:"tremor_peak_hz", name:"Tremor peak", unit:"Hz"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
+      {key:"asymmetry_ratio", name:"Left / right ratio", unit:"×"},
+      {key:"cam_glove_hz_diff", name:"Camera vs glove", unit:"Hz"},
+    ],
+  },
 };
-const TREND_ORDER = ["finger_tapping","spiral","oculomotor"];
+const TREND_ORDER = ["finger_tapping","spiral","oculomotor","ddk","phonation","tremor"];
 const ST = {
   ok:  {word:"Typical",   dot:"#22C55E", band:"rgba(34,197,94,.13)"},
   warn:{word:"Monitor",   dot:"#F5A524", band:"rgba(245,165,36,.14)"},
@@ -1578,6 +1727,164 @@ function idleSpark(){
   });
 })();
 
+/* ── Finger tapping: mode switcher ────────────────────────────────────
+   The two modes share their first two steps, so they are one filmstrip each
+   behind a tablist rather than two half-width columns. The choice is a
+   per-viewer convenience, so browser storage is enough (and optional). */
+const TAP_MODE_KEY = "hand3d.tapMode";
+function setTapMode(mode, focus){
+  const tabs = document.querySelectorAll("#iiv-seg [role=tab]");
+  if(![...tabs].some(b => b.dataset.mode === mode)) return;
+  tabs.forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+    if(on && focus) b.focus();
+  });
+  document.querySelectorAll("#page-iiv .filmstrip[data-mode]")
+    .forEach(p => { p.hidden = p.dataset.mode !== mode; });
+  try{ localStorage.setItem(TAP_MODE_KEY, mode); }catch(e){ /* private window */ }
+  renderTapRecording();
+}
+function tapMode(){
+  const on = document.querySelector("#iiv-seg [aria-selected=true]");
+  return on ? on.dataset.mode : "fast";
+}
+
+/* ── "What we measure": one real run per test page ────────────────────
+   Each test page shows a real recording rather than a diagram of one. The
+   files are de-identified copies of sessions from results/ (the raw trace and
+   the metrics; no profile, name or timestamp), so the page draws the same
+   thing on the local hub and on the published site, where there is no results
+   folder. The charts are report.js's own, so this is exactly what a session
+   report shows. A test with no clean run yet has `file: null` and keeps the
+   placeholder frame its markup ships with; see launcher_web/img/<test>/. */
+const recNum = (v, d) => v == null || !isFinite(v) ? null : (+v).toFixed(d);
+const RECORDINGS = {
+  iiv: {
+    file: "img/tapping/example-recordings.json",
+    pick: all => all[tapMode()],
+    body: rec => {
+      const c = window.tapCharts(rec);
+      return `<div class="rec-block"><h3>${t("Finger distance, every tap marked")}</h3>${c.trace}</div>`
+        + `<div class="rec-block"><h3>${t("Gap between taps")}</h3>${c.intervals}</div>`;
+    },
+    tiles: m => [
+      [t("Rhythm") + " · CV", recNum(m.cv_pct, 1), "%", true],
+      [t("Speed"), recNum(m.frequency_hz, 2), "Hz"],
+      [t("Slowdown"), recNum(m.decrement_pct_per_s, 2), "%/s"],
+      [t("Tap size") + " · CV", recNum(m.amplitude_cv_pct, 1), "%"],
+      [t("Beat sync") + " · SD", recNum(m.sync_sd_ms, 0), "ms"],
+    ],
+  },
+  spiral: {
+    file: "img/spiral/example-recording.json",
+    tiles: m => [
+      [t("Smoothness"), recNum(m.smoothness_index, 0), "/100", true],
+      [t("Speed variation") + " · CV", recNum(m.vel_cv_pct, 1), "%"],
+      [t("Completion"), recNum(m.completion_pct, 0), "%"],
+      [t("Tremor band"), recNum(m.tremor_power_frac == null ? null : m.tremor_power_frac * 100, 1), "%"],
+    ],
+  },
+  oculomotor: {
+    file: "img/oculomotor/example-recording.json",
+    tiles: m => [
+      [t("Wrong-way looks"), recNum(m.error_rate_pct, 1), "%", true],
+      ["Anti − Pro", recNum(m.anti_minus_pro_ms, 0), "ms"],
+      [t("Self-corrected"), recNum(m.corrected_rate_pct, 1), "%"],
+      [t("Valid trials"), recNum(m.valid_trials, 0), ""],
+    ],
+  },
+  ddk: {
+    file: null,   // the only run on record was too noisy to score
+    tiles: m => [
+      [t("Rhythm") + " · CV", recNum(m.rhythm_cv_pct, 1), "%", true],
+      [t("Rate"), recNum(m.syllable_rate_hz, 1), "/s"],
+      ["nPVI", recNum(m.npvi, 0), ""],
+      [t("Order errors"), recNum(m.sequence_error_pct, 1), "%"],
+    ],
+  },
+  tremor: {
+    file: null,   // not run live yet
+    tiles: m => [
+      [t("Peak frequency"), recNum(m.tremor_peak_hz, 1), "Hz", true],
+      [t("Tremor size"), recNum(m.tremor_amp_pct, 2), "%"],
+      [t("Left / right"), recNum(m.asymmetry_ratio, 2), "×"],
+    ],
+  },
+};
+const recFiles = {};
+function loadRecording(path){
+  return recFiles[path] || (recFiles[path] = fetch(path)
+    .then(r => r.ok ? r.json() : null).catch(() => null));
+}
+async function renderRecording(key){
+  const cfg = RECORDINGS[key];
+  const card = document.querySelector(`.rec-card[data-rec="${key}"]`);
+  // No file yet: the markup's placeholder stays. Before report.js has run:
+  // the DOMContentLoaded call below draws it.
+  if(!cfg || !card || !cfg.file || !window.recordingSections) return;
+  const want = key === "iiv" ? tapMode() : "";
+  const all = await loadRecording(cfg.file);
+  if(key === "iiv" && want !== tapMode()) return;   // the tab changed while loading
+  const rec = all && (cfg.pick ? cfg.pick(all) : all);
+  const body = card.querySelector(".rec-body");
+  const stats = card.querySelector(".rec-stats");
+  const chips = card.querySelector(".metric-chips");
+  card.classList.remove("is-empty");
+  if(!rec){
+    body.innerHTML = `<div class="rec-empty">${t("The example recording could not be loaded.")}</div>`;
+    stats.innerHTML = chips.innerHTML = "";
+    return;
+  }
+  body.innerHTML = cfg.body ? cfg.body(rec)
+    : window.recordingSections(rec, {trial: card.dataset.trial || null});
+  const m = rec.metrics || {};
+  const k = VERDICT[m.status] || "none", st = ST[k];
+  const ico = {ok:I.check, warn:I.info, bad:I.x}[k] || I.info;
+  stats.innerHTML = `<span class="rec-verdict" style="color:${st.dot};background:${st.band}">${ico} ${t(st.word)}</span>`;
+  chips.innerHTML = cfg.tiles(m).filter(r => r[1] != null).map(([label, v, unit, lead]) =>
+    `<div class="metric-chip${lead ? " lead" : ""}"><b>${v}<small>${unit}</small></b><span>${label}</span></div>`).join("");
+}
+function renderRecordings(){ Object.keys(RECORDINGS).forEach(renderRecording); }
+function renderTapRecording(){ renderRecording("iiv"); }
+
+// The eye test's trials open one at a time, as they do in the report.
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".rec-card [data-trial]");
+  if(!chip) return;
+  const card = chip.closest(".rec-card");
+  const cfg = RECORDINGS[card.dataset.rec];
+  const sel = card.dataset.trial === chip.dataset.trial ? "" : chip.dataset.trial;
+  card.dataset.trial = sel;
+  card.querySelectorAll("[data-trial]").forEach(c => c.classList.toggle("is-open", c.dataset.trial === sel));
+  loadRecording(cfg.file).then(rec => {
+    const panel = card.querySelector("[data-trial-panel]");
+    if(rec && panel) panel.innerHTML = window.trialPanelFor(rec, sel || null);
+  });
+});
+
+(function initTapMode(){
+  const seg = document.getElementById("iiv-seg");
+  if(seg){
+    seg.addEventListener("keydown", e => {
+      const tabs = [...seg.querySelectorAll("[role=tab]")];
+      const i = tabs.indexOf(document.activeElement);
+      if(i < 0) return;
+      const next = {ArrowRight:i+1, ArrowLeft:i-1, Home:0, End:tabs.length-1}[e.key];
+      if(next === undefined) return;
+      e.preventDefault();
+      setTapMode(tabs[(next + tabs.length) % tabs.length].dataset.mode, true);
+    });
+    let saved = null;
+    try{ saved = localStorage.getItem(TAP_MODE_KEY); }catch(e){}
+    if(saved) setTapMode(saved);
+  }
+  // report.js (which owns the charts) loads after this file, so the first
+  // draw waits for the page to finish parsing.
+  document.addEventListener("DOMContentLoaded", renderRecordings);
+})();
+
 /* ── Language switch ──────────────────────────────────────────────────
    Almost everything on these pages is built from JS, so a switch has to ask
    each builder to run again. The "built once" flags are cleared first. */
@@ -1593,6 +1900,7 @@ onLang(lang => {
   step(refresh);
   step(() => window.renderProfileChips?.(true));
   step(renderVitals);
+  step(renderRecordings);
   if(analysisSessions) step(renderAnalysis);
   saveLang(lang);
 });

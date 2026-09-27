@@ -17,7 +17,7 @@ host does none of that, so this script assembles a build that:
   * rewrites the footer, which links to /analysis -- a docs/ file that is
     deliberately never published
 
-Nothing from results/, docs/ or research/ is copied. Deploy with:
+Nothing from results/ or docs/ is copied. Deploy with:
 
     firebase deploy --only hosting
 
@@ -37,7 +37,7 @@ import build_release  # noqa: E402 -- needs the path set above
 REPO = Path(__file__).resolve().parents[1]
 WEB_SRC = REPO / "launcher_web"
 ASSETS_SRC = REPO / "assets"
-# The participant's page (docs/REMOTE_SESSION_PLAN.md). Served at /s/<token>;
+# The participant's page (docs/platform/REMOTE_SESSION_PLAN.md). Served at /s/<token>;
 # firebase.json rewrites every /s/** path onto its index.html, which reads the
 # token out of location.pathname.
 PARTICIPANT_SRC = REPO / "participant"
@@ -139,10 +139,12 @@ def main() -> None:
 
     clean(OUT)
     shutil.copytree(WEB_SRC, OUT, dirs_exist_ok=True)
-    # assets/fonts/ is the bundled CJK subset for the OpenCV overlays; the
-    # site never draws with it, so it stays out of the published build.
+    # assets/fonts/ is the bundled CJK subset for the OpenCV overlays and
+    # assets/screenshots/ is source material for the WebP copies the pages
+    # actually use (launcher_web/img/); the site draws with neither, so both
+    # stay out of the published build.
     shutil.copytree(ASSETS_SRC, OUT / "assets", dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("fonts"))
+                    ignore=shutil.ignore_patterns("fonts", "screenshots"))
     shutil.copy2(SHIM_SRC, OUT / "static-api.js")
 
     # Participant page -> /s/. Its tests/ and package.json are development

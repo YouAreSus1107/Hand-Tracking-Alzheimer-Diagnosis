@@ -1,5 +1,5 @@
 """
-Design tokens — single source of truth is docs/UI_STYLE_GUIDE.md.
+Design tokens — single source of truth is docs/design/UI_STYLE_GUIDE.md.
 Hex values here mirror the guide; BGR tuples are derived so the two
 representations can never drift apart.
 """
@@ -63,6 +63,7 @@ TYPE_SCALE = {
     "body":    (18, "regular"),
     "body_sb": (18, "semibold"),
     "caption": (14, "regular"),
+    "small":   (12, "regular"),
 }
 
 # ── Layout (§4) ────────────────────────────────────────────────────────────

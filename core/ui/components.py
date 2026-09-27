@@ -1,5 +1,5 @@
 """
-Reusable UI components implementing docs/UI_STYLE_GUIDE.md §5.
+Reusable UI components implementing docs/design/UI_STYLE_GUIDE.md §5.
 
 Rendering model: each frame, a `Canvas` wraps the BGR camera frame. Panels,
 text, chips, buttons etc. are drawn into a PIL RGBA overlay (anti-aliased
@@ -28,7 +28,7 @@ _ASSET_FONTS = Path(__file__).resolve().parents[2] / "assets" / "fonts"
 
 # Where each OS keeps its fonts. The suite installs on whatever laptop it lands
 # on, so naming a Windows path and stopping there would draw tofu everywhere
-# else — PIL does no per-glyph fallback (docs/OVERLAY_I18N_PLAN.md).
+# else — PIL does no per-glyph fallback (docs/platform/OVERLAY_I18N_PLAN.md).
 if sys.platform == "win32":
     _SYS_FONTS = [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"]
 elif sys.platform == "darwin":
@@ -343,7 +343,7 @@ class Canvas:
         self.icon(STATUS_ICON.get(status, "info"), x + 10, y + 8, 15, status)
         self.text(x + 32, y + 15, label, role="caption", color="text",
                   anchor="lm")
-        self.text(x + w - 10, y + 15, value, role="body_sb", color=status,
+        self.text(x + w - 10, y + 15, value, role="caption", color=status,
                   anchor="rm", mono=True)
         if detail:
             self.text(x + 32, y + 34, detail, role="caption",
@@ -573,6 +573,43 @@ class Canvas:
             cv2.rectangle(frame, (1, 1), (self.w - 2, self.h - 2), col, 2, cv2.LINE_AA)
 
         self._post.append(_draw)
+
+    def edge_alert(self, edges, status: str, along: tuple[float, float]
+                   | None = None, strong: bool = False) -> None:
+        """Hand leaving the frame: a translucent band on each edge it is
+        crossing, with an inward chevron level with the hand (`along` is the
+        hand's normalised (x, y)). Colour plus a pointing shape, never colour
+        alone (§2.4)."""
+        if not edges:
+            return
+        self._dirty = True
+        band = 16 if strong else 10
+        fill = theme.rgba(status, 0.55 if strong else 0.30)
+        ink = theme.rgba(status, 1.0)
+        w, h = self.w, self.h
+        ax, ay = along if along else (0.5, 0.5)
+        px = int(min(max(ax, 0.08), 0.92) * w)
+        py = int(min(max(ay, 0.08), 0.92) * h)
+        s = 22                                    # chevron half-size
+        for e in edges:
+            if e == "left":
+                self.draw.rectangle([0, 0, band, h], fill=fill)
+                x = band + 14
+                pts = [(x, py - s), (x + s, py), (x, py + s)]
+            elif e == "right":
+                self.draw.rectangle([w - band, 0, w, h], fill=fill)
+                x = w - band - 14
+                pts = [(x, py - s), (x - s, py), (x, py + s)]
+            elif e == "top":
+                self.draw.rectangle([0, 0, w, band], fill=fill)
+                y = band + 14
+                pts = [(px - s, y), (px, y + s), (px + s, y)]
+            else:
+                self.draw.rectangle([0, h - band, w, h], fill=fill)
+                y = h - band - 14
+                pts = [(px - s, y), (px, y - s), (px + s, y)]
+            if strong:
+                self.draw.line(pts, fill=ink, width=6, joint="curve")
 
     # ── final composite ───────────────────────────────────────────────────
 

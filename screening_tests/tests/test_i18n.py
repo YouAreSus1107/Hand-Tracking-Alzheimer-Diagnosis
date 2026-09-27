@@ -192,6 +192,9 @@ _REASON_MODULES = (
     ("core", "spiral", "metrics.py"),
     ("core", "gaze", "metrics.py"),
     ("core", "gaze", "calibrate.py"),
+    ("core", "speech", "metrics.py"),
+    ("core", "speech", "phonation.py"),
+    ("core", "tremor", "metrics.py"),
 )
 
 _BAND_MODULES = (
@@ -199,6 +202,9 @@ _BAND_MODULES = (
     ("core", "spiral", "metrics.py"),
     ("core", "gaze", "metrics.py"),
     ("core", "gaze", "fixation.py"),
+    ("core", "speech", "metrics.py"),
+    ("core", "speech", "phonation.py"),
+    ("core", "tremor", "metrics.py"),
 )
 
 _STATUS_TOKENS = {"success", "warning", "danger", "info"}
@@ -296,11 +302,18 @@ def test_every_instruction_block_is_translated():
     """The pre-split instruction panels. These are keyed rather than translated
     line by line, so a missing key degrades silently to the English lines."""
     from core.gaze.tasks import TASKS
+    from core.speech.tasks import PHONATION, TASKS as SPEECH_TASKS
     from core.tapping.modes import MODES
+    from core.tremor.phases import PHASES as TREMOR_PHASES
 
     _reset("zh")
     blocks = [(f"tap.{k}.instructions", m.instructions) for k, m in MODES.items()]
     blocks += [(f"gaze.{k}.instructions", t.instructions) for k, t in TASKS.items()]
+    blocks += [(f"ddk.{k}.instructions", t.instructions)
+               for k, t in SPEECH_TASKS.items()]
+    blocks.append(("phon.ahh.instructions", PHONATION.instructions))
+    blocks += [(f"tremor.{k}.instructions", p.instructions)
+               for k, p in TREMOR_PHASES.items()]
     blocks.append(("gaze.fix.instructions", ("x",)))
     blocks.append(("spiral.instructions", ("x",)))
     for key, english in blocks:
@@ -313,13 +326,19 @@ def test_every_instruction_block_is_translated():
 def test_every_screen_title_is_translated():
     """The h1/h2 a user reads first on each tool."""
     from core.gaze.tasks import TASKS
+    from core.speech.tasks import PHONATION, TASKS as SPEECH_TASKS
     from core.tapping.modes import MODES
+    from core.tremor.phases import PHASES as TREMOR_PHASES
 
     _reset("zh")
     titles = ["Finger Tapping Test", "Spiral Tracing Test", "Eye Movement Test",
-              "Part 3 - Hold Still"]
+              "Part 3 - Hold Still", "Speech Test", "Hand Tremor Test",
+              "Hand Tremor - Results"]
     titles += [m.title for m in MODES.values()]
     titles += [t.title for t in TASKS.values()]
+    titles += [t.title for t in SPEECH_TASKS.values()] + [PHONATION.title]
+    titles += [p.title for p in TREMOR_PHASES.values()]
+    titles += [p.cue for p in TREMOR_PHASES.values()]
     for title in titles:
         assert _is_chinese(i18n.t(title)), f"untranslated title: {title!r}"
 

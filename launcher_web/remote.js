@@ -1,5 +1,5 @@
 /* Remote Sessions page — mint a link, watch what comes back.
-   docs/REMOTE_SESSION_PLAN.md
+   docs/platform/REMOTE_SESSION_PLAN.md
 
    A classic script like dev.js, loaded after app.js so it shares that file's
    `I` (icons), `t`/`tMsg` (i18n) and `toast()` bindings. app.js's showPage()

@@ -6,7 +6,7 @@ Build the downloadable setup bundle the published site hands out.
 
 The bundle is `git archive` of the current commit: that is exactly the set of
 files the project publishes, because .gitignore already keeps results/, docs/,
-research/, archive/ and CLAUDE.md out of it. It carries the code, the hand
+archive/ and CLAUDE.md out of it. It carries the code, the hand
 model and the assets (~8 MB); install.py fetches the pip dependencies and
 face_landmarker.task on the user's machine, which is why this stays small
 enough to serve off Firebase Hosting.

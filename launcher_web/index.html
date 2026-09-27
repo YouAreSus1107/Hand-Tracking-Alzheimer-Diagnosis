@@ -57,6 +57,8 @@ button,input{font:inherit;color:inherit}
           <button class="nav-link" role="menuitem" data-page="iiv" data-i18n="nav.iiv">Finger Tapping</button>
           <button class="nav-link" role="menuitem" data-page="spiral" data-i18n="nav.spiral">Spiral Tracing</button>
           <button class="nav-link" role="menuitem" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
+          <button class="nav-link" role="menuitem" data-page="ddk" data-i18n="nav.ddk">Speech</button>
+          <button class="nav-link" role="menuitem" data-page="tremor" data-i18n="nav.tremor">Hand Tremor</button>
           <button class="nav-link" role="menuitem" data-page="tracking" data-i18n="nav.tracking">Hand Tracking</button>
         </div>
       </div>
@@ -326,14 +328,81 @@ button,input{font:inherit;color:inherit}
       <div class="section-head"><h2 data-i18n="why.sec.pillars">The Differentiators</h2><div class="sh-line"></div></div>
       <div class="pillar-grid" id="why-pillars"></div>
 
+      <!-- Validation. Accuracy: tools/eval_tapping_videos.py on EHWGesture (264 recordings,
+           22 healthy volunteers, 120 fps motion capture). Patients: tools/eval_tapping_hubu.py on
+           HUBU-FIS (234 videos, 118 people, UPDRS). Charts: tools/plot_grade_agreement.py and
+           tools/plot_updrs_cv.py. Numbers here must match those runs; see the validation report. -->
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="why.sec.val">Tested Against Real Data</h2><div class="sh-line"></div></div>
+      <div class="val">
+        <h3 class="val-sub" data-i18n="why.val.h1">1 · Does it measure tapping correctly?</h3>
+        <p class="val-lede" data-i18n="why.val.lede">We ran our finger tapping test on
+          <a href="https://github.com/smilies-polito/EHWGesture" target="_blank" rel="noopener">EHWGesture</a>,
+          a public dataset from Politecnico di Torino presented at ICCV 2025. Every video was filmed next to a
+          120 fps motion capture system tracking the thumb and index finger. That gives the true time of every
+          tap, so we can check ours against it.</p>
+
+        <div class="val-stats">
+          <div class="val-stat"><b>99.7%</b><span data-i18n="why.val.s1">of taps found in held-out volunteers</span></div>
+          <div class="val-stat"><b>0.7</b><span data-i18n="why.val.s2">points median CV% error against motion capture</span></div>
+          <div class="val-stat"><b>45 / 47</b><span data-i18n="why.val.s3">recordings placed in the same result band</span></div>
+          <div class="val-stat"><b>598 / 600</b><span data-i18n="why.val.s4">irregular runs flagged at the 15% cut-off</span></div>
+        </div>
+        <p class="val-meta" data-i18n="why.val.meta">264 recordings · 22 healthy volunteers · 3 tapping speeds · tap rate r = 0.98</p>
+
+        <figure class="val-fig">
+          <div class="art-slot" style="--ar:16/9" data-art="validation/grade-agreement">
+            <img src="img/validation/grade-agreement.webp" loading="lazy"
+                 alt="Scatter of our CV% against motion capture CV% for 264 recordings. 212 fall in the same grade band.">
+          </div>
+          <figcaption data-i18n="why.val.f1">Our grade against the motion capture grade for all 264 recordings. On the 47 held-out recordings the two matched 45 times.</figcaption>
+        </figure>
+
+        <ol class="val-steps">
+          <li><h4 data-i18n="why.val.t1.h">Keep a test set aside</h4>
+            <p data-i18n="why.val.t1.p">We followed the dataset's own split and held 5 volunteers back. No setting was changed to fit them.</p></li>
+          <li><h4 data-i18n="why.val.t2.h">Match every tap</h4>
+            <p data-i18n="why.val.t2.p">Each camera tap was paired with its motion capture tap. Ours land about 18 ms after finger contact, with 16 ms of spread.</p></li>
+          <li><h4 data-i18n="why.val.t3.h">Stress test irregular tapping</h4>
+            <p data-i18n="why.val.t3.p">We stretched cycles in 150 real recordings to set CV% anywhere from 6% to 48%. The median read back stayed within 3 points.</p></li>
+        </ol>
+
+        <h3 class="val-sub" data-i18n="why.val.h2">2 · Does it tell patients apart?</h3>
+        <p class="val-lede" data-i18n="why.val.p.lede">We ran the same test, unchanged, on
+          <a href="https://zenodo.org/records/17738775" target="_blank" rel="noopener">HUBU-FIS</a>,
+          234 phone videos from 75 people with Parkinson's and 43 controls. A neurologist rated every hand
+          on the UPDRS finger tapping item, from 0 (normal) to 3 (clearly impaired).</p>
+
+        <div class="val-stats">
+          <div class="val-stat"><b>0.86</b><span data-i18n="why.val.p.s1">AUC separating UPDRS 2 to 3 from UPDRS 0</span></div>
+          <div class="val-stat"><b>91%</b><span data-i18n="why.val.p.s2">of unimpaired hands graded Typical</span></div>
+          <div class="val-stat"><b>73%</b><span data-i18n="why.val.p.s3">of impaired hands flagged Monitor or Follow-up</span></div>
+          <div class="val-stat"><b>0.47</b><span data-i18n="why.val.p.s4">rank correlation between our CV% and the neurologist's grade</span></div>
+        </div>
+        <p class="val-meta" data-i18n="why.val.p.meta">234 videos · 118 people · 95% CI for AUC 0.77 to 0.93 · 229 of 234 scored</p>
+
+        <figure class="val-fig">
+          <div class="art-slot" style="--ar:16/9" data-art="validation/updrs-cv">
+            <img src="img/validation/updrs-cv.webp" loading="lazy"
+                 alt="Our CV% for every hand, grouped by UPDRS grade 0 to 3. Medians rise from about 8% to 34%.">
+          </div>
+        </figure>
+
+        <p class="val-next" data-i18n="why.val.next">These are Parkinson's patients. The results show the test picks up
+          real motor impairment, but they do not show it detects cognitive decline. That needs its own study.</p>
+        <p class="val-credit" data-i18n="why.val.credit">Data credit.
+          <a href="https://github.com/smilies-polito/EHWGesture" target="_blank" rel="noopener">EHWGesture</a>, Politecnico di Torino, and
+          <a href="https://zenodo.org/records/17738775" target="_blank" rel="noopener">HUBU-FIS</a>, Universidad de Burgos and
+          Hospital Universitario de Burgos. Both are shared under CC BY 4.0.</p>
+      </div>
+
       <div class="section-head" style="margin-top:36px"><h2 data-i18n="why.sec.matrix">How It Compares</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="why-legend"></span></div>
       <div class="cmp-wrap"><div id="why-matrix"></div></div>
 
       <p class="analysis-disclaimer" data-i18n="why.disclaimer">
         This is a <strong>screening aid, not a diagnosis</strong>. Scoring bands are
-        provisional pending a normative cohort, and validation on patient groups is the
-        roadmap&#8217;s decisive next step &#8212; shown honestly in the table above.
+        provisional pending a normative cohort. The tapping test has been checked on a
+        Parkinson&#8217;s dataset, and validation in cognitive decline is the next step.
       </p>
     </div>
   </div>
@@ -365,7 +434,7 @@ button,input{font:inherit;color:inherit}
             iPad, run the test in their browser, and the measurements come back to this machine and
             appear in <strong>Analysis</strong> alongside everything run locally. The camera video
             never leaves their device &#8212; only the numbers travel. Plan:
-            <code>docs/REMOTE_SESSION_PLAN.md</code>.</p>
+            <code>docs/platform/REMOTE_SESSION_PLAN.md</code>.</p>
           </div>
         </div>
       </div>
@@ -393,7 +462,11 @@ button,input{font:inherit;color:inherit}
     </div>
   </div>
 
-  <!-- IIV DETAIL -->
+  <!-- IIV DETAIL
+       Pictures carry the page; the prose lives in "The science" drawer.
+       Each .art-slot is a placeholder for an illustration that has not been
+       drawn yet: it names the picture, says what it shows, and gives the file
+       it will be. Briefs: launcher_web/img/tapping/README.md. -->
   <div class="page" id="page-iiv">
     <div class="detail">
       <button class="detail-back" onclick="showPage('home')" aria-label="Back to dashboard"></button>
@@ -401,38 +474,144 @@ button,input{font:inherit;color:inherit}
         <div class="detail-icon" id="detail-icon-iiv"></div>
         <div class="detail-info">
           <h1 data-i18n="iiv.h1">Finger Tapping Test</h1>
-          <div class="detail-file">screening_tests/finger_tapping.py</div>
-          <p data-i18n="iiv.lede">Tap your index finger to your thumb rhythmically.</p>
-          <div class="detail-tags">
-            <span class="detail-tag" data-i18n="iiv.tag1">Big &amp; Fast (20 s)</span><span class="detail-tag" data-i18n="iiv.tag2">Paced (30 s)</span>
-            <span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span><span class="detail-tag" data-i18n="iiv.tag4">CV% headline metric</span>
+          <p data-i18n="iiv.v2.lede">Tap your finger and thumb — big and fast.</p>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="iiv.v2.fact1">20–30 s</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg><span data-i18n="common.tag.oneHand">1 hand</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
           </div>
           <div class="detail-actions" id="iiv-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
-        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="iiv.how.intro">Two modes share the same detection engine. Both start with the same calibration. They differ in how you pace the taps.</p>
-        <div class="mode-split">
-          <div class="mode-col">
-            <div class="mode-col-head"><h3 data-i18n="iiv.mode1.h">Big &amp; Fast</h3><span class="mode-badge" data-i18n="iiv.mode1.badge">20 s &#183; self-paced &#183; primary</span></div>
-            <div class="steps">
-              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode1.s1.h">Calibrate</h4><p data-i18n="iiv.mode1.s1.p">Pick your webcam or IP camera. MediaPipe tracks 21 points on your hand. A short open-and-close warm-up sets the starting tap threshold for your hand size, and from there it follows the excursion you are actually making — so taps still count as they get shallower through the run.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode1.s2.h">Tap big &amp; fast</h4><p data-i18n="iiv.mode1.s2.p">Tap your index finger to your thumb <strong>as big and as fast as you can for 20 seconds</strong>. The app measures tip-to-tip distance on every frame. Full-excursion tapping like this runs at <strong>2 to 3 taps per second</strong> in healthy adults. Our runs land around 1 to 2, and that gap is still open.</p></div></div>
-              <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode1.s3.h">Score</h4><p data-i18n="iiv.mode1.s3.p">The headline score is <strong>CV%</strong> of your inter-tap intervals. You also get tap frequency, amplitude variability, and speed decrement.</p></div></div>
-            </div>
-          </div>
-          <div class="mode-col">
-            <div class="mode-col-head"><h3 data-i18n="iiv.mode2.h">Paced Rhythm</h3><span class="mode-badge alt" data-i18n="iiv.mode2.badge">30 s &#183; 1 Hz metronome</span></div>
-            <div class="steps">
-              <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="iiv.mode2.s1.h">Calibrate</h4><p data-i18n="iiv.mode2.s1.p">Same camera setup and the same open-and-close warm-up to set your tap threshold.</p></div></div>
-              <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="iiv.mode2.s2.h">Warm up to the beat</h4><p data-i18n="iiv.mode2.s2.p">You get 5 seconds of practice with the metronome. Beeps play <strong>200 ms early</strong> to cancel out audio delay. They run on a fixed grid so they never drift.</p></div></div>
-              <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="iiv.mode2.s3.h">Tap on each beep</h4><p data-i18n="iiv.mode2.s3.p">Tap <strong>once per beep</strong> for 30 seconds, one beep per second. Staying consistent matters more than being perfectly on time.</p></div></div>
-              <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="iiv.mode2.s4.h">Score</h4><p data-i18n="iiv.mode2.s4.p">The headline score is <strong>CV%</strong>, your rhythm consistency. <strong>Beat-sync SD</strong> shows how close your taps land to each beep. The first 3 warm-up taps are dropped.</p></div></div>
-            </div>
+
+      <section class="how-it-works">
+        <div class="how-head">
+          <h2 data-i18n="common.howItWorks">How It Works</h2>
+          <div class="seg" id="iiv-seg" role="tablist" aria-label="Test mode">
+            <button type="button" role="tab" id="iiv-tab-fast" data-mode="fast" aria-controls="iiv-strip-fast" aria-selected="true" tabindex="0" onclick="setTapMode('fast')"><span data-i18n="iiv.mode1.h">Big &amp; Fast</span><small data-i18n="iiv.v2.mode1.badge">20 s</small></button>
+            <button type="button" role="tab" id="iiv-tab-paced" data-mode="paced" aria-controls="iiv-strip-paced" aria-selected="false" tabindex="-1" onclick="setTapMode('paced')"><span data-i18n="iiv.mode2.h">Paced Rhythm</span><small data-i18n="iiv.v2.mode2.badge">30 s · beep</small></button>
           </div>
         </div>
-        <p class="band-note" data-i18n="iiv.paradigm">This is the <strong>MDS-UPDRS finger-tapping movement</strong> &#8212; thumb to index through the widest range you can manage, hand in the air. It is not the desk-tapping test, where one finger taps a key with the wrist resting and the amplitude does not matter. That distinction sets the whole scale: desk tapping runs at 5&#8211;7 taps per second, full-excursion tapping at 2.4&#8211;3.6, falling with age. A rate that looks alarmingly slow against the wrong test is unremarkable against the right one.</p>
+
+        <ol class="filmstrip" id="iiv-strip-fast" data-mode="fast" role="tabpanel" aria-labelledby="iiv-tab-fast">
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-1-get-set"><img src="img/tapping/step-1-get-set.webp" width="960" height="720" loading="lazy" decoding="async" alt="The hand raised beside the face, whole hand in view, while the countdown runs" aria-label="The hand raised beside the face, whole hand in view, while the countdown runs" data-i18n-aria="iiv.v2.img1"></figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="iiv.v2.s1.h">Sit back, hand up</h4><p data-i18n="iiv.v2.s1.p">Whole hand inside the box.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-2-open-close"><img src="img/tapping/step-2-open-close.webp" width="960" height="720" loading="lazy" decoding="async" alt="Thumb and index finger spread wide, with the tracked points drawn on the hand" aria-label="Thumb and index finger spread wide, with the tracked points drawn on the hand" data-i18n-aria="iiv.v2.img2"></figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="iiv.v2.s2.h">Open wide, close once</h4><p data-i18n="iiv.v2.s2.p">Sets the size of your taps.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-3-fast"><img src="img/tapping/step-3-fast.webp" width="960" height="720" loading="lazy" decoding="async" alt="Tapping in progress: tap count, rate and the live distance trace on screen" aria-label="Tapping in progress: tap count, rate and the live distance trace on screen" data-i18n-aria="iiv.v2.img3"></figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="iiv.v2.s3f.h">Tap big &amp; fast</h4><p data-i18n="iiv.v2.s3f.p">20 seconds, as fast as you can.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-4-score-fast"><img src="img/tapping/step-4-score-fast.webp" width="960" height="720" loading="lazy" decoding="async" alt="The results screen: rhythm variability 11.1%, within typical range" aria-label="The results screen: rhythm variability 11.1%, within typical range" data-i18n-aria="iiv.v2.img4"></figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="iiv.v2.s4.h">Your score</h4><p data-i18n="iiv.v2.s4.p">How even your rhythm was.</p></div></div>
+          </li>
+        </ol>
+
+        <ol class="filmstrip" id="iiv-strip-paced" data-mode="paced" role="tabpanel" aria-labelledby="iiv-tab-paced" hidden>
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-1-get-set"><img src="img/tapping/step-1-get-set.webp" width="960" height="720" loading="lazy" decoding="async" alt="The hand raised beside the face, whole hand in view, while the countdown runs" aria-label="The hand raised beside the face, whole hand in view, while the countdown runs" data-i18n-aria="iiv.v2.img1"></figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="iiv.v2.s1.h">Sit back, hand up</h4><p data-i18n="iiv.v2.s1.p">Whole hand inside the box.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure class="art-slot is-art" data-art="tapping/step-2-open-close"><img src="img/tapping/step-2-open-close.webp" width="960" height="720" loading="lazy" decoding="async" alt="Thumb and index finger spread wide, with the tracked points drawn on the hand" aria-label="Thumb and index finger spread wide, with the tracked points drawn on the hand" data-i18n-aria="iiv.v2.img2"></figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="iiv.v2.s2.h">Open wide, close once</h4><p data-i18n="iiv.v2.s2.p">Sets the size of your taps.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Hand mid-tap beside the rhythm ring: expanding teal rings, speaker glyph in the centre. Below, evenly spaced beat ticks with a tap dot on each. 30 s ring in the corner." class="art-slot" data-art="tapping/step-3-paced">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Tap with the beep</b>
+                <code class="slot-file">img/tapping/step-3-paced.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="iiv.v2.s3p.h">Tap with each beep</h4><p data-i18n="iiv.v2.s3p.p">One tap per beep, for 30 seconds.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Same card as Big & Fast, reading “9%”, plus a small strip of tap dots clustered tightly on beat lines." class="art-slot" data-art="tapping/step-4-score-paced">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Your score</b>
+                <code class="slot-file">img/tapping/step-4-score-paced.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="iiv.v2.s4.h">Your score</h4><p data-i18n="iiv.v2.s4p.p">How steady you stayed on the beat.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure class="art-slot is-art" data-art="tapping/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span><img src="img/tapping/tip-1-do.webp" width="600" height="600" loading="lazy" decoding="async" alt="The whole hand inside the picture, with room around it" aria-label="The whole hand inside the picture, with room around it" data-i18n-aria="iiv.v2.img5"></figure>
+              <figure class="art-slot is-art" data-art="tapping/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span><img src="img/tapping/tip-1-dont.webp" width="600" height="600" loading="lazy" decoding="async" alt="The hand running off the edge, with the out-of-view warning showing" aria-label="The hand running off the edge, with the out-of-view warning showing" data-i18n-aria="iiv.v2.img6"></figure>
+            </div>
+            <h4 data-i18n="iiv.v2.tip1">Whole hand in view</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure class="art-slot is-art" data-art="tapping/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span><img src="img/tapping/tip-2-do.webp" width="600" height="600" loading="lazy" decoding="async" alt="Even light from the front: face and hand clearly visible" aria-label="Even light from the front: face and hand clearly visible" data-i18n-aria="iiv.v2.img7"></figure>
+              <figure class="art-slot is-art" data-art="tapping/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span><img src="img/tapping/tip-2-dont.webp" width="600" height="600" loading="lazy" decoding="async" alt="A bright light behind the hand washing it out" aria-label="A bright light behind the hand washing it out" data-i18n-aria="iiv.v2.img8"></figure>
+            </div>
+            <h4 data-i18n="iiv.v2.tip2">Light in front of you</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure class="art-slot is-art" data-art="tapping/tip-3-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span><img src="img/tapping/tip-3-do.webp" width="600" height="600" loading="lazy" decoding="async" alt="Thumb and index finger opened wide" aria-label="Thumb and index finger opened wide" data-i18n-aria="iiv.v2.img9"></figure>
+              <figure class="art-slot is-art" data-art="tapping/tip-3-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span><img src="img/tapping/tip-3-dont.webp" width="600" height="600" loading="lazy" decoding="async" alt="Thumb and index finger barely opening, with an uneven trace" aria-label="Thumb and index finger barely opening, with an uneven trace" data-i18n-aria="iiv.v2.img10"></figure>
+            </div>
+            <h4 data-i18n="iiv.v2.tip3">Open all the way</h4>
+          </div>
+        </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <!-- A real, de-identified run (img/tapping/example-recordings.json),
+             drawn by report.js's own tapping charts; follows the mode tabs. -->
+        <div class="rec-card" data-rec="iiv">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body"></div>
+          <div class="metric-chips"></div>
+        </div>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/finger_tapping.py</div>
+      <div class="tl-section"><h2 data-i18n="iiv.tl.title">How This Test Changed</h2>
+        <p class="tl-lede" data-i18n="iiv.tl.lede">Every change to how we score tapping, and the reason for it. Newest at the bottom.</p>
+        <ol class="tl">
+            <li class="tl-item tl-start"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.jul">Jul 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.start">Start</span></div>
+              <h4 data-i18n="iiv.tl.1.h">Start from Roalf 2018</h4><p data-i18n="iiv.tl.1.p">Roalf and colleagues found that uneven gaps between taps set MCI, Alzheimer&#8217;s and Parkinson&#8217;s apart from healthy people better than speed did. That made CV% of tap intervals our headline number. The first version tapped to a 1 Hz metronome.</p></li>
+            <li class="tl-item tl-fixed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.jul">Jul 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.fixed">Fixed</span></div>
+              <h4 data-i18n="iiv.tl.2.h">Lighter smoothing</h4><p data-i18n="iiv.tl.2.p">The landmark smoothing rounded off the moment the fingers meet, which hid real taps when tapping fast. We lightened it.</p></li>
+            <li class="tl-item tl-changed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.aug">Aug 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.changed">Changed</span></div>
+              <h4 data-i18n="iiv.tl.3.h">Big &amp; Fast becomes the main mode</h4><p data-i18n="iiv.tl.3.p">An audit found the papers we cite used tapping as big and fast as possible, not a metronome. We added that mode, following TapTalk and Suzumura, and kept the metronome as a second mode.</p></li>
+            <li class="tl-item tl-fixed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.aug">Aug 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.fixed">Fixed</span></div>
+              <h4 data-i18n="iiv.tl.4.h">Thresholds fit each hand</h4><p data-i18n="iiv.tl.4.p">One fixed touch threshold failed for large or distant hands, and a 300 ms lockout blocked fast taps. A short warm-up now learns each person&#8217;s open and closed hand.</p></li>
+            <li class="tl-item tl-added"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.aug">Aug 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.added">Added</span></div>
+              <h4 data-i18n="iiv.tl.5.h">Confidence on every score</h4><p data-i18n="iiv.tl.5.p">A CV% from 5 intervals is not as trustworthy as one from 60. Every result now carries a confidence level and a 95% interval (Miller 1991), and the test runs 20 s to collect enough intervals.</p></li>
+            <li class="tl-item tl-fixed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.aug">Aug 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.fixed">Fixed</span></div>
+              <h4 data-i18n="iiv.tl.6.h">Thresholds follow the tapping</h4><p data-i18n="iiv.tl.6.p">Real taps are smaller than the warm-up and shrink over the run, so fixed thresholds missed the shallow ones. One missed tap doubles an interval and made healthy runs read Follow-up. Thresholds now follow the last 3 seconds, with a floor so a still hand never counts.</p></li>
+            <li class="tl-item tl-fixed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.fixed">Fixed</span></div>
+              <h4 data-i18n="iiv.tl.7.h">Honest speed expectations</h4><p data-i18n="iiv.tl.7.p">The 5 to 7 taps per second we assumed belongs to desk key tapping. For this thumb and index movement people of 50 and over manage about 2.4 to 2.7 (Kwon 2022). A speed floor built on the wrong figure rejected about 70% of real runs, so it became a fixed 0.5 taps per second.</p></li>
+            <li class="tl-item tl-added"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.added">Added</span></div>
+              <h4 data-i18n="iiv.tl.8.h">Pause when the hand leaves</h4><p data-i18n="iiv.tl.8.p">If the hand drops out of frame the test pauses, and the interval across the gap is left out. It measures the pause, not the rhythm.</p></li>
+            <li class="tl-item tl-tested"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.tested">Tested</span></div>
+              <h4 data-i18n="iiv.tl.9.h">Checked against motion capture</h4><p data-i18n="iiv.tl.9.p">On EHWGesture, with 120 fps markers on 22 healthy volunteers, we found 99.7% of taps in held-out volunteers. It also showed 15 of 217 healthy recordings graded Follow-up, mostly where the camera lost the fingers.</p></li>
+            <li class="tl-item tl-rejected"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.rejected">Rejected</span></div>
+              <h4 data-i18n="iiv.tl.10.h">Four detector ideas dropped</h4><p data-i18n="iiv.tl.10.p">Re-timing taps, a lower re-open threshold, re-arming after each dip and filling long gaps each helped one check and broke another, for example by counting a still hand as tapping.</p></li>
+            <li class="tl-item tl-added"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.added">Added</span></div>
+              <h4 data-i18n="iiv.tl.11.h">A recording quality gate</h4><p data-i18n="iiv.tl.11.p">To stop those false alarms, runs with many half closures or wildly uneven openings were asked to redo. False Follow-ups fell from 15 to 5, and none of our own 85 sessions were affected.</p></li>
+            <li class="tl-item tl-removed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.removed">Removed</span></div>
+              <h4 data-i18n="iiv.tl.12.h">The gate hid patients</h4><p data-i18n="iiv.tl.12.p">On HUBU-FIS, 234 videos of Parkinson&#8217;s patients and controls, the gate held back 10 of 26 severe patients, because uneven openings are a sign of Parkinson&#8217;s. We removed it and accepted the extra false alarms.</p></li>
+            <li class="tl-item tl-tested"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.tested">Tested</span></div>
+              <h4 data-i18n="iiv.tl.13.h">Tested on patients</h4><p data-i18n="iiv.tl.13.p">With the gate gone, CV% separates impaired from unimpaired hands with an AUC of 0.86. It grades 91% of unimpaired hands Typical and flags 73% of impaired ones.</p></li>
+        </ol>
       </div>
+        <p class="band-note" data-i18n="iiv.paradigm">This is the <strong>MDS-UPDRS finger-tapping movement</strong> &#8212; thumb to index through the widest range you can manage, hand in the air. It is not the desk-tapping test, where one finger taps a key with the wrist resting and the amplitude does not matter. That distinction sets the whole scale: desk tapping runs at 5&#8211;7 taps per second, full-excursion tapping at 2.4&#8211;3.6, falling with age. A rate that looks alarmingly slow against the wrong test is unremarkable against the right one.</p>
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="iiv.m1.h">Rhythm variability (CV%)</h4><p data-i18n="iiv.m1.p">The test captures the Standard Deviation of inter-tap intervals. The scale-invariant prime biomarker.</p><div class="metric-num" data-i18n="iiv.m1.num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite" data-i18n="iiv.m1.cite">IIV elevated across neurodegenerative groups &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5992087/" target="_blank" rel="noopener">Roalf 2018</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk 2024</a></div></div>
@@ -449,6 +628,8 @@ button,input{font:inherit;color:inherit}
         <div class="paper"><h4 data-i18n="iiv.p3.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener">TAS Test: Webcam Hand Movements Predict Cognition</a></h4><div class="paper-authors" data-i18n="iiv.p3.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC10809289</div><p data-i18n="iiv.p3.body">404 adults with no cognitive symptoms did a 10-second webcam tapping test at home. Adding their hand-motor features improved predictions of memory, executive function, and working memory. We cite it because it shows the test works unsupervised at home.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p3.tag">At-home webcam validation</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10809289/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="iiv.p4.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener">Age-Related Differences in Finger Tapping</a></h4><div class="paper-authors" data-i18n="iiv.p4.authors">Kwon et al., 2022 &#183; Technology and Health Care 30(S1) &#183; PMC9028619</div><p data-i18n="iiv.p4.body">83 healthy adults aged 20 to 89 tapped index finger to thumb for 15 seconds &#8220;as rapidly as possible and with as large amplitude as possible&#8221; &#8212; our instruction, word for word &#8212; with a sensor on the finger. Rates fell from 3.53 Hz in the twenties to 2.69 at 50&#8211;69 and 2.36 at 70&#8211;89. We cite it because it is the closest thing to a normative rate for this test, and it is nowhere near the desk-tapping figure.</p><div class="paper-foot"><span class="paper-tag" data-i18n="iiv.p4.tag">Rate norms for this paradigm</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9028619/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -461,21 +642,97 @@ button,input{font:inherit;color:inherit}
         <div class="detail-info">
           <h1 data-i18n="spiral.h1">Spiral Tracing Test</h1>
           <p data-i18n="spiral.lede">Trace a spiral in the air with your fingertip.</p>
-          <div class="detail-tags">
-            <span class="detail-tag" data-i18n="spiral.tag1">40 s test</span><span class="detail-tag" data-i18n="common.tag.oneHand">1 hand</span>
-            <span class="detail-tag" data-i18n="spiral.tag3">On-screen guide</span><span class="detail-tag" data-i18n="spiral.tag4">Air tracing</span>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.40s">~40 s</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg><span data-i18n="common.tag.oneHand">1 hand</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
           </div>
           <div class="detail-actions" id="spiral-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
-        <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="spiral.s1.h">Guide Display</h4><p data-i18n="spiral.s1.p">A spiral guide appears on screen. Hold your hand in front of the camera with your index finger pointed out.</p></div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="spiral.s2.h">Trace the Spiral</h4><p data-i18n="spiral.s2.p">Trace the spiral from the center outwards with your fingertip, at whatever pace feels comfortable. There is no dot to chase. The app records your raw fingertip position on every frame.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="spiral.s3.h">Movement Analysis</h4><p data-i18n="spiral.s3.p">The app looks at how your speed changed during the trace. It scores how smooth and steady the movement was, not how closely you matched a target.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="spiral.s4.h">Smoothness Scoring</h4><p data-i18n="spiral.s4.p">The headline score is a smoothness index called <strong>SPARC</strong>. You also get velocity CV%, normalized jerk, a tremor readout, and how much of the spiral you finished.</p></div></div>
+
+      <section class="how-it-works">
+        <h2 data-i18n="common.howItWorks">How It Works</h2>
+        <ol class="filmstrip">
+          <li class="frame">
+            <figure title="Laptop screen showing the spiral, sitting high on the screen. The character&#x27;s hand is raised with the index finger pointed at it; the whole hand fits inside the frame." class="art-slot" data-art="spiral/step-1-get-set">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Point your finger</b><code class="slot-file">img/spiral/step-1-get-set.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="spiral.v2.s1.h">Point your finger</h4><p data-i18n="spiral.v2.s1.p">Index finger out, whole hand in view.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="A smaller spiral with a soft teal pace band along one stretch of it and a speed gauge beside it. Clearly marked as practice: dashed outline, no score." class="art-slot" data-art="spiral/step-2-practice">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Practice spiral</b><code class="slot-file">img/spiral/step-2-practice.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="spiral.v2.s2.h">Try a practice spiral</h4><p data-i18n="spiral.v2.s2.p">Unscored. Find a comfortable pace.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="The fingertip following the spiral outward from the centre, a fading trail behind it. No dot ahead to chase." class="art-slot" data-art="spiral/step-3-trace">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Trace from the centre</b><code class="slot-file">img/spiral/step-3-trace.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="spiral.v2.s3.h">Trace from the centre out</h4><p data-i18n="spiral.v2.s3.p">Your own pace. No dot to chase.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Mini result card: a big smoothness number (72) with a green ✓ chip, beside a small thumbnail of the traced spiral in green." class="art-slot" data-art="spiral/step-4-score">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Your score</b><code class="slot-file">img/spiral/step-4-score.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="spiral.v2.s4.h">Your score</h4><p data-i18n="spiral.v2.s4.p">How smooth and steady it was.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Seated back; whole hand and fingertip inside the frame, below the spiral." class="art-slot" data-art="spiral/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Hand fits</b><code class="slot-file">img/spiral/tip-1-do.webp</code></div>
+              </figure>
+              <figure title="Seated too close; the palm runs off the bottom edge, red edge band and inward chevron." class="art-slot" data-art="spiral/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Hand off the bottom</b><code class="slot-file">img/spiral/tip-1-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="spiral.v2.tip1">Sit back so your hand fits</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Dots along a spiral arc, evenly spaced: a steady speed." class="art-slot" data-art="spiral/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Even pace</b><code class="slot-file">img/spiral/tip-2-do.webp</code></div>
+              </figure>
+              <figure title="Dots bunched then gapped along the arc: rushing and pausing." class="art-slot" data-art="spiral/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Stop and start</b><code class="slot-file">img/spiral/tip-2-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="spiral.v2.tip2">One steady pace</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Lamp in front; hand evenly lit." class="art-slot" data-art="spiral/tip-3-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Lit from the front</b><code class="slot-file">img/spiral/tip-3-do.webp</code></div>
+              </figure>
+              <figure title="Bright window behind; hand a dark silhouette." class="art-slot" data-art="spiral/tip-3-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Window behind</b><code class="slot-file">img/spiral/tip-3-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="spiral.v2.tip3">Light in front of you</h4>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <div class="rec-card" data-rec="spiral">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body"></div>
+          <div class="metric-chips"></div>
+        </div>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/spiral_test.py</div>
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="spiral.m1.h">Smoothness Index (SPARC)</h4><p data-i18n="spiral.m1.p">Spectral Arc Length of the speed profile (Balasubramanian et al. 2015), mapped 0&#8211;100. The headline: higher means smoother, more automatic movement.</p></div>
@@ -490,6 +747,8 @@ button,input{font:inherit;color:inherit}
         <div class="paper"><h4 data-i18n="spiral.p2.title">Spiral + Wave Drawing with Explainable CNN for PD</h4><div class="paper-authors" data-i18n="spiral.p2.authors">2024/2025 &#183; Springer</div><p data-i18n="spiral.p2.body">A deep-learning model classifies Parkinson's from spiral and wave drawings. Its saliency maps show which parts of the drawing drove the call. We cite it as an example of keeping automated scoring explainable.</p><span class="paper-tag" data-i18n="spiral.p2.tag">Explainable AI approach</span></div>
         <div class="paper"><h4 data-i18n="spiral.p3.title">Tapping + Spiral for Tremor Differential Diagnosis</h4><div class="paper-authors" data-i18n="spiral.p3.authors">NCT06378619 &#183; ClinicalTrials.gov</div><p data-i18n="spiral.p3.body">An active trial that combines tapping and spiral drawing with machine learning to tell tremor types apart. We cite it as precedent for combining our own tests into one classifier.</p><span class="paper-tag" data-i18n="spiral.p3.tag">Combined test precedent</span></div>
       </div>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -501,28 +760,105 @@ button,input{font:inherit;color:inherit}
         <div class="detail-icon" id="detail-icon-oculomotor"></div>
         <div class="detail-info">
           <h1 data-i18n="oculo.h1">Eye Movement Test</h1>
-          <div class="detail-file">screening_tests/oculomotor_test.py</div>
-          <p data-i18n="oculo.lede">A webcam-only <strong>pro/anti-saccade</strong> task. A dot flashes to the left or right.
-          In Part 1 you look <strong>toward</strong> it. In Part 2 you look <strong>away</strong> from it.
-          The headline metric is the <strong>anti-saccade error rate</strong>: how often your eyes get
-          pulled to the dot anyway. It measures inhibitory control, and it is one of the earliest signs
-          of Alzheimer's that can be measured.</p>
-          <div class="detail-tags">
-            <span class="detail-tag" data-i18n="oculo.tag1">Pro baseline (16 trials)</span><span class="detail-tag" data-i18n="oculo.tag2">Anti-saccade (24 trials)</span>
-            <span class="detail-tag" data-i18n="oculo.tag3">3-point gaze calibration</span><span class="detail-tag" data-i18n="oculo.tag4">Error-rate headline</span>
+          <p data-i18n="oculo.v2.lede">Look toward the dot, then away from it.</p>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.4min">~4 min</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span data-i18n="common.fact.eyes">Eyes only</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
           </div>
           <div class="detail-actions" id="oculomotor-actions"></div>
         </div>
       </div>
-      <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
-        <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;max-width:660px" data-i18n="oculo.how.intro">Both blocks share one gaze engine. MediaPipe tracks your iris and measures its position against your eye corners, so small head movements do not throw it off. A short calibration maps that signal to the screen.</p>
-        <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="oculo.s1.h">Calibrate</h4><p data-i18n="oculo.s1.p">Look at three dots: center, then left, then right. This maps your iris signal to screen positions and sets a center <strong>deadband</strong> from your own tracking noise. Keep your head still and move only your eyes.</p></div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="oculo.s2.h">Part 1 &#8212; Look toward</h4><p data-i18n="oculo.s2.p">Keep your eyes on the center cross. When a dot appears, look <strong>at</strong> it, then look back. 16 scored trials set your normal saccade speed as a baseline.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="oculo.s3.h">Part 2 &#8212; Look away</h4><p data-i18n="oculo.s3.p">When the dot appears, look to the <strong>opposite</strong> side. This is the main block. 24 trials measure how often inhibition fails and how fast the correct looks are.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="oculo.s4.h">Score</h4><p data-i18n="oculo.s4.p">The headline score is your <strong>anti-saccade error rate</strong>. <strong>Anti &#8722; Pro latency</strong> cancels out the fixed camera and display delay. You also get the corrected-error rate and data-quality checks. Each block uses a <strong>gap paradigm</strong> and throws out guesses faster than 90 ms.</p></div></div>
+
+      <section class="how-it-works">
+        <h2 data-i18n="common.howItWorks">How It Works</h2>
+        <ol class="filmstrip">
+          <li class="frame">
+            <figure title="Screen with three dots (centre, left, right) joined by a faint path. The character&#x27;s head is level and still, only the eyes turned toward the right dot." class="art-slot" data-art="oculomotor/step-1-calibrate">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Three dots</b><code class="slot-file">img/oculomotor/step-1-calibrate.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="oculo.v2.s1.h">Look at three dots</h4><p data-i18n="oculo.v2.s1.p">Centre, left, right. Head still.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Centre cross, a dot flashes on the right, and a green arrow runs from the eyes to the dot." class="art-slot" data-art="oculomotor/step-2-toward">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Look toward</b><code class="slot-file">img/oculomotor/step-2-toward.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="oculo.v2.s2.h">Part 1: look at the dot</h4><p data-i18n="oculo.v2.s2.p">15 trials, as quickly as you can.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Centre cross, a dot flashes on the left (drawn faint), and a green arrow runs from the eyes to the empty right side." class="art-slot" data-art="oculomotor/step-3-away">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Look away</b><code class="slot-file">img/oculomotor/step-3-away.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="oculo.v2.s3.h">Part 2: look away</h4><p data-i18n="oculo.v2.s3.p">Look to the opposite side. 15 trials.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="A centre cross with a tight little cluster of gaze dots on it." class="art-slot" data-art="oculomotor/step-4-hold">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Hold still</b><code class="slot-file">img/oculomotor/step-4-hold.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="oculo.v2.s4.h">Part 3: hold still</h4><p data-i18n="oculo.v2.s4.p">Keep your eyes on the cross.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Face square to the camera; only the eyes turned to the side." class="art-slot" data-art="oculomotor/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Head still</b><code class="slot-file">img/oculomotor/tip-1-do.webp</code></div>
+              </figure>
+              <figure title="The whole head turned toward the dot." class="art-slot" data-art="oculomotor/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Head turning</b><code class="slot-file">img/oculomotor/tip-1-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="oculo.v2.tip1">Move your eyes, not your head</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Lamp in front; both eyes clearly visible." class="art-slot" data-art="oculomotor/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Face lit</b><code class="slot-file">img/oculomotor/tip-2-do.webp</code></div>
+              </figure>
+              <figure title="Window behind; face dark, eyes hard to see." class="art-slot" data-art="oculomotor/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Face in shadow</b><code class="slot-file">img/oculomotor/tip-2-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="oculo.v2.tip2">Light on your face</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Glasses with no reflection; iris visible." class="art-slot" data-art="oculomotor/tip-3-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Clear lenses</b><code class="slot-file">img/oculomotor/tip-3-do.webp</code></div>
+              </figure>
+              <figure title="A bright glare patch covering one lens." class="art-slot" data-art="oculomotor/tip-3-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Glare on glasses</b><code class="slot-file">img/oculomotor/tip-3-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="oculo.v2.tip3">No glare on glasses</h4>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <div class="rec-card" data-rec="oculomotor">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body"></div>
+          <div class="metric-chips"></div>
+        </div>
+        <p class="band-note is-info" data-i18n="oculo.latency.note"><strong>Why latency reads slow.</strong> It is timed from the frame that draws the dot to the frame that sees your eyes move. The webcam hands each frame over late, the screen shows the dot late, and frames arrive only every ~35 ms. Together that adds roughly <strong>150&#8211;200 ms to every trial</strong>, however fast you react, so a prosaccade that takes 150&#8211;200 ms in a lab reads about 350 ms here. The delay is the same on every trial, so <strong>Anti &#8722; Pro cancels it</strong>: read that one (roughly 50&#8211;100 ms in healthy adults). Compare absolute latencies only between runs on the same camera and screen.</p>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/oculomotor_test.py</div>
+          <p class="science-lede" data-i18n="oculo.lede">A webcam-only <strong>pro/anti-saccade</strong> task. A dot flashes to the left or right.
+          In Part 1 you look <strong>toward</strong> it. In Part 2 you look <strong>away</strong> from it.
+          The headline metric is the <strong>anti-saccade error rate</strong>: how often your eyes get
+          pulled to the dot anyway. It measures inhibitory control, and it is one of the earliest signs
+          of Alzheimer's that can be measured.</p>
+          <p class="science-lede" data-i18n="oculo.how.intro">Both blocks share one gaze engine. MediaPipe tracks your iris and measures its position against your eye corners, so small head movements do not throw it off. A short calibration maps that signal to the screen.</p>
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="oculo.m1.h">Anti-saccade error rate (%)</h4><p data-i18n="oculo.m1.p">Share of anti-saccade trials whose first eye movement went toward the dot &#8212; a failure of inhibition.</p><div class="metric-num" data-i18n="oculo.m1.num">&lt;20% typical &#183; 20&#8211;40% monitor &#183; &gt;40% follow-up*</div><div class="metric-cite" data-i18n="oculo.m1.cite">Best AD discriminator (SMD 1.59) &#8212; <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9090874/" target="_blank" rel="noopener">Opwonya 2022</a></div></div>
@@ -537,6 +873,266 @@ button,input{font:inherit;color:inherit}
         <div class="paper"><h4 data-i18n="oculo.p2.title"><a href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener">Inhibitory Control of Saccades and Cognitive Impairment in AD</a></h4><div class="paper-authors" data-i18n="oculo.p2.authors">Crawford et al., 2005 &#183; Biological Psychiatry 57(9):1052&#8211;1060 &#183; PMID 15860346</div><p data-i18n="oculo.p2.body">AD patients left about 10 times more anti-saccade errors uncorrected than controls (25.4% mean), and the error rate tracked dementia severity. We cite it because it anchors the high end of our scoring bands.</p><div class="paper-foot"><span class="paper-tag" data-i18n="oculo.p2.tag">Anchors the AD error band</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/15860346/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="oculo.p3.title"><a href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener">An Internationally Standardised Antisaccade Protocol</a></h4><div class="paper-authors" data-i18n="oculo.p3.authors">Antoniades et al., 2013 &#183; Vision Research 84:1&#8211;5 &#183; PMID 23474300</div><p data-i18n="oculo.p3.body">The reference protocol for clinical saccade testing. We follow its rules: prosaccade block first, a gap between the cross disappearing and the dot appearing, express saccades excluded, and corrected errors counted apart from uncorrected ones.</p><div class="paper-foot"><span class="paper-tag" data-i18n="oculo.p3.tag">Our measurement methodology</span><a class="paper-link" href="https://pubmed.ncbi.nlm.nih.gov/23474300/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- SPEECH (DDK + SUSTAINED PHONATION) DETAIL -->
+  <div class="page" id="page-ddk">
+    <div class="detail">
+      <button class="detail-back" onclick="showPage('home')" aria-label="Back to dashboard"></button>
+      <div class="detail-hero">
+        <div class="detail-icon" id="detail-icon-ddk"></div>
+        <div class="detail-info">
+          <h1 data-i18n="ddk.h1">Speech Test</h1>
+          <p data-i18n="ddk.v3.lede">Say pa-ta-ka as fast and as evenly as you can, then hold a steady "ahhh".</p>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.8s">8 s</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span data-i18n="common.fact.mic">Microphone</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><line x1="3" y1="3" x2="21" y2="21"/></svg><span data-i18n="common.fact.nocam">No camera</span></span>
+          </div>
+          <div class="detail-actions" id="ddk-actions"></div>
+        </div>
+      </div>
+
+      <section class="how-it-works">
+        <h2 data-i18n="common.howItWorks">How It Works</h2>
+        <ol class="filmstrip">
+          <li class="frame">
+            <figure title="A microphone beside a level meter sitting low in its green zone; the character holds a finger to their lips." class="art-slot" data-art="ddk/step-1-quiet">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Room check</b><code class="slot-file">img/ddk/step-1-quiet.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="ddk.v2.s1.h">Two seconds of quiet</h4><p data-i18n="ddk.v2.s1.p">The test listens to the room.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="A speech bubble with three different shapes in a row (for pa, ta, ka) and the level meter now high in its green zone." class="art-slot" data-art="ddk/step-2-once">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Say it once</b><code class="slot-file">img/ddk/step-2-once.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="ddk.v2.s2.h">Say pa-ta-ka once</h4><p data-i18n="ddk.v2.s2.p">Checks your voice is clear.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="A row of evenly spaced sound bumps running across, with an 8 s ring in the corner." class="art-slot" data-art="ddk/step-3-repeat">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Keep going</b><code class="slot-file">img/ddk/step-3-repeat.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="ddk.v2.s3.h">Repeat for 8 seconds</h4><p data-i18n="ddk.v2.s3.p">Fast and even, after the beep.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Mini result card: a big rhythm number with a green ✓ chip and a small row of evenly spaced peaks." class="art-slot" data-art="ddk/step-4-score">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Your score</b><code class="slot-file">img/ddk/step-4-score.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="ddk.v2.s4.h">Your score</h4><p data-i18n="ddk.v2.s4.p">How even your rhythm was.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Door closed, nothing else making sound." class="art-slot" data-art="ddk/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Quiet room</b><code class="slot-file">img/ddk/tip-1-do.webp</code></div>
+              </figure>
+              <figure title="TV and fan in the background, sound waves around them." class="art-slot" data-art="ddk/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Noisy room</b><code class="slot-file">img/ddk/tip-1-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="ddk.v2.tip1">Find a quiet room</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Sitting at arm&#x27;s length from the laptop, speaking normally; meter in the green." class="art-slot" data-art="ddk/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Normal distance</b><code class="slot-file">img/ddk/tip-2-do.webp</code></div>
+              </figure>
+              <figure title="Mouth right at the laptop; meter pinned in the red." class="art-slot" data-art="ddk/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Too close</b><code class="slot-file">img/ddk/tip-2-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="ddk.v2.tip2">Stay at arm's length</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="A row of evenly spaced bumps." class="art-slot" data-art="ddk/tip-3-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Even pace</b><code class="slot-file">img/ddk/tip-3-do.webp</code></div>
+              </figure>
+              <figure title="Bumps crowded together, then a long gap." class="art-slot" data-art="ddk/tip-3-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Rush and stop</b><code class="slot-file">img/ddk/tip-3-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="ddk.v2.tip3">Even, not rushed</h4>
+          </div>
+        </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <div class="rec-card is-empty" data-rec="ddk">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body">
+            <figure title="Recorded loudness envelope with each syllable marked, the room&#x27;s noise floor, and the gap-between-syllables bars. No clean run exists yet: the one on record was too noisy to score." class="art-slot rec-slot" data-art="ddk/recording">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Real recording goes here</b><code class="slot-file">img/ddk/example-recording.json</code></div>
+            </figure>
+          </div>
+          <div class="metric-chips"></div>
+        </div>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/speech_test.py</div>
+          <p class="science-lede" data-i18n="ddk.lede">A microphone-only <strong>diadochokinesis</strong> task: repeat <strong>pa-ta-ka</strong> as fast and as evenly as you can for 8 seconds.
+          It is the speech counterpart of finger tapping and is scored the same way. The headline metric is
+          <strong>rhythm variability</strong>: how much the gaps between syllables vary.</p>
+          <p class="science-lede" data-i18n="ddk.how.intro">Each syllable starts with a closure (near silence) and ends in a loud vowel, so the loudness of the recording rises and falls once per syllable. The test finds those peaks and times the gaps between them.</p>
+          <p class="science-lede" data-i18n="phon.lede">The second part is a <strong>sustained vowel</strong>: hold "ahhh" at a comfortable pitch for 6 seconds. Praat measures how much the voice wobbles from one vocal-fold cycle to the next, on the steady middle of the vowel only. The headline there is <strong>jitter</strong>.</p>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
+        <div class="metrics-grid">
+          <div class="metric-card"><h4 data-i18n="ddk.m1.h">Rhythm variability (CV%)</h4><p data-i18n="ddk.m1.p">Standard deviation of the gaps between syllables divided by their mean. Scale-free, so a fast and a slow speaker can be compared.</p><div class="metric-num" data-i18n="ddk.m1.num">&lt;15% typical &#183; 15&#8211;25% monitor &#183; &gt;25% follow-up*</div><div class="metric-cite" data-i18n="ddk.m1.cite">Same shape as the tapping headline</div></div>
+          <div class="metric-card"><h4 data-i18n="ddk.m2.h">Syllable rate (/s)</h4><p data-i18n="ddk.m2.p">Syllables per second. Speech rate separates Alzheimer's groups from controls with a moderate effect in pooled studies.</p><div class="metric-num" data-i18n="ddk.m2.num">SMD &#8776; 0.66 for speech rate</div><div class="metric-cite" data-i18n="ddk.m2.cite">Cohen et al. 2025, meta-analysis</div></div>
+          <div class="metric-card"><h4 data-i18n="ddk.m3.h">nPVI</h4><p data-i18n="ddk.m3.p">Normalised pairwise variability index: how different each gap is from the next one. Unlike CV%, it ignores a slow drift in speed.</p><div class="metric-num" data-i18n="ddk.m3.num">the standard DDK rhythm index</div><div class="metric-cite" data-i18n="ddk.m3.cite"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9150739/" target="_blank" rel="noopener">JSLHR 2022</a></div></div>
+          <div class="metric-card"><h4 data-i18n="ddk.m4.h">Order errors (%) &#183; experimental</h4><p data-i18n="ddk.m4.p">With the phoneme model installed: the share of syllable-to-syllable steps that broke the pa &#8594; ta &#8594; ka order. Recorded but not shown for now: on test speech the model reported 15&#8211;57% errors on clean pa-ta-ka, so it needs checking against real voices first.</p><div class="metric-num" data-i18n="ddk.m4.num">python install.py --speech-ml</div><div class="metric-cite" data-i18n="ddk.m4.cite">wav2vec 2.0 phoneme model, runs on this computer</div></div>
+          <div class="metric-card"><h4 data-i18n="phon.m1.h">Jitter (%)</h4><p data-i18n="phon.m1.p">Cycle-to-cycle variation in the length of each vocal-fold vibration, measured by Praat on a held vowel. Reported higher in mild Alzheimer's than in controls.</p><div class="metric-num" data-i18n="phon.m1.num">&lt;1.04% typical &#183; 1.04&#8211;2.08% monitor &#183; &gt;2.08% follow-up*</div><div class="metric-cite" data-i18n="phon.m1.cite"><a href="https://www.fon.hum.uva.nl/praat/manual/Voice_2__Jitter.html" target="_blank" rel="noopener">1.04% = MDVP threshold (Praat manual)</a></div></div>
+          <div class="metric-card"><h4 data-i18n="phon.m2.h">Shimmer &#183; HNR &#183; vocal tremor</h4><p data-i18n="phon.m2.p">Shimmer is the same idea for loudness; HNR is how much of the voice is tone rather than breath noise; vocal tremor is a slow 2&#8211;10 Hz wave in the pitch, the voice's version of a hand tremor.</p><div class="metric-num" data-i18n="phon.m2.num">supporting readouts, no bands</div><div class="metric-cite" data-i18n="phon.m2.cite">Measured by Praat through praat-parselmouth</div></div>
+        </div>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="ddk.note">A run needs at least <strong>10 syllables</strong> and a voice at least 12 dB above the room noise to be scored. <strong>*The bands are provisional</strong>: they match the tapping test's bands because no DDK-specific cut-off has been fitted yet (<code>core/speech/tasks.py</code>). Results depend on the microphone, the room and effort. Audio is analysed and then discarded: only the loudness envelope and the syllable times are saved.</p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:8px;line-height:1.5" data-i18n="phon.note">The vowel is scored only if at least <strong>2.5 s</strong> of it is steadily voiced and the voice is at least 15 dB above the room. <strong>*The jitter bands are provisional</strong>: the lower edge is the MDVP pathology threshold, the upper edge is not from a source, and the evidence linking voice acoustics to Alzheimer's is thinner than for speech rate. Only the pitch contour is saved.</p>
+      </div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="ddk.p1.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9150739/" target="_blank" rel="noopener">Validating Automatic Diadochokinesis Analysis Methods</a></h4><div class="paper-authors" data-i18n="ddk.p1.authors">Journal of Speech, Language, and Hearing Research, 2022 &#183; PMC9150739</div><p data-i18n="ddk.p1.body">Compared automatic ways of finding syllables in DDK recordings against manual scoring. Amplitude-based onset detection agreed with human raters at &#964;b &#8776; 0.7&#8211;0.84, and rhythm was measured with nPVI. We cite it because our detector and our rhythm index come from it.</p><div class="paper-foot"><span class="paper-tag" data-i18n="ddk.p1.tag">Our measurement method</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9150739/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="ddk.p2.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener">TapTalk: Smartphone Motor + Speech Testing Across 20 Devices</a></h4><div class="paper-authors" data-i18n="ddk.p2.authors">Li et al., 2024 &#183; Alzheimer's &amp; Dementia: DADM &#183; PMC11496774</div><p data-i18n="ddk.p2.body">Paired finger tapping with a repeated-syllable speech task on ordinary phones. Syllable rate from the phone microphone landed within &#177;1 Hz of the reference in 98.3% of recordings. We cite it because it shows a consumer microphone is accurate enough for this test.</p><div class="paper-foot"><span class="paper-tag" data-i18n="ddk.p2.tag">Validates a plain microphone</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11496774/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="ddk.p3.title"><a href="https://arxiv.org/abs/2206.14639" target="_blank" rel="noopener">DDKtor: Automatic Diadochokinetic Speech Analysis</a></h4><div class="paper-authors" data-i18n="ddk.p3.authors">Segal et al., 2022 &#183; Interspeech &#183; arXiv:2206.14639</div><p data-i18n="ddk.p3.body">A neural network that segments DDK syllables from raw audio and performs comparably to trained human annotators. We cite it as the reason a learned model is worth running as a cross-check beside the loudness envelope.</p><div class="paper-foot"><span class="paper-tag" data-i18n="ddk.p3.tag">Why a model cross-check</span><a class="paper-link" href="https://arxiv.org/abs/2206.14639" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="phon.p1.title"><a href="https://doi.org/10.1186/s43163-025-00765-y" target="_blank" rel="noopener">The Effect of Mild-Stage Alzheimer's Disease on the Acoustic Parameters of Voice</a></h4><div class="paper-authors" data-i18n="phon.p1.authors">Egyptian Journal of Otolaryngology, 2025 &#183; doi:10.1186/s43163-025-00765-y</div><p data-i18n="phon.p1.body">Compared sustained-vowel acoustics in people with mild Alzheimer's against cognitively normal controls. Jitter and shimmer were significantly higher in the Alzheimer's group. We cite it as the basis for the sustained-vowel part, while noting that this evidence is thinner than the speech-rate evidence.</p><div class="paper-foot"><span class="paper-tag" data-i18n="phon.p1.tag">Basis for the vowel part</span><a class="paper-link" href="https://doi.org/10.1186/s43163-025-00765-y" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+      </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- HAND TREMOR DETAIL -->
+  <div class="page" id="page-tremor">
+    <div class="detail">
+      <button class="detail-back" onclick="showPage('home')" aria-label="Back to dashboard"></button>
+      <div class="detail-hero">
+        <div class="detail-icon" id="detail-icon-tremor"></div>
+        <div class="detail-info">
+          <h1 data-i18n="tremor.h1">Hand Tremor Test</h1>
+          <p data-i18n="tremor.v2.lede">Hold both hands still for three short holds.</p>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.2min">~2 min</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V6a1.6 1.6 0 0 1 3.2 0v5M10.2 10.5V4.6a1.6 1.6 0 0 1 3.2 0v6M13.8 11V7a1.6 1.6 0 0 1 3.2 0v6a7 7 0 0 1-14 0v-2.2a1.6 1.6 0 0 1 3.2 0"/></svg><span data-i18n="common.fact.bothHands">Both hands</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
+          </div>
+          <div class="detail-actions" id="tremor-actions"></div>
+        </div>
+      </div>
+
+      <section class="how-it-works">
+        <h2 data-i18n="common.howItWorks">How It Works</h2>
+        <ol class="filmstrip">
+          <li class="frame">
+            <figure title="Side view: the laptop lid tilted forward, forearms flat on the table, and the camera&#x27;s view cone covering both hands." class="art-slot" data-art="tremor/step-1-set-up">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Tilt the screen down</b><code class="slot-file">img/tremor/step-1-set-up.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="tremor.v2.s1.h">Tilt the screen down</h4><p data-i18n="tremor.v2.s1.p">Both hands on the table, in view.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Both hands lying relaxed, palms down, fingers loose. 20 s ring in the corner." class="art-slot" data-art="tremor/step-2-rest">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Hands at rest</b><code class="slot-file">img/tremor/step-2-rest.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="tremor.v2.s2.h">Hands relaxed</h4><p data-i18n="tremor.v2.s2.p">20 seconds, completely still.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="The same resting hands, with a speech bubble reading 100 97 94." class="art-slot" data-art="tremor/step-3-count">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Rest and count</b><code class="slot-file">img/tremor/step-3-count.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="tremor.v2.s3.h">Count backward aloud</h4><p data-i18n="tremor.v2.s3.p">Same hold, counting down by 3.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Front view: both arms straight out, palms down. 20 s ring in the corner." class="art-slot" data-art="tremor/step-4-arms-out">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Arms held out</b><code class="slot-file">img/tremor/step-4-arms-out.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="tremor.v2.s4.h">Arms straight out</h4><p data-i18n="tremor.v2.s4.p">Palms down, 20 seconds.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Both hands inside the frame, room around them." class="art-slot" data-art="tremor/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Both hands in view</b><code class="slot-file">img/tremor/tip-1-do.webp</code></div>
+              </figure>
+              <figure title="One hand past the edge; red edge band and inward chevron." class="art-slot" data-art="tremor/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">One hand cut off</b><code class="slot-file">img/tremor/tip-1-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="tremor.v2.tip1">Both hands in the picture</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Fingers soft and slightly curled, resting." class="art-slot" data-art="tremor/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Loose hands</b><code class="slot-file">img/tremor/tip-2-do.webp</code></div>
+              </figure>
+              <figure title="Fists or fingers pressed flat into the table." class="art-slot" data-art="tremor/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Tense hands</b><code class="slot-file">img/tremor/tip-2-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="tremor.v2.tip2">Let your hands go loose</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="Sitting back, shoulders relaxed, nothing moving." class="art-slot" data-art="tremor/tip-3-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Body still</b><code class="slot-file">img/tremor/tip-3-do.webp</code></div>
+              </figure>
+              <figure title="Leaning and shifting, motion lines around the shoulders." class="art-slot" data-art="tremor/tip-3-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Shifting around</b><code class="slot-file">img/tremor/tip-3-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="tremor.v2.tip3">Stay settled in your seat</h4>
+          </div>
+        </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <div class="rec-card is-empty" data-rec="tremor">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body">
+            <figure title="The tremor spectrum for each hand in each hold, with the peak frequency marked. No run has been recorded yet." class="art-slot rec-slot" data-art="tremor/recording">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Real recording goes here</b><code class="slot-file">img/tremor/example-recording.json</code></div>
+            </figure>
+          </div>
+          <div class="metric-chips"></div>
+        </div>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/tremor_test.py</div>
+          <p class="science-lede" data-i18n="tremor.lede">Three 20-second holds with <strong>both hands</strong> in view: at rest, at rest while counting backward, and with the arms held out.
+          The test looks for a rhythmic shake between 3.5 and 12 Hz in each hand. The headline is the tremor's <strong>frequency</strong>, which a webcam measures reliably, with its size given as an estimate.</p>
+          <p class="science-lede" data-i18n="tremor.how.intro">Rest your forearms flat on the table and tilt the laptop screen down until both hands are in the picture. A doctor would check rest tremor with your hands in your lap, but a laptop camera cannot see that far down.</p>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
+        <div class="metrics-grid">
+          <div class="metric-card"><h4 data-i18n="tremor.m1.h">Tremor frequency (Hz)</h4><p data-i18n="tremor.m1.p">The strongest rhythm in the 3.5&#8211;12 Hz band. Rest tremor in Parkinson's runs at about 4&#8211;6 Hz; essential and physiological tremor run faster.</p><div class="metric-num" data-i18n="tremor.m1.num">within ~0.2 Hz of an accelerometer</div><div class="metric-cite" data-i18n="tremor.m1.cite">Sci Rep 2025 &#183; Williams 2021</div></div>
+          <div class="metric-card"><h4 data-i18n="tremor.m2.h">Tremor-band movement (%)</h4><p data-i18n="tremor.m2.p">RMS movement at the tremor frequency, as a share of your own hand length, so hand size and distance from the camera cancel out. Also converted to an approximate centimetre figure.</p><div class="metric-num" data-i18n="tremor.m2.num">an estimate &#8212; not clinical-grade on video</div><div class="metric-cite" data-i18n="tremor.m2.cite">npj Digit Med 2024</div></div>
+          <div class="metric-card"><h4 data-i18n="tremor.m3.h">Left / right ratio</h4><p data-i18n="tremor.m3.p">How much larger the rest movement is in one hand than the other. Parkinsonian tremor usually starts on one side.</p><div class="metric-num" data-i18n="tremor.m3.num">both hands recorded together</div><div class="metric-cite" data-i18n="tremor.m3.cite">MDS-UPDRS 3.17</div></div>
+          <div class="metric-card"><h4 data-i18n="tremor.m4.h">Camera vs glove (Hz)</h4><p data-i18n="tremor.m4.p">With the sensor glove plugged in, its motion sensor records every hold too. The gap between the glove's peak and the camera's peak is how this test is being validated.</p><div class="metric-num" data-i18n="tremor.m4.num">glove gyro, 100 Hz</div><div class="metric-cite" data-i18n="tremor.m4.cite">docs/tests/TREMOR_TEST_PLAN.md</div></div>
+        </div>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="tremor.note">A hold is scored when at least 8 seconds of it had the hand fully in view and still. The camera must reach 14 frames a second: at the ~16 fps a busy laptop manages, the test sees tremor up to about 7.6 Hz, which covers rest tremor but not the faster kinds. <strong>The detection thresholds are provisional</strong> (<code>core/tremor/metrics.py</code>). A tremor is not a sign of Alzheimer's disease; the test is here to catch a tremor that would distort the other motor tests, and to flag one that is worth a doctor's look.</p>
+      </div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="tremor.p1.title"><a href="https://www.nature.com/articles/s41598-025-97252-4" target="_blank" rel="noopener">Validity of Tremor Analysis Using Smartphone-Compatible Computer Vision</a></h4><div class="paper-authors" data-i18n="tremor.p1.authors">Scientific Reports, 2025 &#183; PMC12008214</div><p data-i18n="tremor.p1.body">Compared MediaPipe and Apple Vision hand tracking against reference equipment. Both measured tremor peak frequency accurately, and video amplitude correlated with clinical tremor ratings (TETRAS). We cite it because it is the same hand model this test uses.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p1.tag">Validates MediaPipe</span><a class="paper-link" href="https://www.nature.com/articles/s41598-025-97252-4" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="tremor.p2.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8607978/" target="_blank" rel="noopener">Accuracy of Smartphone Video for Contactless Measurement of Hand Tremor Frequency</a></h4><div class="paper-authors" data-i18n="tremor.p2.authors">Williams et al., 2021 &#183; Movement Disorders Clinical Practice &#183; PMC8607978</div><p data-i18n="tremor.p2.body">Tremor frequency from ordinary phone video fell within 0.5 Hz of an accelerometer in 36 of 37 recordings. We cite it because it is why frequency, not size, leads this test.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p2.tag">Why frequency leads</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8607978/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="tremor.p3.title"><a href="https://www.nature.com/articles/s41746-024-01153-1" target="_blank" rel="noopener">Validation and Application of Computer Vision Algorithms for Video-Based Tremor Analysis</a></h4><div class="paper-authors" data-i18n="tremor.p3.authors">npj Digital Medicine, 2024</div><p data-i18n="tremor.p3.body">Validated video tremor measures against motion capture. Frequency held up well; amplitude accuracy was not yet sufficient for clinical use. We cite it for the limit on how the size of a tremor is reported here.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p3.tag">Why size is an estimate</span><a class="paper-link" href="https://www.nature.com/articles/s41746-024-01153-1" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+      </div>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -549,9 +1145,9 @@ button,input{font:inherit;color:inherit}
         <div class="detail-info">
           <h1 data-i18n="track.h1">Hand Tracking / UDP Broadcast</h1>
           <div class="detail-file">core/hand_tracking.py</div>
-          <p data-i18n="track.lede">Streams all 21 hand landmarks (x, y, z) in real time over UDP to
-          <code style="color:var(--brand)">127.0.0.1:5052</code>. It was built for a Unity hand-mirroring
-          receiver. It now serves as the raw landmark backbone for the screening tests.</p>
+          <p data-i18n="track.lede">A live landmark inspector. It streams all 21 hand landmarks (x, y, z) in real time over UDP to
+          <code style="color:var(--brand)">127.0.0.1:5052</code> for any program listening there, and overlays the tap signal and raw
+          coordinates so you can check what the tracker sees before a test.</p>
           <div class="detail-tags">
             <span class="detail-tag" data-i18n="track.tag1">Live stream</span><span class="detail-tag" data-i18n="track.tag2">2 hands</span>
             <span class="detail-tag" data-i18n="track.tag3">UDP :5052</span><span class="detail-tag" data-i18n="track.tag4">21 landmarks</span>
@@ -561,17 +1157,17 @@ button,input{font:inherit;color:inherit}
       </div>
       <div class="how-it-works"><h2 data-i18n="common.howItWorks">How It Works</h2>
         <div class="steps">
-          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="track.s1.h">Camera Selection</h4><p data-i18n="track.s1.p">A console window asks for your camera source. Choose a local webcam or paste an IP camera stream URL.</p></div></div>
+          <div class="step"><div class="step-num">1</div><div class="step-content"><h4 data-i18n="track.s1.h">Camera Selection</h4><p data-i18n="track.s1.p">Pick the camera with the camera chip beside the Launch button. It applies the next time the tool starts.</p></div></div>
           <div class="step"><div class="step-num">2</div><div class="step-content"><h4 data-i18n="track.s2.h">Landmark Detection</h4><p data-i18n="track.s2.p">MediaPipe detects up to 2 hands at once. It returns 21 3D landmarks per hand on every frame.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="track.s3.h">UDP Broadcast</h4><p data-i18n="track.s3.p">Every frame, the pixel-scaled coordinates are packed as <code style="color:var(--brand)">L:[x1,y1,z1,...]</code> and sent over UDP. One packet per detected hand.</p></div></div>
-          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="track.s4.h">Live Visualization</h4><p data-i18n="track.s4.p">An OpenCV window shows the camera feed with the hand skeleton drawn on top. Press <code style="color:var(--brand)">q</code> to quit.</p></div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-content"><h4 data-i18n="track.s3.h">UDP Broadcast</h4><p data-i18n="track.s3.p">Every frame, each detected hand is sent as one UDP datagram, <code style="color:var(--brand)">L:[x1,y1,z1,...]</code> or <code style="color:var(--brand)">R:[...]</code>.</p></div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-content"><h4 data-i18n="track.s4.h">Live Inspector</h4><p data-i18n="track.s4.p">The window shows the skeleton, a panel per hand with open/closed state, taps and a distance trace, and a table of key landmark coordinates. Keys: <code style="color:var(--brand)">r</code> hides the table, <code style="color:var(--brand)">c</code> resets the tap counters, <code style="color:var(--brand)">q</code> or the window's close button quits.</p></div></div>
         </div>
       </div>
       <div class="metrics-section"><h2 data-i18n="track.sec.data">Data Output</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="track.d1.h">21 Landmarks</h4><p data-i18n="track.d1.p">Wrist, thumb (4), index (4), middle (4), ring (4), pinky (4) &#8212; full hand skeleton per the MediaPipe topology.</p></div>
-          <div class="metric-card"><h4 data-i18n="track.d2.h">3D Coordinates</h4><p data-i18n="track.d2.p">Each landmark has x, y (pixel-scaled) and z (relative depth). One-Euro filtering smooths x/y; z is left raw.</p></div>
-          <div class="metric-card"><h4 data-i18n="track.d3.h">UDP Format</h4><p data-i18n="track.d3.p">Newline-delimited packets: <code>L:[x1,y1,z1,x2,y2,z2,...]</code> per hand, broadcast to localhost:5052.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d2.h">3D Coordinates</h4><p data-i18n="track.d2.p">x and y are pixels in the unmirrored camera frame; z is relative depth, scaled by the frame width. All three are sent as integers. One-Euro filtering smooths x/y; z is left raw.</p></div>
+          <div class="metric-card"><h4 data-i18n="track.d3.h">UDP Format</h4><p data-i18n="track.d3.p">One datagram per hand, no newline: <code>L:[x1,y1,z1,x2,y2,z2,...]</code> (63 values). The L/R prefix is MediaPipe's own label, which on this unmirrored frame names the user's real hand.</p></div>
           <div class="metric-card"><h4 data-i18n="track.d4.h">Preprocessing</h4><p data-i18n="track.d4.p">CLAHE + sharpening via <code>preprocess_for_mediapipe</code> improves detection in challenging lighting.</p></div>
         </div>
       </div>
@@ -589,7 +1185,7 @@ button,input{font:inherit;color:inherit}
             <p data-i18n="dev.intro">Build tooling and a live scope for the wearable glove&#8217;s analog channels.
             The board streams raw ADC frames over USB serial; this page checks the toolchain,
             flashes firmware, and plots what the sensors and the onboard IMU are actually doing. Spec:
-            <code>docs/GLOVE_FIRMWARE_PLAN.md</code>.</p>
+            <code>docs/glove/GLOVE_FIRMWARE_PLAN.md</code>.</p>
           </div>
         </div>
       </div>
@@ -611,12 +1207,30 @@ button,input{font:inherit;color:inherit}
         <div class="dev-scope-empty" id="dev-scope-empty" data-i18n="dev.scope.empty">Not connected &#8212; no signal.</div></div>
       <div class="dev-chan-grid" id="dev-channels"></div>
 
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.map">Glove Map</h2><div class="sh-line"></div>
+        <span class="cmp-legend" data-i18n="dev.map.legend">fill = now &#183; ring = peak since Z &#183; faint = not fitted</span></div>
+      <p class="dev-note" data-i18n="dev.map.note">Every channel drawn where it sits on the hand. The layout is the decided
+        eleven-channel set &#8212; flex on the backs of four fingers, FSR402 on four fingertips, FlexiForce A401 on
+        three palm pads &#8212; and only the channels the board&#8217;s banner declares light up. Flex bends the finger
+        by its position within the recorded span, an illustration and not a joint angle. After
+        <em>Calibrate motion</em> the whole hand turns with yours, from the IMU. Drag to turn the view.
+        Layout: <code>docs/glove/GLOVE_EXPANSION_PLAN.md</code> &#167;4.</p>
+      <div class="g3d" id="g3d">
+        <div class="g3d-stage" id="g3d-stage">
+          <canvas id="g3d-canvas" aria-label="3D map of the glove's sensors" data-i18n-aria="dev.map.aria"></canvas>
+          <div class="g3d-tags" id="g3d-tags" aria-hidden="true"></div>
+          <div class="g3d-views" id="g3d-views"></div>
+          <div class="g3d-empty" id="g3d-empty"></div>
+        </div>
+        <div class="g3d-list" id="g3d-list"></div>
+      </div>
+
       <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.motion">Motion &#8212; Onboard IMU</h2><div class="sh-line"></div>
         <span class="cmp-legend" data-i18n="dev.motion.legend">accelerometer + gyroscope, 100 Hz</span></div>
       <p class="dev-note" data-i18n="dev.motion.note">The camera says <em>where</em> the hand is, at ~30 fps and only while it stays
         in frame. The IMU sits on the hand and says <em>how it is moving</em>, at 100 Hz, through
         occlusion and out of frame &#8212; which is what a 4&#8211;12 Hz tremor band needs.
-        Spec: <code>docs/GLOVE_FIRMWARE_PLAN.md</code> &#167;5d.</p>
+        Spec: <code>docs/glove/GLOVE_FIRMWARE_PLAN.md</code> &#167;5d.</p>
       <div class="dev-imu" id="dev-imu"></div>
 
       <div class="section-head" style="margin-top:36px"><h2 data-i18n="dev.sec.health">Stream Health</h2><div class="sh-line"></div></div>
@@ -667,5 +1281,6 @@ button,input{font:inherit;color:inherit}
 <script src="/remote.js"></script>
 <script src="/report.js"></script>
 <script type="module" src="/hand3d.js"></script>
+<script type="module" src="/glove3d.js"></script>
 </body>
 </html>

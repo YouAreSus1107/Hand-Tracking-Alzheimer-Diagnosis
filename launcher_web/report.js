@@ -190,8 +190,10 @@
           <div class="rep-vtext">
             <span class="badge badge-${st}"><span class="badge-dot"></span>${t(ST[st].word)}</span>
             <div class="rep-metricname">${t(h.name)}</div>
-            ${rec.test === "finger_tapping" && m.cv_ci_low_pct != null
+            ${(rec.test === "finger_tapping" || rec.test === "ddk") && m.cv_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
+            ${rec.test === "tremor" && m.label
+              ? `<div class="rep-label">${t(m.label)}${m.tremor_peak_hz != null ? ` · ${fmtNum(m.tremor_peak_hz)} Hz` : ""} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
             ${rec.test === "oculomotor" && m.error_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.error_ci_low_pct)}-${fmtNum(m.error_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
           </div>
@@ -254,11 +256,40 @@
     intrusion_count: ["Saccadic intrusions", ""],
     intrusion_rate_per_min: ["Intrusion rate", "/min"],
     fixation_valid_s: ["Fixation analysed", "s"],
+    // speech rhythm (DDK)
+    rhythm_cv_pct: ["Syllable rhythm variability", "%"],
+    syllable_rate_hz: ["Syllable rate", "/s"], syllables: ["Syllables", ""],
+    mean_isi_ms: ["Mean interval", "ms"], isi_sd_ms: ["Interval SD", "ms"],
+    npvi: ["nPVI", ""], snr_db: ["Signal / noise", "dB"],
+    clipping_pct: ["Clipped samples", "%"],
+    // The phoneme model's readings are experimental (SPEECH_TEST_PLAN.md
+    // §3.1b) and say so wherever they appear.
+    sequence_error_pct: ["Order errors (experimental)", "%"],
+    sequence_transitions: ["Order transitions checked (experimental)", ""],
+    ml_syllables: ["Syllables, phoneme model (experimental)", ""],
+    count_agreement_pct: ["Model agreement (experimental)", "%"],
+    // sustained phonation
+    jitter_pct: ["Jitter", "%"], shimmer_pct: ["Shimmer", "%"], hnr_db: ["HNR", "dB"],
+    f0_mean_hz: ["Mean pitch", "Hz"], f0_sd_hz: ["Pitch SD", "Hz"],
+    vocal_tremor_hz: ["Vocal tremor", "Hz"], vocal_tremor_pct: ["Vocal tremor size", "%"],
+    voiced_s: ["Steady voice", "s"], voiced_pct: ["Voiced", "%"],
+    // hand tremor
+    tremor_amp_pct: ["Tremor-band movement", "%"], tremor_peak_hz: ["Tremor peak", "Hz"],
+    rest_amp_left_pct: ["Rest, left hand", "%"], rest_amp_right_pct: ["Rest, right hand", "%"],
+    rest_peak_hz: ["Rest peak", "Hz"], count_amp_pct: ["While counting", "%"],
+    postural_amp_pct: ["Arms out", "%"], postural_peak_hz: ["Arms-out peak", "Hz"],
+    asymmetry_ratio: ["Left / right ratio", "×"],
+    emergence_ratio: ["Counting / rest ratio", "×"],
+    glove_rest_peak_hz: ["Glove peak at rest", "Hz"],
+    cam_glove_hz_diff: ["Camera vs glove", "Hz"],
+    scored_cells: ["Holds measured", "/6"], detected_cells: ["Tremor found in", ""],
+    possible_cells: ["Possible tremor in", ""], sample_fps: ["Camera rate", "fps"],
+    band_hi_hz: ["Highest frequency seen", "Hz"], edge_clipped_pct: ["Hand at the edge", "%"],
   };
   // Shown elsewhere in the report, or not a number.
   const SKIP = new Set(["status", "label", "reason", "scoreable", "latency_note",
     "duration_s", "pro_block", "anti_block", "fixation_status", "fixation_label",
-    "fixation_scoreable", "fixation_reason"]);
+    "fixation_scoreable", "fixation_reason", "confidence_level", "tremor_where"]);
 
   function metricGrid(rec) {
     const m = rec.metrics || {};
@@ -290,6 +321,10 @@
     const cal = raw.calibration || {};
     const rows = [];
     if (d.camera_fps != null) rows.push([t("Camera"), `${fmtNum(d.camera_fps)} fps · ${esc(d.resolution || "")}`]);
+    if (d.microphone != null) rows.push([t("Microphone"),
+      `${esc(d.microphone || "?")}${d.sample_rate ? ` · ${fmtNum(d.sample_rate / 1000)} kHz` : ""}`]);
+    if (rec.test === "ddk") rows.push([t("Phoneme model"),
+      d.recogniser ? `<code>${esc(d.recogniser)}</code>` : t("not used")]);
     if (d.app_version) rows.push([t("App version"), esc(d.app_version)]);
     if (raw.hand_visible_ratio != null) rows.push([t("Hand in frame"), `${Math.round(raw.hand_visible_ratio * 100)}%`]);
     if (raw.face_visible_ratio != null) rows.push([t("Face in frame"), `${Math.round(raw.face_visible_ratio * 100)}%`]);
@@ -341,6 +376,12 @@
   /* ── Finger tapping ─────────────────────────────────────────────── */
 
   function tapTrace(rec) {
+    return sec(t("The recording"), tapTraceChart(rec),
+      t("Thumb-to-finger distance for the whole take. Every tap the detector accepted is marked."));
+  }
+
+  // The chart alone (well + legend), also drawn on the Finger Tapping page.
+  function tapTraceChart(rec) {
     const raw = rec.raw || {}, series = raw.distance_series || [];
     if (series.length < 2) return "";
     const cal = raw.calibration || {};
@@ -411,12 +452,20 @@
       ${(raw.beat_times_s || []).length
         ? `<span><i class="lg-dash" style="border-color:${LINE_C}"></i>${t("metronome beat")}</span>` : ""}
     </div>`;
-    return sec(t("The recording"), svgWrap(s) + legend,
-      t("Thumb-to-finger distance for the whole take. Every tap the detector accepted is marked."));
+    return svgWrap(s) + legend;
   }
 
   function itiBars(rec) {
-    const taps = (rec.raw || {}).tap_times_s || [];
+    return intervalBars((rec.raw || {}).tap_times_s || [],
+      t("Each interval between taps"),
+      t("Bar height is the gap between two taps; colour is how far that gap sat from your own mean. An even row is a low CV%."));
+  }
+
+  function intervalBars(taps, aria, note) {
+    return sec(t("Interval by interval"), intervalChart(taps, aria), note);
+  }
+
+  function intervalChart(taps, aria) {
     if (taps.length < 3) return "";
     const iti = [];
     for (let i = 1; i < taps.length; i++) iti.push((taps[i] - taps[i - 1]) * 1000);
@@ -428,7 +477,7 @@
     const Y = v => padT + ih * (1 - v / hi);
 
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
-      aria-label="${t("Each interval between taps")}">`;
+      aria-label="${aria}">`;
     s += `<line x1="${padL}" y1="${Y(mean).toFixed(1)}" x2="${padL + iw}" y2="${Y(mean).toFixed(1)}"
       stroke="${GRID}" stroke-width="1.4" stroke-dasharray="5 5"/>`
       + axisLabel(padL + iw, Y(mean) - 5, `${Math.round(mean)} ms ${t("mean")}`, "end");
@@ -442,8 +491,185 @@
     });
     s += `<line x1="${padL}" y1="${padT + ih}" x2="${padL + iw}" y2="${padT + ih}"
       stroke="${GRID}" stroke-width="1"/></svg>`;
-    return sec(t("Interval by interval"), svgWrap(s),
-      t("Bar height is the gap between two taps; colour is how far that gap sat from your own mean. An even row is a low CV%."));
+    return svgWrap(s);
+  }
+
+  /* ── Speech rhythm (DDK) ────────────────────────────────────────── */
+
+  // The loudness envelope the detector read, the room's noise floor, and one
+  // marker per syllable it accepted. The first trim_s seconds are shaded:
+  // they were recorded but not scored (warm-up). When the phoneme model ran,
+  // its reading of each syllable is written above the envelope.
+  // Sustained vowel: the pitch Praat tracked, frame by frame. Only the band
+  // between the two dashed edges was scored — the onset and release of a
+  // vowel are meant to be unstable. Unvoiced frames (0 Hz) break the line.
+  function pitchTrace(rec) {
+    const raw = rec.raw || {}, f0 = raw.f0 || [];
+    const voiced = f0.filter(p => p[1] > 0);
+    if (voiced.length < 2) return "";
+    const W = 640, H = 180, padL = 44, padR = 14, padT = 14, padB = 28;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const seg = raw.segment_s || [f0[0][0], f0[f0.length - 1][0]];
+    const t0 = 0, t1 = Math.max(seg[1] + 0.5, f0[f0.length - 1][0]), span = (t1 - t0) || 1;
+    const mean = voiced.reduce((a, p) => a + p[1], 0) / voiced.length;
+    // ±8% of the mean pitch: wide enough to show a real wobble, narrow enough
+    // that a steady voice reads as the flat line it is.
+    let lo = mean * 0.92, hi = mean * 1.08;
+    voiced.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); });
+    const X = v => padL + iw * ((v - t0) / span);
+    const Y = v => padT + ih * (1 - (v - lo) / ((hi - lo) || 1));
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="${t("Pitch of the held vowel over the recording")}">`;
+    seg.forEach(edge => {
+      const x = X(edge).toFixed(1);
+      s += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + ih}" stroke="${GRID}"
+        stroke-width="1.4" stroke-dasharray="5 5"/>`;
+    });
+    s += axisLabel(X(seg[0]) + 4, padT + 12, t("scored"));
+    let d = "", pen = false;
+    f0.forEach(p => {
+      if (!(p[1] > 0)) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`;
+      pen = true;
+    });
+    s += `<path d="${d}" fill="none" stroke="${LINE_C}" stroke-width="1.8"
+      stroke-linejoin="round" stroke-linecap="round"/>`;
+    s += axisLabel(padL - 4, Y(hi) + 4, `${Math.round(hi)} Hz`, "end")
+      + axisLabel(padL - 4, Y(lo), `${Math.round(lo)} Hz`, "end");
+    s += axisLabel(padL, H - 10, "0s") + axisLabel(padL + iw, H - 10, `${fmtNum(t1)}s`, "end");
+    s += `</svg>`;
+    return sec(t("The recording"), svgWrap(s),
+      t("The pitch of your voice through the held vowel. A steady voice is a flat line; jitter is the cycle-to-cycle roughness too fine to see at this scale, and a slow regular wave is vocal tremor. The audio itself is not kept."));
+  }
+
+  function ddkTrace(rec) {
+    const raw = rec.raw || {}, env = raw.envelope || [];
+    if (env.length < 2) return "";
+    const W = 640, H = 200, padL = 40, padR = 14, padT = 22, padB = 28;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const t0 = env[0][0], t1 = env[env.length - 1][0], span = (t1 - t0) || 1;
+    let lo = Infinity, hi = -Infinity;
+    env.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); });
+    if (raw.floor_db != null) lo = Math.min(lo, raw.floor_db);
+    lo -= 3; hi += 3;
+    const X = v => padL + iw * ((v - t0) / span);
+    const Y = v => padT + ih * (1 - (v - lo) / ((hi - lo) || 1));
+
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="${t("Loudness over the recording, with each syllable marked")}">`;
+    const trim = raw.trim_s || 0;
+    if (trim > t0) {
+      s += `<rect x="${padL}" y="${padT}" width="${(X(Math.min(trim, t1)) - padL).toFixed(1)}"
+        height="${ih}" fill="${GRID}" opacity=".35"/>`
+        + axisLabel(padL + 3, padT + 12, t("warm-up"));
+    }
+    if (raw.floor_db != null) {
+      const y = Y(raw.floor_db).toFixed(1);
+      s += `<line x1="${padL}" y1="${y}" x2="${padL + iw}" y2="${y}" stroke="${GRID}"
+        stroke-width="1.4" stroke-dasharray="5 5"/>` + axisLabel(padL + iw, +y - 4, t("room noise"), "end");
+    }
+    (raw.onsets_s || []).forEach(o => {
+      const x = X(o).toFixed(1);
+      s += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + ih}" stroke="${ST.ok.dot}"
+        stroke-width="1" opacity=".3"/>`
+        + `<path d="M${x},${padT + ih} l-4,7 l8,0 Z" fill="${ST.ok.dot}"/>`;
+    });
+    const line = env.map((p, i) =>
+      `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+    s += `<path d="${line}" fill="none" stroke="${LINE_C}" stroke-width="1.8"
+      stroke-linejoin="round" stroke-linecap="round"/>`;
+    // Phoneme model: only the stop consonants mark a syllable (see phonemes.py).
+    const SYL = {p:"pa", b:"pa", t:"ta", d:"ta", k:"ka", g:"ka", "\u0261":"ka"};
+    (raw.phones || []).forEach(ph => {
+      const lab = SYL[(ph[0] || "")[0]];
+      if (!lab || ph[1] < t0 || ph[1] > t1) return;
+      s += `<text x="${X(ph[1]).toFixed(1)}" y="${padT - 8}" text-anchor="middle"
+        font-size="9" fill="${INK_DIM}">${lab}</text>`;
+    });
+    s += axisLabel(padL, H - 10, "0s") + axisLabel(padL + iw, H - 10, `${fmtNum(t1 - t0)}s`, "end");
+    s += `</svg>`;
+    const legend = `<div class="rep-legend">
+      <span><i class="lg-tri" style="background:${ST.ok.dot}"></i>${t("syllable")}</span>
+      ${raw.floor_db != null ? `<span><i class="lg-dash"></i>${t("room noise")}</span>` : ""}
+    </div>`;
+    return sec(t("The recording"), svgWrap(s) + legend,
+      t("Loudness of the voice for the whole take. Each peak is a vowel; every syllable the detector accepted is marked. The audio itself is not kept."));
+  }
+
+  /* ── Hand tremor ────────────────────────────────────────────────── */
+
+  // One spectrum per hold, both hands on the same axes: a tremor is a peak
+  // standing out of the flat tracking-noise floor, and the left/right gap is
+  // the finding a one-sided rest tremor makes. Units are the same RMS % of
+  // hand length the headline uses, per 0.25 Hz step.
+  const HAND_C = { left: LINE_C, right: "#A78BFA" };
+  const TREMOR_PHASES = [["rest", "Rest"], ["rest_count", "Counting"],
+                         ["postural", "Arms out"]];
+
+  function tremorSpectra(rec) {
+    const raw = rec.raw || {}, phases = raw.phases || {};
+    const cells = (rec.metrics || {}).cells || {};
+    const W = 640, H = 150, padL = 40, padR = 14, padT = 16, padB = 26;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    let out = "";
+    TREMOR_PHASES.forEach(([key, name]) => {
+      const spectra = (phases[key] || {}).spectra || {};
+      const hands = Object.keys(spectra).filter(h => (spectra[h] || []).length > 1);
+      if (!hands.length) return;
+      let fMax = 0, vMax = 0;
+      hands.forEach(h => spectra[h].forEach(([f, v]) => {
+        fMax = Math.max(fMax, f); vMax = Math.max(vMax, v); }));
+      const f0 = 1, span = (fMax - f0) || 1;
+      vMax = vMax * 1.15 || 1;
+      const X = f => padL + iw * ((f - f0) / span);
+      const Y = v => padT + ih * (1 - v / vMax);
+      let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="${t("Tremor spectrum for each hand")}">`;
+      // the band the test scores, shaded
+      const b0 = X(3.5), b1 = X(Math.min(12, fMax));
+      s += `<rect x="${b0.toFixed(1)}" y="${padT}" width="${Math.max(0, b1 - b0).toFixed(1)}"
+        height="${ih}" fill="${GRID}" opacity=".35"/>`;
+      hands.forEach(h => {
+        const path = spectra[h].map(([f, v], i) =>
+          `${i ? "L" : "M"}${X(f).toFixed(1)},${Y(v).toFixed(1)}`).join("");
+        s += `<path d="${path}" fill="none" stroke="${HAND_C[h] || INK_DIM}" stroke-width="2"
+          stroke-linejoin="round" stroke-linecap="round"/>`;
+        const c = (cells[key] || {})[h] || {};
+        if (c.peak_hz != null && c.verdict && c.verdict !== "none") {
+          const pv = spectra[h].reduce((best, p) =>
+            Math.abs(p[0] - c.peak_hz) < Math.abs(best[0] - c.peak_hz) ? p : best);
+          const col = c.verdict === "detected" ? ST.bad.dot : ST.warn.dot;
+          s += `<circle cx="${X(pv[0]).toFixed(1)}" cy="${Y(pv[1]).toFixed(1)}" r="4.5" fill="${col}"/>`;
+        }
+      });
+      s += axisLabel(padL, H - 8, `${fmtNum(f0)} Hz`)
+        + axisLabel(b0 + 3, padT + 11, "3.5")
+        + axisLabel(padL + iw, H - 8, `${fmtNum(fMax)} Hz`, "end");
+      s += `</svg>`;
+      const facts = hands.map(h => {
+        const c = (cells[key] || {})[h] || {};
+        return c.peak_hz != null
+          ? `<span><i class="lg-line" style="background:${HAND_C[h] || INK_DIM}"></i>${t(h === "left" ? "Left hand" : "Right hand")}
+              · ${fmtNum(c.peak_hz)} Hz · ${fmtNum(c.amp_pct)}%${c.verdict && c.verdict !== "none"
+                ? ` · ${t(c.verdict === "detected" ? "tremor" : "possible")}` : ""}</span>` : "";
+      }).join("");
+      out += `<h4 class="rep-sub">${t(name)}</h4>${svgWrap(s)}<div class="rep-legend">${facts}</div>`;
+    });
+    if (!out) return "";
+    return sec(t("Tremor spectrum"), out,
+      t("How much each hand moved at each frequency, in % of hand length. A tremor is a single peak standing out of the flat noise floor; the shaded band is what the test scores. A dot marks a peak it reported."));
+  }
+
+  function tremorGlove(rec) {
+    const g = (rec.raw || {}).glove;
+    if (!g) return "";
+    const rows = TREMOR_PHASES.map(([key, name]) => {
+      const c = g[key];
+      const src = c && (c.gyro || c.accel);
+      return src ? `<div><span>${t(name)}</span><b>${fmtNum(src.peak_hz)} Hz · ${fmtNum(src.band_frac * 100)}%</b></div>` : "";
+    }).join("");
+    return rows ? sec(t("Glove sensor"), `<div class="rep-foot">${rows}</div>`,
+      t("Peak frequency and tremor-band share of the glove's gyroscope over each hold — the reference the camera's peak is compared against.")) : "";
   }
 
   /* ── Spiral ─────────────────────────────────────────────────────── */
@@ -453,9 +679,12 @@
     if (sm.length < 2) return "";
     const c = sp.center || [320, 240];
     const cx = c[0], cy = c[1];
-    const fw = Math.round(cx * 2), fh = Math.round(cy * 2);
+    // Newer records carry the frame and radius; older ones were always
+    // centred with a 0.4 radius, so both can be recovered from the centre.
+    const fw = sp.frame ? sp.frame[0] : Math.round(cx * 2);
+    const fh = sp.frame ? sp.frame[1] : Math.round(cy * 2);
     const turns = sp.turns || 3.5;
-    const maxR = 0.4 * Math.min(fw, fh);
+    const maxR = sp.radius || 0.4 * Math.min(fw, fh);
     const b = maxR / (turns * 2 * Math.PI);
     // Older records stored the deviation in pixels (5 columns); the current
     // ones store it as a percentage of the outer radius. Normalise to %.
@@ -550,7 +779,8 @@
     face_lost: ["none", "face lost"],
   };
 
-  function gazeTrace(rec) {
+  // `sel` is the open trial; the report passes its own, a test page its own.
+  function gazeTrace(rec, sel = selTrial) {
     const raw = rec.raw || {}, trials = raw.trials || {};
     const blocks = [["pro", "Pro-saccade — look at it"], ["anti", "Anti-saccade — look away"]];
     if (!(trials.pro || trials.anti)) return "";
@@ -561,7 +791,7 @@
       const chips = list.map((tr, i) => {
         const o = OUT[tr.outcome] || ["none", tr.outcome];
         const id = `${key}:${i}`;
-        return `<button class="tr-chip vs-${o[0]}${selTrial === id ? " is-open" : ""}"
+        return `<button class="tr-chip vs-${o[0]}${sel === id ? " is-open" : ""}"
           data-trial="${id}" title="${t(o[1])}${tr.latency_ms ? ` · ${Math.round(tr.latency_ms)} ms` : ""}">
           <span class="tr-n">${i + 1}</span>
           <span class="tr-lat">${tr.latency_ms ? Math.round(tr.latency_ms) : "—"}</span></button>`;
@@ -574,14 +804,14 @@
       .map(k => `<span><i class="lg-dot vs-${OUT[k][0]}"></i>${t(OUT[k][1])}</span>`).join("");
 
     return sec(t("Trial by trial"),
-      rows + `<div class="rep-legend">${key}</div>` + `<div id="rep-trial">${trialPanel(rec)}</div>`,
+      rows + `<div class="rep-legend">${key}</div>` + `<div data-trial-panel>${trialPanel(rec, sel)}</div>`,
       t("Each square is one trial, numbered in order, showing its latency in ms. Open one to see where the eyes actually went."));
   }
 
-  function trialPanel(rec) {
+  function trialPanel(rec, sel = selTrial) {
     const raw = rec.raw || {}, trials = raw.trials || {};
-    if (!selTrial) return `<div class="rep-msg rep-quiet">${t("Select a trial above.")}</div>`;
-    const [key, idxs] = selTrial.split(":");
+    if (!sel) return `<div class="rep-msg rep-quiet">${t("Select a trial above.")}</div>`;
+    const [key, idxs] = sel.split(":");
     const tr = (trials[key] || [])[+idxs];
     if (!tr || !(tr.series || []).length)
       return `<div class="rep-msg rep-quiet">${t("That trial has no gaze trace.")}</div>`;
@@ -668,6 +898,11 @@
     finger_tapping: rec => tapTrace(rec) + itiBars(rec),
     spiral: rec => spiralTrace(rec) + spiralSpeed(rec),
     oculomotor: rec => gazeTrace(rec) + fixationPanel(rec),
+    tremor: rec => tremorSpectra(rec) + tremorGlove(rec),
+    ddk: rec => ddkTrace(rec) + intervalBars((rec.raw || {}).onsets_s || [],
+      t("Each interval between syllables"),
+      t("Bar height is the gap between two syllables; colour is how far that gap sat from your own mean. Breath pauses show as tall bars and are left out of the score.")),
+    phonation: rec => pitchTrace(rec),
   };
 
   /* ── Events ─────────────────────────────────────────────────────── */
@@ -696,7 +931,8 @@
       selTrial = selTrial === chip.dataset.trial ? null : chip.dataset.trial;
       box.querySelectorAll("[data-trial]").forEach(c =>
         c.classList.toggle("is-open", c.dataset.trial === selTrial));
-      const panel = document.getElementById("rep-trial");
+      // Scoped to the panel: a test page can show the same chart behind it.
+      const panel = box.querySelector("[data-trial-panel]");
       if (panel) panel.innerHTML = trialPanel(cache.get(openId) || {});
     }
   });
@@ -730,5 +966,15 @@
   // never the stale copy from before the move.
   window.forgetReport = id => cache.delete(id);
   window.openReport = openReport;
+  // The test pages' "What we measure" card draws one real run with these, so
+  // it shows exactly what a session report shows.
+  window.recordingSections = (rec, opts = {}) => rec.test === "oculomotor"
+    ? gazeTrace(rec, opts.trial || null) + fixationPanel(rec)
+    : (TRACE[rec.test] || (() => ""))(rec);
+  window.trialPanelFor = (rec, sel) => trialPanel(rec, sel);
+  window.tapCharts = rec => ({
+    trace: tapTraceChart(rec),
+    intervals: intervalChart((rec.raw || {}).tap_times_s || [], t("Each interval between taps")),
+  });
   window.closeReport = closeReport;
 })();

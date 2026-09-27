@@ -242,6 +242,7 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
 .card-video{width:100%;aspect-ratio:16/9;border-radius:8px;background:var(--surface-2);
             border:1px solid var(--border);margin-bottom:16px;overflow:hidden;position:relative}
 .card-video video{width:100%;height:100%;object-fit:cover;display:block}
+.card-video .card-art{width:100%;height:100%;display:block;padding:8% 4%}
 /* Previews play continuously; a gray veil dims them until the card is hovered. */
 .card-video.has-video::after{content:"";position:absolute;inset:0;pointer-events:none;
             background:rgba(20,28,40,.6);transition:opacity .3s ease}
@@ -443,11 +444,182 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
   color:var(--text-muted);background:rgba(245,165,36,.07);
   border-left:3px solid var(--warning);border-radius:0 8px 8px 0}
 .band-note strong{color:var(--text);font-weight:600}
+/* An explanation rather than a caveat: info blue, not the amber of a cut-off. */
+.band-note.is-info{background:rgba(56,189,248,.07);border-left-color:var(--info)}
 .metric-cite a{color:var(--brand);text-decoration:none}
 .metric-cite a:hover{text-decoration:underline}
 
+/* ── Picture-led detail page (finger tapping pilot) ─────────────────
+   Pictures carry the steps; the prose folds into .science. An .art-slot is
+   the frame an illustration sits in. Until the art exists it shows a
+   placeholder naming the picture and the file it will be; once it does, the
+   placeholder is swapped for an <img> and the frame stays as it is. */
+.art-slot{position:relative;margin:0;aspect-ratio:var(--ar,4/3);overflow:hidden;
+  border-radius:var(--radius);border:1px dashed rgba(18,165,148,.35);
+  background:radial-gradient(115% 90% at 50% 4%,rgba(18,165,148,.10),transparent 68%),
+             rgba(14,21,32,.55);
+  display:flex;align-items:center;justify-content:center}
+.art-slot > img{display:block;width:100%;height:100%;object-fit:cover}
+/* A frame whose picture has landed: a plain hairline, no placeholder wash. */
+.art-slot.is-art{border:1px solid var(--border);background:var(--surface-2)}
+.slot-ph{display:flex;flex-direction:column;align-items:center;gap:6px;
+  padding:14px 16px;text-align:center;max-width:100%}
+.slot-ico{color:var(--brand);opacity:.8;line-height:0;margin-bottom:2px}
+.slot-ico svg{width:24px;height:24px}
+.slot-name{font-size:14px;font-weight:600;color:var(--text)}
+.slot-brief{font-size:12px;line-height:1.45;color:var(--text-muted);max-width:44ch}
+.slot-file{font-family:'JetBrains Mono','Consolas',monospace;font-size:10.5px;
+  color:var(--text-disabled);margin-top:2px;word-break:break-all}
+
+.fact-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.fact-chip{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;
+  border-radius:999px;font-size:13px;font-weight:500;color:var(--text);
+  background:var(--surface-2);border:1px solid var(--border)}
+.fact-chip svg{width:16px;height:16px;fill:none;stroke:var(--brand);stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+
+.how-head{display:flex;align-items:center;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.how-it-works .how-head h2{margin-bottom:0}
+.seg{display:inline-flex;padding:4px;gap:4px;border-radius:14px;
+  background:var(--surface);border:1px solid var(--border)}
+.seg [role="tab"]{min-height:44px;padding:0 16px;border-radius:10px;border:none;cursor:pointer;
+  background:transparent;color:var(--text-muted);font:inherit;font-size:14px;font-weight:600;
+  display:inline-flex;align-items:center;gap:8px;transition:background .2s,color .2s}
+.seg [role="tab"] small{font-size:11.5px;font-weight:500;color:var(--text-disabled);
+  font-variant-numeric:tabular-nums}
+.seg [role="tab"]:hover{color:var(--text)}
+.seg [role="tab"][aria-selected="true"]{background:rgba(18,165,148,.14);color:var(--text);
+  box-shadow:inset 0 0 0 1px rgba(18,165,148,.35)}
+.seg [role="tab"][aria-selected="true"] small{color:var(--brand)}
+.seg [role="tab"]:focus-visible{outline:2px solid var(--interactive);outline-offset:2px}
+
+.filmstrip{list-style:none;margin:0;padding:0;display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));gap:28px 20px}
+.filmstrip[hidden]{display:none}
+.frame{position:relative;display:flex;flex-direction:column;gap:14px}
+.frame-cap{display:flex;gap:10px;align-items:flex-start}
+.frame-num{width:28px;height:28px;flex:none;border-radius:8px;display:flex;align-items:center;
+  justify-content:center;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;
+  background:rgba(18,165,148,.12);color:var(--brand);border:1px solid rgba(18,165,148,.2)}
+.frame-cap h4{font-size:15px;font-weight:600;line-height:1.3;margin:3px 0 5px}
+.frame-cap p{font-size:13.5px;color:var(--text-muted);line-height:1.45}
+
+#page-iiv .how-it-works,.tips-section,.measure-section{margin-bottom:56px}
+.tips-section h2,.measure-section h2{font-size:20px;font-weight:600;margin-bottom:20px;text-wrap:balance}
+.dodont-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.dodont{display:flex;flex-direction:column;gap:14px}
+.dodont h4{font-size:15px;font-weight:600;text-align:center}
+.dd-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dd-pair .art-slot{--ar:1/1;border-radius:12px}
+/* Small tiles hold the badge and the picture's name, nothing else: the icon
+   sat over the badge and the file name could not fit. */
+.dd-pair .slot-ph{padding:12px 10px 34px}
+.dd-pair .slot-ico,.dd-pair .slot-file{display:none}
+.dd-pair .slot-name{font-size:13px;line-height:1.3;color:var(--text-muted)}
+.dd-badge{position:absolute;bottom:8px;left:8px;z-index:1;display:inline-flex;align-items:center;gap:4px;
+  height:22px;padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:600}
+.dd-badge svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:3;
+  stroke-linecap:round;stroke-linejoin:round}
+.dd-badge.ok{color:var(--success);background:rgba(34,197,94,.16)}
+.dd-badge.no{color:var(--danger);background:rgba(239,68,68,.16)}
+/* Over a photo the tinted badge washes out; give it a solid ground. */
+.is-art .dd-badge{background:rgba(14,21,32,.88);box-shadow:0 1px 4px rgba(0,0,0,.35)}
+
+/* A real recording, drawn by report.js's charts. The card lends them the
+   report sheet's --r-* tokens they read, so they look the same in both places. */
+.rec-card{--r-border:#3D4959;--r-muted:#AFBDD0;--r-dim:#8593A8;--r-well:#141C28;
+  --r-raised:#1C2430;--r-ink:#F4F7FB;--r-line:#4A5769;
+  padding:20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border)}
+.rec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-bottom:18px}
+.rec-eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--brand)}
+.rec-verdict{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;
+  border-radius:999px;font-size:13px;font-weight:600}
+.rec-verdict svg{width:14px;height:14px}
+.rec-block + .rec-block{margin-top:20px}
+.rec-block h3{font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px}
+.rec-empty{font-size:13.5px;color:var(--text-muted);padding:24px 4px;text-align:center}
+/* The report's own sections, minus their explanatory notes: the page keeps
+   the picture and the numbers, the report keeps the prose. */
+.rec-card .rep-note{display:none}
+.rec-card .rep-sec{margin-top:0}
+.rec-card .rep-sec + .rep-sec{margin-top:20px}
+.rec-card .rep-sec h3{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;
+  color:var(--text-muted);margin-bottom:8px}
+.rec-card .rep-chart svg{max-height:420px}
+/* No clean run on record yet: just the placeholder frame. */
+.rec-card.is-empty .rec-head,.rec-card.is-empty .metric-chips{display:none}
+.rec-slot{--ar:21/9}
+.metric-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:20px}
+.metric-chip{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:12px;
+  background:var(--surface-2);border:1px solid var(--border)}
+.metric-chip b{font-size:22px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;
+  font-family:'JetBrains Mono','Consolas',var(--font-cjk),monospace;letter-spacing:-.02em}
+.metric-chip b small{font-size:13px;font-weight:500;color:var(--text-muted);margin-left:3px}
+.metric-chip span{font-size:13px;color:var(--text-muted)}
+.metric-chip.lead{border-color:rgba(18,165,148,.45);background:rgba(18,165,148,.08)}
+
+/* Everything a clinician wants and a patient does not need, in one fold. */
+.science{margin-bottom:40px;border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--surface)}
+.science summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;
+  flex-wrap:wrap;min-height:56px;padding:12px 20px;border-radius:var(--radius)}
+.science summary::-webkit-details-marker{display:none}
+.science summary::before{content:"";width:7px;height:7px;flex:none;
+  border-right:2px solid var(--brand);border-bottom:2px solid var(--brand);
+  transform:rotate(-45deg);transition:transform .2s}
+.science[open] summary::before{transform:rotate(45deg)}
+.science summary > span{font-size:17px;font-weight:600;color:var(--text)}
+.science summary small{font-size:13px;color:var(--text-muted)}
+.science summary:hover small{color:var(--text)}
+.science summary:focus-visible{outline:2px solid var(--interactive);outline-offset:2px}
+.science-body{padding:4px 20px 8px;border-top:1px solid var(--border)}
+.science-body > .detail-file{font-family:'JetBrains Mono','Consolas',var(--font-cjk),monospace;
+  font-size:12px;color:var(--text-disabled);margin:14px 0 4px}
+.science-body .band-note{margin:12px 0 28px}
+.science-lede{font-size:14px;line-height:1.6;color:var(--text-muted);max-width:66ch;margin:12px 0 0}
+.science-lede strong{color:var(--text);font-weight:600}
+.science-body .metrics-section{margin-top:24px}
+.science-body .metrics-section,.science-body .papers-section{margin-bottom:24px}
+.science-body h2{font-size:17px}
+
+@media (max-width:720px){
+  .filmstrip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dodont-grid{grid-template-columns:1fr}
+  .rec-card{padding:14px}
+  .rec-slot{--ar:4/3}
+}
+@media (prefers-reduced-motion:reduce){
+  .seg [role="tab"],.science summary::before{transition:none}
+}
+
 /* Research papers */
 .papers-section{margin-bottom:40px}
+
+/* "How This Test Changed" timeline inside a science fold. The type is always
+   written in the tag, so colour only reinforces it (UI_STYLE_GUIDE §2.4). */
+.tl-section{margin:8px 0 24px}
+.tl-section h2{font-size:17px;font-weight:600;margin-bottom:6px;text-wrap:balance}
+.tl-lede{font-size:13.5px;color:var(--text-muted);margin-bottom:18px}
+.tl{list-style:none;margin:0;padding:0 0 0 22px;position:relative}
+.tl::before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:2px;
+  background:linear-gradient(var(--border),rgba(18,165,148,.45))}
+.tl-item{position:relative;padding:0 0 18px 10px}
+.tl-item::before{content:"";position:absolute;left:-21px;top:5px;width:12px;height:12px;
+  border-radius:50%;background:var(--bg);border:2px solid var(--tl-c,var(--brand))}
+.tl-meta{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.tl-date{font-size:12px;color:var(--text-disabled);font-variant-numeric:tabular-nums}
+.tl-tag{font-size:11px;font-weight:600;letter-spacing:.02em;padding:1px 8px;border-radius:999px;
+  color:var(--tl-c,var(--brand));border:1px solid currentColor}
+.tl-item h4{font-size:14.5px;font-weight:600;margin-bottom:3px}
+.tl-item p{font-size:13.5px;color:var(--text-muted);line-height:1.55;max-width:72ch}
+.tl-start{--tl-c:var(--brand)}
+.tl-added,.tl-changed{--tl-c:var(--info)}
+.tl-fixed{--tl-c:var(--success)}
+.tl-tested{--tl-c:var(--brand)}
+.tl-rejected{--tl-c:var(--text-disabled)}
+.tl-removed{--tl-c:var(--warning)}
 .papers-section h2{font-size:20px;font-weight:600;margin-bottom:20px;text-wrap:balance}
 .paper{padding:20px;background:var(--surface);border:1px solid var(--border);
        border-radius:var(--radius);margin-bottom:12px;
@@ -599,7 +771,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .cam-chip:hover{color:var(--brand);border-color:var(--brand)}
 .cam-chip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .cam-slot.open .cam-chip{color:var(--brand);border-color:var(--brand)}
-.cam-chip-text{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cam-chip-text{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cam-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:252px;
          padding:12px;border-radius:12px;text-align:left;
          background:var(--surface);border:1px solid var(--border);
@@ -610,12 +782,14 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
          color:var(--text);margin-bottom:7px}
 .cam-opt{display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
 .cam-opt input[type=radio]{accent-color:var(--brand);flex:none;margin:0}
-.cam-idx,.cam-url{font-family:inherit;font-size:12.5px;color:var(--text);
+.cam-idx,.cam-url,.cam-mirror,.cam-dev{font-family:inherit;font-size:12.5px;color:var(--text);
                   background:var(--surface-2);border:1px solid var(--border);
                   border-radius:7px;padding:4px 7px}
 .cam-idx{width:52px;text-align:center;font-variant-numeric:tabular-nums}
+.cam-mirror{max-width:150px;cursor:pointer}
 .cam-url{width:100%;margin:2px 0 10px}
-.cam-idx:focus,.cam-url:focus{outline:none;border-color:var(--brand)}
+.cam-dev{width:100%;margin:0 0 10px;cursor:pointer}
+.cam-idx:focus,.cam-url:focus,.cam-mirror:focus,.cam-dev:focus{outline:none;border-color:var(--brand)}
 .cam-foot{display:flex;align-items:center;gap:10px}
 .cam-note{flex:1;font-size:10.5px;line-height:1.35;color:var(--text-disabled)}
 .btn-mini{font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
@@ -802,6 +976,40 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .pillar h4{font-size:15px;font-weight:600;margin-bottom:6px;letter-spacing:-.01em}
 .pillar p{font-size:13.5px;color:var(--text-muted);line-height:1.5}
 
+/* Validation against lab data: lede, stat tiles, two figure slots, steps */
+.val-lede{font-size:15px;color:var(--text-muted);line-height:1.6;max-width:70ch;margin-bottom:20px}
+.val a{color:var(--brand);text-decoration:none}
+.val a:hover{text-decoration:underline}
+.val-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.val-stat{padding:18px 18px 16px;background:var(--surface);border:1px solid var(--border);
+          border-radius:var(--radius);display:flex;flex-direction:column;gap:6px}
+.val-stat b{font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--brand);
+            font-variant-numeric:tabular-nums;line-height:1.1}
+.val-stat span{font-size:12.5px;color:var(--text-muted);line-height:1.45}
+.val-meta{font-size:12px;color:var(--text-disabled);margin:10px 0 24px;
+          font-variant-numeric:tabular-nums}
+/* One figure per row: these are charts, and at half width their text is unreadable */
+.val-figs{display:grid;grid-template-columns:1fr;gap:24px;margin-bottom:24px}
+.val-fig .art-slot{border-style:solid;border-color:var(--border)}
+.val-fig .art-slot:has(> .slot-ph){border-style:dashed;border-color:rgba(18,165,148,.35)}
+.val-fig{margin:0 0 20px}
+.val-sub{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:8px 0 10px;color:var(--text)}
+.val-sub:not(:first-child){margin-top:40px}
+.val-credit{font-size:12px;color:var(--text-disabled);line-height:1.5;margin-top:14px;max-width:70ch}
+.val-fig figcaption{font-size:12.5px;color:var(--text-muted);line-height:1.5;margin-top:8px}
+.val-steps{list-style:none;counter-reset:vs;display:grid;
+           grid-template-columns:repeat(3,1fr);gap:16px;margin:0 0 20px;padding:0}
+.val-steps li{counter-increment:vs;padding:18px;border:1px solid var(--border);
+              border-radius:var(--radius);background:var(--surface)}
+.val-steps li::before{content:counter(vs);display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;border-radius:50%;margin-bottom:10px;font-size:12px;font-weight:700;
+  color:var(--brand);background:rgba(18,165,148,.1);border:1px solid rgba(18,165,148,.25)}
+.val-steps h4{font-size:14.5px;font-weight:600;margin-bottom:6px}
+.val-steps p{font-size:13px;color:var(--text-muted);line-height:1.5}
+.val-next{font-size:13.5px;color:var(--text-muted);line-height:1.55;max-width:70ch;
+          padding:12px 16px;border-left:3px solid var(--info);border-radius:0 8px 8px 0;
+          background:rgba(255,255,255,.02)}
+
 /* Comparison matrix */
 .cmp-legend{display:inline-flex;gap:12px;flex-wrap:wrap;margin-left:auto;font-size:11px}
 .cmp-key{display:inline-flex;align-items:center;gap:4px;color:var(--text-muted);white-space:nowrap}
@@ -856,6 +1064,8 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
   .why{padding:24px 20px 64px}
   .cmp-legend{margin-left:0;width:100%}
   .pillar-grid{grid-template-columns:1fr}
+  .val-stats{grid-template-columns:1fr 1fr}
+  .val-steps{grid-template-columns:1fr}
 }
 
 /* ── Scroll reveal ─────────────────────────────────────────────────── */
@@ -970,6 +1180,50 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .dev-axis-v{font-family:'JetBrains Mono',var(--font-cjk),monospace;font-size:11px;color:var(--text);
             font-variant-numeric:tabular-nums;width:74px;text-align:right;flex:none}
 .dev-imu-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+
+/* Glove map (glove3d.js). A 3D hand beside a plain list of the same channels:
+   the list is what carries the numbers and statuses in words (style guide
+   2.4), and it is the whole map on a machine without WebGL. */
+.g3d{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){ .g3d{grid-template-columns:1fr} }
+.g3d-stage{position:relative;height:460px;background:radial-gradient(ellipse at 50% 40%,#18222f,var(--surface) 70%);
+           border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+#g3d-canvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#g3d-canvas:active{cursor:grabbing}
+.g3d-tags{position:absolute;inset:0;pointer-events:none}
+.g3d-tag{position:absolute;left:0;top:0;white-space:nowrap;padding:2px 7px;border-radius:999px;
+         background:rgba(14,21,32,.82);border:1px solid var(--border);font-size:11px;
+         font-family:'JetBrains Mono',var(--font-cjk),monospace;color:var(--text-muted);
+         font-variant-numeric:tabular-nums}
+.g3d-tag b{color:var(--text);font-weight:600;margin-right:5px}
+.g3d-tag.warn{border-color:rgba(245,165,36,.5);color:var(--warning)}
+.g3d-views{position:absolute;left:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.g3d-views .btn{height:36px;padding:0 14px;font-size:13px;background:rgba(14,21,32,.7)}
+.g3d-views .dev-check{padding:0 10px;height:36px;border-radius:var(--radius-btn);background:rgba(14,21,32,.7)}
+.g3d-views .dev-sel{padding:0 10px;height:36px;border-radius:var(--radius-btn);background:rgba(14,21,32,.7);
+                    display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.g3d-views .btn:disabled{opacity:.45;cursor:not-allowed}
+.g3d-cal{position:absolute;left:50%;top:14px;transform:translateX(-50%);width:min(420px,calc(100% - 24px));
+         background:rgba(14,21,32,.92);border:1px solid var(--brand);border-radius:var(--radius);
+         padding:14px 16px;font-size:14px;color:var(--text);text-align:center}
+.g3d-cal p{margin:0 0 10px;line-height:1.45}
+.g3d-cal .g3d-cal-err{color:var(--warning);font-size:13px}
+.g3d-cal-bar{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-bottom:12px}
+.g3d-cal-bar i{display:block;height:100%;width:0;background:var(--brand);transition:width .1s linear}
+@media (prefers-reduced-motion: reduce){ .g3d-cal-bar i{transition:none} }
+.g3d-empty{position:absolute;left:0;right:0;top:14px;text-align:center;font-size:13px;
+           color:var(--text-disabled);pointer-events:none}
+.g3d-list{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+          padding:6px 14px 12px}
+.g3d-group{font-size:11px;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.05em;
+           margin:12px 0 4px}
+.g3d-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;column-gap:10px;align-items:center;
+         padding:5px 0;border-top:1px solid var(--border);font-size:13px}
+.g3d-row b{font-family:'JetBrains Mono',var(--font-cjk),monospace;color:var(--text)}
+.g3d-site{color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g3d-val{font-family:'JetBrains Mono',var(--font-cjk),monospace;color:var(--text);
+         font-variant-numeric:tabular-nums;text-align:right}
+.g3d-row .dev-badge{grid-column:2 / 4;justify-self:start;margin-top:3px}
 
 .dev-console{background:#0A0F18;border:1px solid var(--border);border-radius:var(--radius);
              padding:14px;height:200px;overflow:auto;font-family:'JetBrains Mono',var(--font-cjk),monospace;
@@ -1305,7 +1559,7 @@ body[data-hub="connected"] .hub-slot{display:inline-flex}
   .hub-state-dot,.hub-listen-dot,.btn.is-busy::before{animation:none}
 }
 
-/* ── Remote Sessions page (docs/REMOTE_SESSION_PLAN.md) ─────────────── */
+/* ── Remote Sessions page (docs/platform/REMOTE_SESSION_PLAN.md) ─────────────── */
 .rs-note{display:flex;gap:12px;align-items:flex-start;background:var(--surface);
   border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;
   margin-bottom:28px;font-size:13px;line-height:1.65;color:var(--text-muted)}
@@ -1628,6 +1882,9 @@ body.report-open{overflow:hidden}
 .rep-sec{margin-top:26px}
 .rep-sec h3{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
             color:var(--r-dim);margin-bottom:6px}
+/* one hold's heading inside the tremor spectrum section */
+.rep-sub{font-size:12.5px;font-weight:600;color:var(--r-muted);margin:14px 0 4px}
+.rep-sub:first-of-type{margin-top:4px}
 .rep-note{font-size:12.5px;color:var(--r-muted);line-height:1.5;margin-bottom:10px;max-width:62ch}
 .rep-chart{background:var(--r-well);border:1px solid var(--r-border);border-radius:12px;
            padding:8px 10px;overflow:hidden}

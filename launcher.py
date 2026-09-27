@@ -6,11 +6,13 @@ cognitive-screening suite and presents the research behind it. Run it, and it
 opens a dashboard in your browser with:
 
   - System status  (Python, model files, OpenCV, MediaPipe)
-  - One-click launch for each tool, spanning motor and oculomotor modalities
-    (a speech modality is planned — see docs/ROADMAP.md):
+  - One-click launch for each tool, spanning motor, oculomotor and speech
+    modalities:
         * Finger Tapping Test       (finger_tapping.py)
         * Spiral Tracing Test       (spiral_test.py)
         * Eye Movement Test         (oculomotor_test.py)
+        * Speech Test               (speech_test.py)
+        * Hand Tremor Test          (tremor_test.py)
         * Hand Tracking / UDP       (hand_tracking.py)
   - The cognitive-biomarker research summary spanning each modality
   - A link to the full analysis document
@@ -71,7 +73,8 @@ ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 MODEL_FILE = os.path.join(RESOURCE_DIR, "model", "hand_landmarker.task")
 FACE_MODEL_FILE = os.path.join(RESOURCE_DIR, "model", "face_landmarker.task")
-ANALYSIS_FILE = os.path.join(RESOURCE_DIR, "docs", "alzheimers_hand_tracking_analysis.md")
+ANALYSIS_FILE = os.path.join(RESOURCE_DIR, "docs", "research",
+                             "alzheimers_hand_tracking_analysis.md")
 
 HOST = "127.0.0.1"
 PORT = 8770
@@ -91,6 +94,7 @@ _MIME = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
     ".mp4": "video/mp4",
     ".webm": "video/webm",
 }
@@ -106,8 +110,20 @@ TOOLS: dict[str, tuple[str, str]] = {
     "iiv":       (os.path.join("screening_tests", "finger_tapping.py"), "Finger Tapping Test"),
     "spiral":    (os.path.join("screening_tests", "spiral_test.py"), "Spiral Tracing Test"),
     "oculomotor": (os.path.join("screening_tests", "oculomotor_test.py"), "Eye Movement Test"),
+    "ddk":       (os.path.join("screening_tests", "speech_test.py"), "Speech Test"),
+    "tremor":    (os.path.join("screening_tests", "tremor_test.py"), "Hand Tremor Test"),
     "tracking":  (os.path.join("core", "hand_tracking.py"),          "Hand Tracking / UDP Broadcast"),
 }
+
+# Tools that hold the microphone, not the camera. Still one tool at a time —
+# another test's beeps would land in the recording — but the refusal must not
+# claim the speech test is using the camera.
+MIC_TOOLS = {"ddk"}
+
+# Tools that open the sensor glove's serial port themselves. Windows allows one
+# owner per COM port, so the Developer page's reader lets go before they start
+# (the same hand-off a firmware upload makes).
+GLOVE_TOOLS = {"tremor"}
 
 # key -> live subprocess.Popen (only while running)
 _procs: dict[str, subprocess.Popen] = {}
@@ -123,7 +139,10 @@ ENV_CAMERA = "HAND3D_CAMERA"
 _MAX_CAM_INDEX = 9
 _STREAM_SCHEMES = ("http://", "https://", "rtsp://", "rtmp://")
 
-_DEFAULT_CAMERA = {"mode": "webcam", "index": 0, "url": ""}
+# `name` is the device name the user picked (core/camera_list.py); the index
+# is re-resolved from it at launch, since plugging cameras in and out shifts
+# indices. Empty when the index was typed by hand.
+_DEFAULT_CAMERA = {"mode": "webcam", "index": 0, "url": "", "name": ""}
 _settings_lock = threading.Lock()
 
 
@@ -152,14 +171,29 @@ def _normalise_camera(raw) -> dict:
         cam["index"] = max(0, min(_MAX_CAM_INDEX, int(raw.get("index", 0))))
     except (TypeError, ValueError):
         pass
+    cam["name"] = str(raw.get("name") or "").strip()[:120]
     return cam
+
+
+def _cam_source(cam: dict) -> int | str:
+    return cam["url"] if cam["mode"] == "stream" else cam["index"]
 
 
 def camera_setting() -> dict:
+    from core import orientation
+
     cam = _normalise_camera(_read_settings().get("camera"))
     cam["label"] = (cam["url"] if cam["mode"] == "stream"
-                    else f"Webcam {cam['index']}")
+                    else cam["name"] or f"Webcam {cam['index']}")
+    # Whether this camera mirrors its picture: True / False, or None when it
+    # has never been checked (the next hand test asks). core/orientation.py.
+    cam["mirror"] = orientation.load(_cam_source(cam))
     return cam
+
+
+# Picture setting from the camera chip: "auto" forgets the saved answer so the
+# next launch runs the check again; "on"/"off" set it by hand.
+_MIRROR_CHOICES = {"auto": None, "on": True, "off": False}
 
 
 def set_camera_setting(raw) -> tuple[bool, str]:
@@ -178,7 +212,15 @@ def set_camera_setting(raw) -> tuple[bool, str]:
                 json.dump(data, fh, indent=2)
         except OSError as exc:
             return False, f"Could not save the camera choice: {exc}"
-    label = cam["url"] if cam["mode"] == "stream" else f"webcam {cam['index']}"
+    # Only sent when the user touched the Picture setting, so switching camera
+    # never copies the old camera's answer onto the new one.
+    mirror = raw.get("mirror") if isinstance(raw, dict) else None
+    if mirror in _MIRROR_CHOICES:
+        from core import orientation
+        if not orientation.save(_cam_source(cam), _MIRROR_CHOICES[mirror]):
+            return False, "Could not save the mirroring setting."
+    label = (cam["url"] if cam["mode"] == "stream"
+             else cam["name"] or f"webcam {cam['index']}")
     return True, f"Camera set to {label}."
 
 
@@ -228,7 +270,11 @@ def _tool_env(lang: str | None = None) -> dict:
 
     cam = camera_setting()
     env = os.environ.copy()
-    env[ENV_CAMERA] = cam["url"] if cam["mode"] == "stream" else str(cam["index"])
+    if cam["mode"] == "stream":
+        env[ENV_CAMERA] = cam["url"]
+    else:
+        from core.camera_list import resolve_index
+        env[ENV_CAMERA] = str(resolve_index(cam["name"], cam["index"]))
     env[ENV_LANG] = lang if lang in _LANGS else lang_setting()
     env[profiles.ENV_PROFILE] = profiles.env_value()
     return env
@@ -296,7 +342,7 @@ def _pair_refused_page(dest: str) -> bytes:
     /pair is reached by a top-level navigation, so a refusal replaces whatever
     the visitor was looking at. A bare `text/plain` body left them on a white
     screen with no way back to the dashboard; this says which address was
-    refused and offers the step back. Tokens from docs/UI_STYLE_GUIDE.md.
+    refused and offers the step back. Tokens from docs/design/UI_STYLE_GUIDE.md.
     """
     shown = html.escape(dest) if dest else "(none given)"
     return f"""<!doctype html>
@@ -364,6 +410,8 @@ def launch_tool(key: str, lang: str | None = None) -> tuple[bool, str]:
     # Only one tool can hold the webcam at a time.
     for other in TOOLS:
         if other != key and _running(other):
+            if other in MIC_TOOLS or key in MIC_TOOLS:
+                return False, f"'{TOOLS[other][1]}' is still running. Stop it first."
             return False, f"'{TOOLS[other][1]}' is using the camera. Stop it first."
 
     script, _title = TOOLS[key]
@@ -373,6 +421,11 @@ def launch_tool(key: str, lang: str | None = None) -> tuple[bool, str]:
 
     # Give each tool its own console so print()/input() (e.g. the camera
     # prompt in hand_tracking.py) have somewhere to go.
+    note = ""
+    if key in GLOVE_TOOLS and _glove is not None and _glove.is_connected():
+        _glove.disconnect()
+        note = " Released the glove to the test — reconnect on the Developer page afterwards."
+
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.CREATE_NEW_CONSOLE  # type: ignore[attr-defined]
@@ -389,7 +442,7 @@ def launch_tool(key: str, lang: str | None = None) -> tuple[bool, str]:
 
     with _procs_lock:
         _procs[key] = proc
-    return True, "Launched."
+    return True, "Launched." + note
 
 
 def stop_tool(key: str) -> tuple[bool, str]:
@@ -903,6 +956,10 @@ def status_payload() -> dict:
         "face_model_present": os.path.exists(FACE_MODEL_FILE),
         "opencv": _dep_present("cv2"),
         "mediapipe": _dep_present("mediapipe"),
+        # Speech test: sounddevice is required; the phoneme model is optional
+        # and only reported, never required (core/speech/phonemes.py).
+        "sounddevice": _dep_present("sounddevice"),
+        "speech_ml": _dep_present("torch") and _dep_present("transformers"),
         "analysis_present": os.path.exists(ANALYSIS_FILE),
         "running": {key: _running(key) for key in TOOLS},
         # Rides along on the 3 s poll the dashboard already makes, so the
@@ -1022,12 +1079,21 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
 
     def _serve_dir_file(self, directory: str, name: str):
-        """Serve a single file from *directory*, guarded against path traversal."""
-        safe = os.path.basename(name.split("?", 1)[0])
-        fpath = os.path.join(directory, safe)
-        if safe and os.path.isfile(fpath):
+        """Serve a single file from *directory*, guarded against path traversal.
+
+        Subfolders are allowed (the test pages' illustrations live under
+        img/<test>/), so the guard is on the resolved path rather than on
+        taking the basename: every segment must be a plain name, and the real
+        path must still sit inside *directory* once symlinks are followed."""
+        rel = urllib.parse.unquote(name.split("?", 1)[0].split("#", 1)[0])
+        parts = [p for p in rel.replace("\\", "/").split("/") if p]
+        root = os.path.realpath(directory)
+        fpath = os.path.realpath(os.path.join(root, *parts)) if parts else root
+        ok = (parts and not any(p in (".", "..") or ":" in p for p in parts)
+              and os.path.commonpath([root, fpath]) == root and os.path.isfile(fpath))
+        if ok:
             with open(fpath, "rb") as f:
-                self._send(200, f.read(), _mime(safe))
+                self._send(200, f.read(), _mime(fpath))
         else:
             self._send(404, b"Not found", "text/plain; charset=utf-8")
 
@@ -1056,6 +1122,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(rec)
         elif route == "/api/profiles":
             self._send_json(profiles_payload())
+        elif route == "/api/cameras":
+            # Names for the camera chip's picker. Enumerates without opening
+            # anything, so no camera LED flashes when the popover opens.
+            from core.camera_list import list_cameras
+            self._send_json({"cameras": list_cameras()})
         elif route == "/api/remote/state":
             self._send_json(remote_state_payload())
         elif route == "/api/dev/env":

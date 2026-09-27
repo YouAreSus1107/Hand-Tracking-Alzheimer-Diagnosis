@@ -165,6 +165,7 @@
     // The roster lives on the visitor's own hub, so with none paired there is
     // nobody to show — an empty one keeps the chip rendering as "No profile".
     if (path === "/api/profiles") return { profiles: [], active: "" };
+    if (path === "/api/cameras") return { cameras: [] };
     if (path === "/api/glove/ports") return { pyserial: false, ports: [] };
     if (path === "/api/glove/samples") return { samples: [], seq: -1 };
     // /api/launch, /api/stop, /api/dev/*, /api/glove/* …
