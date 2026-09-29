@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from core.ui import theme
 from core.ui.anim import ease_out_cubic
+from core.ui.components import Canvas
 
 # Priorities, highest first.
 PRI_HAND = 50      # no hand at all
@@ -64,7 +65,7 @@ class Coach:
         elif any(m == self.msg for _, m in asks):
             self.asked_at = now      # still wanted; hold it until MIN_SHOW_S
 
-    def render(self, canvas, now: float) -> None:
+    def render(self, canvas: Canvas, now: float) -> None:
         self._pick(now)
         if self.msg is None:
             return

@@ -24,6 +24,11 @@ On a VT-capable console (Windows Terminal, or conhost since Win10 1703) this
 paints a themed loading screen in place: brand header, weighted progress bar,
 current stage and elapsed seconds. Elsewhere it degrades to one spinner line.
 
+Every word it prints goes through `i18n.ct()`, so a run the hub launched in
+Chinese loads in Chinese, and a console that cannot show CJK (a legacy code
+page, or conhost in a Latin font) stays English rather than printing boxes.
+Callers pass English; the title, subtitle and stage labels are looked up here.
+
 The bar never lies about a stage it has not finished: within a stage it eases
 asymptotically toward that stage's ceiling and only snaps to it on `step()`.
 """
@@ -37,6 +42,8 @@ import shutil
 import sys
 import threading
 import time
+
+from core import i18n
 
 # ── Stage tables ───────────────────────────────────────────────────────────
 # (label, share of total load time) — measured cold on the reference machine:
@@ -132,6 +139,8 @@ class Splash:
         if not enabled:
             return
 
+        title = i18n.ct(title)
+        subtitle = i18n.ct(subtitle) if subtitle else subtitle
         set_console_title(f"{title} - Hand Detection 3D")
         self._vt = _enable_vt()
         if self._vt:
@@ -148,7 +157,7 @@ class Splash:
             if subtitle:
                 print(f"  {subtitle}")
             print("=" * 52)
-            print(f"  Loading {self._label()}...", flush=True)
+            print(f"  {self._loading()}", flush=True)
         atexit.register(self._teardown)
 
     # ── geometry ───────────────────────────────────────────────────────────
@@ -162,7 +171,10 @@ class Splash:
 
     def _label(self) -> str:
         index = min(self._index, len(self._steps) - 1)
-        return self._steps[index][0]
+        return i18n.ct(self._steps[index][0])
+
+    def _loading(self) -> str:
+        return i18n.ct("Loading {what}...", what=self._label())
 
     def _fraction(self) -> float:
         """Completed stages, plus an eased creep through the current one."""
@@ -216,16 +228,19 @@ class Splash:
             mark, text, clock = self._mark, self._final, ""
         else:
             mark = _FRAMES[int(elapsed / _TICK) % len(_FRAMES)]
-            text, clock = f"Loading {self._label()}...", f"{elapsed:5.1f}s"
-        gap = " " * max(2, width - 6 - len(text) - len(clock))
+            text, clock = self._loading(), f"{elapsed:5.1f}s"
+        # Columns, not len(): a CJK character is one char but two cells wide.
+        gap = " " * max(2, width - 6 - i18n.text_width(text) - len(clock))
         status = (f"  {_rgb(_BRAND)}{mark}{_RESET} {_rgb(_TEXT)}{text}{_RESET}"
                   f"{gap}{_rgb(_DIM)}{clock}{_RESET}")
 
         hint = ""
         if not self._final and elapsed > _SLOW_S:
-            hint = "First launch reads ~130 MB of vision libraries from disk."
+            hint = i18n.ct(
+                "First launch reads ~130 MB of vision libraries from disk.")
         elif self._final and elapsed > _SLOW_S + 2.0:
-            hint = "Slow cold start - see docs/performance/COLD_START.md to speed it up."
+            hint = i18n.ct("Slow cold start - see "
+                           "docs/performance/COLD_START.md to speed it up.")
         if hint:
             hint = f"  {_rgb(_DIM)}{hint}{_RESET}"
 
@@ -264,7 +279,7 @@ class Splash:
         if self._vt:
             self._paint()
         elif self._index < len(self._steps):
-            print(f"  Loading {self._label()}...", flush=True)
+            print(f"  {self._loading()}", flush=True)
 
     def done(self, note: str = "Ready") -> None:
         if not self.enabled:
@@ -272,7 +287,8 @@ class Splash:
         self.enabled = False
         self._index = len(self._steps)
         elapsed = time.perf_counter() - self._t0
-        self._final = f"{note} in {elapsed:.1f} s"
+        self._final = i18n.ct("{note} in {secs} s", note=i18n.ct(note),
+                              secs=f"{elapsed:.1f}")
         self._teardown()
         if self._vt:
             self._paint()

@@ -47,6 +47,7 @@ _splash.step()               # OpenCV in
 
 from core import i18n
 from core.camera import create_display_window, window_closed, pause_before_exit
+from core.screen_recorder import ScreenRecorder
 from core.session import save_session
 from core.speech import onsets as on
 from core.speech import phonation, phonemes
@@ -709,7 +710,8 @@ class App:
 
     # ── main loop ─────────────────────────────────────────────────────────
     def run(self):
-        win = "Speech Test  |  Q or window ✕ to quit"
+        screen_rec = ScreenRecorder("speech")
+        win = "Speech Test  |  Q or close the window to quit"
         create_display_window(win, W, H)
         cv2.setMouseCallback(win, self.on_mouse)
         bg = np.empty((H, W, 3), np.uint8)
@@ -737,22 +739,25 @@ class App:
             screen(c, now)
             self.toasts.render(c, now)
 
-            cv2.imshow(win, c.compose())
+            cv2.imshow(win, screen_rec.frame(c.compose()))
             self.click = None
             # The stream never stops, so drop what nobody will score while the
             # window sits between runs (~64-176 kB/s would otherwise pile up).
             if self.state in (IDLE, INSTRUCTION, COMPLETE) \
                     and self.rec.mark() > 30 * self.rec.rate:
                 self.rec.reset()
-            if cv2.waitKey(15) & 0xFF == ord("q"):
+            key = cv2.waitKey(15) & 0xFF
+            screen_rec.key(key)
+            if key == ord("q"):
                 break
             if window_closed(win):
                 break
 
         self.rec.close()
+        screen_rec.close()
         cv2.destroyAllWindows()
         self.audio.close()
-        print("\n[INFO] Speech test closed.")
+        print("\n[INFO] " + i18n.ct("Speech test closed."))
 
 
 def main():

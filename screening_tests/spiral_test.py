@@ -60,8 +60,9 @@ import numpy as np
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe,
                              true_hand)
-from core.camera import (select_camera_source, open_capture,
+from core.camera import (capture_info, select_camera_source, open_capture,
                          create_display_window, window_closed, pause_before_exit)
+from core.screen_recorder import ScreenRecorder
 from core.mirror_check import ensure_orientation
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
@@ -745,7 +746,8 @@ class App:
                 test="spiral", mode="air_spiral", hand=hand,
                 duration_s=round(trace_s, 2),
                 device={"camera_fps": round(self.fps, 1),
-                        "resolution": "640x480", "app_version": APP_VERSION},
+                        "resolution": "640x480", "app_version": APP_VERSION,
+                        **capture_info(self.cap)},
                 metrics=metrics, raw=raw)
         except OSError as e:
             self.saved_path = None
@@ -841,7 +843,8 @@ class App:
 
     # ── main loop ─────────────────────────────────────────────────────────
     def run(self):
-        win = "Spiral Tracing Test  |  Q or window ✕ to quit"
+        screen_rec = ScreenRecorder("spiral")
+        win = "Spiral Tracing Test  |  Q or close the window to quit"
         window_ready = False
         while self.cap.isOpened():
             ok, frame = self.cap.read()
@@ -901,27 +904,30 @@ class App:
                              tracing=True)
             self.coach.render(c, now)
 
-            cv2.imshow(win, c.compose())
+            cv2.imshow(win, screen_rec.frame(c.compose()))
             self.click = None
-            if cv2.waitKey(5) & 0xFF == ord("q"):
+            key = cv2.waitKey(5) & 0xFF
+            screen_rec.key(key)
+            if key == ord("q"):
                 break
             if window_closed(win):
                 break
 
         self.cap.release()
+        screen_rec.close()
         cv2.destroyAllWindows()
         self.landmarker.close()
         self.audio.close()
-        print("\n[INFO] Spiral tracing test closed.")
+        print("\n[INFO] " + i18n.ct("Spiral tracing test closed."))
 
 
 def main():
     # banner already printed by the splash, above the heavy imports
     source = select_camera_source()
-    print("[INFO] Opening camera and loading the hand model - a few seconds...")
+    print("[INFO] " + i18n.ct("Opening camera and loading the hand model - a few seconds..."))
     cap = open_capture(source, fps=60)
     if cap is None:
-        print("[ERROR] Could not open camera.")
+        print("[ERROR] " + i18n.ct("Could not open camera."))
         pause_before_exit()
         sys.exit(1)
     ensure_orientation(cap)   # once per camera: undo its own mirroring
