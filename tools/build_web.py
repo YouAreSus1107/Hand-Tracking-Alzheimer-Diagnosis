@@ -163,7 +163,7 @@ def main() -> None:
     # actually use (launcher_web/img/); the site draws with neither, so both
     # stay out of the published build.
     shutil.copytree(ASSETS_SRC, OUT / "assets", dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("fonts", "screenshots"))
+                    ignore=shutil.ignore_patterns("fonts", "screenshots", "*.md"))
     shutil.copy2(SHIM_SRC, OUT / "static-api.js")
 
     # Participant page -> /s/. Its tests/ and package.json are development
