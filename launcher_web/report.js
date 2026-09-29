@@ -156,6 +156,30 @@
     return String(rec.mode || "").replace(/_/g, " ");
   }
 
+  // The one place a tremor finding reaches another test
+  // (TREMOR_RESTRUCTURE_PLAN.md §2): a note on a tapping or spiral report when
+  // the same person had a tremor check near it that found a rhythm. A note,
+  // never a change to the score. Only for a named person: unassigned sessions
+  // may be anybody's.
+  const CONFOUND_DAYS = 30;
+  function tremorContext(rec) {
+    if (rec.test !== "finger_tapping" && rec.test !== "spiral") return "";
+    const who = rec.profile && rec.profile.id;
+    if (!who) return "";
+    const list = (typeof analysisSessions !== "undefined" && analysisSessions) || [];
+    const at = Date.parse(rec.timestamp);
+    const gap = sn => Math.abs(Date.parse(sn.timestamp) - at);
+    const near = list.filter(sn => sn.test === "tremor" && sn.metrics
+        && sn.metrics.tremor_peak_hz != null
+        && sn.profile && sn.profile.id === who
+        && gap(sn) <= CONFOUND_DAYS * 864e5)
+      .sort((a, b) => gap(a) - gap(b));
+    if (!near.length) return "";
+    return `<div class="rep-label rep-confound">${t(
+      "A tremor check on {date} found: {finding}. Shaking can raise this reading.",
+      { date: fmtDate(near[0].timestamp), finding: tremorFinding(near[0].metrics) })}</div>`;
+  }
+
   function paint(rec) {
     const cfg = TREND[rec.test] || { label: rec.test, icon: "chart", headline: null };
     const h = cfg.headline;
@@ -192,10 +216,14 @@
             <div class="rep-metricname">${t(h.name)}</div>
             ${(rec.test === "finger_tapping" || rec.test === "ddk") && m.cv_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
-            ${rec.test === "tremor" && m.label
-              ? `<div class="rep-label">${t(m.label)}${m.tremor_peak_hz != null ? ` · ${fmtNum(m.tremor_peak_hz)} Hz` : ""} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
+            ${rec.test === "tremor"
+              ? `<div class="rep-label">${tremorFinding(m)} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>
+                 <div class="rep-label">${t("A supporting check: it helps explain the tapping and spiral readings.")}</div>` : ""}
+            ${rec.test === "gait" && m.label
+              ? `<div class="rep-label">${t(m.label)} · ${m.weaker_leg ? t("{leg} weaker", { leg: t(m.weaker_leg === "right" ? "Right leg" : "Left leg") }) : t("No clear difference between the legs")} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
             ${rec.test === "oculomotor" && m.error_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.error_ci_low_pct)}-${fmtNum(m.error_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
+            ${tremorContext(rec)}
           </div>
         </div>`
       : `<div class="rep-verdict vs-none">
@@ -231,6 +259,11 @@
     anticipatory_rate_pct: ["Started too early", "%"],
     taps_w10: ["Taps (first 10 s)", ""], frequency_hz_w10: ["Frequency (first 10 s)", "Hz"],
     cv_pct_w10: ["Rhythm variability (first 10 s)", "%"], near_miss_taps: ["Shallow closures", ""],
+    missed_tap_forgiven: ["Missed taps forgiven", ""], interruptions: ["Interruptions", ""],
+    cv_pct_unrepaired: ["Rhythm variability as recorded", "%"],
+    rate_vs_usual: ["Speed vs your usual", "×"], opening_vs_usual: ["Opening vs your usual", "×"],
+    baseline_runs: ["Earlier runs compared", ""], baseline_rate_hz: ["Your usual tap rate", "Hz"],
+    slower_than_usual: ["Slower than usual", ""], opening_shrink_ratio: ["Last vs first openings", "×"],
     // spiral
     frames: ["Frames", ""], sparc: ["SPARC", ""],
     smoothness_index: ["Smoothness index", ""], norm_jerk: ["Normalized jerk", ""],
@@ -276,7 +309,10 @@
     // hand tremor
     tremor_amp_pct: ["Tremor-band movement", "%"], tremor_peak_hz: ["Tremor peak", "Hz"],
     rest_amp_left_pct: ["Rest, left hand", "%"], rest_amp_right_pct: ["Rest, right hand", "%"],
-    rest_peak_hz: ["Rest peak", "Hz"], count_amp_pct: ["While counting", "%"],
+    rest_peak_hz: ["Rest peak", "Hz"],
+    palm_up_amp_pct: ["Palms up in the lap", "%"],
+    palm_down_amp_pct: ["Palms down in the lap", "%"],
+    count_amp_pct: ["While counting", "%"],
     postural_amp_pct: ["Arms out", "%"], postural_peak_hz: ["Arms-out peak", "Hz"],
     asymmetry_ratio: ["Left / right ratio", "×"],
     emergence_ratio: ["Counting / rest ratio", "×"],
@@ -285,11 +321,22 @@
     scored_cells: ["Holds measured", "/6"], detected_cells: ["Tremor found in", ""],
     possible_cells: ["Possible tremor in", ""], sample_fps: ["Camera rate", "fps"],
     band_hi_hz: ["Highest frequency seen", "Hz"], edge_clipped_pct: ["Hand at the edge", "%"],
+    // walking test, seated part
+    sts5_s: ["Five sit-to-stands", "s"], sts5_sit_s: ["Five sit-to-stands, seated again", "s"],
+    n_stands: ["Stands", ""], failed_attempts: ["Failed rises", ""],
+    hands_used: ["Rises using the hands", ""], rise_s_median: ["Time to rise", "s"],
+    lean_deg_median: ["Forward lean on rising", "°"],
+    leg_right_rate_hz: ["Right leg stamps", "/s"], leg_left_rate_hz: ["Left leg stamps", "/s"],
+    leg_right_amp_pct: ["Right knee lift", "%"], leg_left_amp_pct: ["Left knee lift", "%"],
+    rate_hz_diff_pct: ["Stamp rate, left vs right", "%"],
+    amp_pct_diff_pct: ["Knee lift, left vs right", "%"],
+    trusted_pct: ["Body in view", "%"], fps: ["Camera rate", "fps"],
   };
   // Shown elsewhere in the report, or not a number.
   const SKIP = new Set(["status", "label", "reason", "scoreable", "latency_note",
     "duration_s", "pro_block", "anti_block", "fixation_status", "fixation_label",
-    "fixation_scoreable", "fixation_reason", "confidence_level", "tremor_where"]);
+    "fixation_scoreable", "fixation_reason", "confidence_level", "tremor_where",
+    "weaker_leg", "weaker_by"]);
 
   function metricGrid(rec) {
     const m = rec.metrics || {};
@@ -316,11 +363,29 @@
     return sec(t("Every metric"), `<div class="rep-metrics">${cells}</div>`, note);
   }
 
+  // How a tremor cell was measured (core/tremor/offline.py; older runs say
+  // "flow"/"landmarks", which were live).
+  const TREMOR_METHOD = {
+    offline_flow: "every frame, optical flow", offline_landmarks: "every frame, landmarks",
+    live_landmarks: "live landmarks", flow: "live optical flow", landmarks: "live landmarks",
+    mixed: "a mix of methods",
+  };
+
   function footprint(rec) {
     const d = rec.device || {}, raw = rec.raw || {};
     const cal = raw.calibration || {};
     const rows = [];
     if (d.camera_fps != null) rows.push([t("Camera"), `${fmtNum(d.camera_fps)} fps · ${esc(d.resolution || "")}`]);
+    // What the capture really negotiated (core/camera.Capture.info), where
+    // the session carries it: which camera, which backend, the rate delivered.
+    if (d.camera_name || d.backend) rows.push([t("Camera device"),
+      [d.camera_name ? esc(d.camera_name) : null, d.backend ? esc(d.backend) : null,
+       d.fps_measured != null ? t("{fps} fps delivered", { fps: fmtNum(d.fps_measured) }) : null]
+        .filter(Boolean).join(" · ")]);
+    const meth = rec.test === "tremor" && rec.metrics ? rec.metrics.method : null;
+    if (meth) rows.push([t("Measured from"),
+      t(TREMOR_METHOD[meth] || meth) + (rec.metrics.capture_fps
+        ? ` · ${fmtNum(rec.metrics.capture_fps)} fps` : "")]);
     if (d.microphone != null) rows.push([t("Microphone"),
       `${esc(d.microphone || "?")}${d.sample_rate ? ` · ${fmtNum(d.sample_rate / 1000)} kHz` : ""}`]);
     if (rec.test === "ddk") rows.push([t("Phoneme model"),
@@ -430,6 +495,21 @@
       });
     }
 
+    // Long gaps and their cause (core/tapping/gaps.py). Pauses and partial
+    // closures count against the rhythm, so they are shaded; a missed tap
+    // the scoring forgave is drawn as a hollow tap instead.
+    const gaps = (raw.gap_labels || []).filter(g => g[2] !== "missed_tap");
+    gaps.forEach(([a, b]) => {
+      if (b < t0 || a > t1) return;
+      s += `<rect x="${X(a).toFixed(1)}" y="${padT}" width="${(X(b) - X(a)).toFixed(1)}"
+        height="${ih}" fill="${ST.warn.dot}" opacity=".13"/>`;
+    });
+    if (raw.restored_tap_s != null) {
+      const x = X(raw.restored_tap_s).toFixed(1);
+      s += `<path d="M${x},${padT + ih} l-4,7 l8,0 Z" fill="none" stroke="${ST.ok.dot}"
+        stroke-width="1.4"/>`;
+    }
+
     // Taps.
     (raw.tap_times_s || []).forEach(tp => {
       const x = X(tp).toFixed(1);
@@ -447,6 +527,10 @@
 
     const legend = `<div class="rep-legend">
       <span><i class="lg-tri" style="background:${ST.ok.dot}"></i>${t("tap")}</span>
+      ${raw.restored_tap_s != null
+        ? `<span><svg width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M5,1 L9,8 L1,8 Z" fill="none" stroke="${ST.ok.dot}" stroke-width="1.4"/></svg>${t("missed tap, forgiven")}</span>` : ""}
+      ${gaps.length
+        ? `<span><i class="lg-box" style="background:${ST.warn.dot}"></i>${t("pause or hesitation")}</span>` : ""}
       <span><i class="lg-dash"></i>${thr.length > 1
         ? t("tap thresholds") : t("calibrated open / closed")}</span>
       ${(raw.beat_times_s || []).length
@@ -603,7 +687,10 @@
   // the finding a one-sided rest tremor makes. Units are the same RMS % of
   // hand length the headline uses, per 0.25 Hz step.
   const HAND_C = { left: LINE_C, right: "#A78BFA" };
-  const TREMOR_PHASES = [["rest", "Rest"], ["rest_count", "Counting"],
+  // Current holds first; "rest" / "rest_count" are the retired table
+  // protocol (before 2026-09-27), kept so those sessions still draw.
+  const TREMOR_PHASES = [["rest_palm_up", "Palms up"], ["rest_palm_down", "Palms down"],
+                         ["rest", "Rest"], ["rest_count", "Counting"],
                          ["postural", "Arms out"]];
 
   function tremorSpectra(rec) {
@@ -670,6 +757,82 @@
     }).join("");
     return rows ? sec(t("Glove sensor"), `<div class="rep-foot">${rows}</div>`,
       t("Peak frequency and tremor-band share of the glove's gyroscope over each hold — the reference the camera's peak is compared against.")) : "";
+  }
+
+  /* ── Walking test, seated part ──────────────────────────────────── */
+
+  // Knee lift for each leg with every stamp the detector counted, then the
+  // sit-to-stand trace with each full stand marked. Both are in body units
+  // (thigh lengths), so camera distance cancels out.
+  const LEG_C = { right: "#A78BFA", left: LINE_C };
+
+  function gaitLegs(rec) {
+    const blocks = (rec.raw || {}).blocks || {};
+    const W = 640, H = 120, padL = 36, padR = 12, padT = 12, padB = 22;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    let out = "";
+    [["leg_right", "right"], ["leg_left", "left"]].forEach(([key, side]) => {
+      const b = blocks[key] || {}, lift = b.lift || [];
+      if (lift.length < 2) return;
+      const t1 = lift[lift.length - 1][0] || 1;
+      const vMax = Math.max(0.1, ...lift.map(p => p[1])) * 1.15;
+      const vMin = Math.min(0, ...lift.map(p => p[1]));
+      const X = tt => padL + iw * (tt / t1);
+      const Y = v => padT + ih * (1 - (v - vMin) / (vMax - vMin));
+      const path = lift.map(([tt, v], i) => `${i ? "L" : "M"}${X(tt).toFixed(1)},${Y(v).toFixed(1)}`).join("");
+      let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="${t("Knee lift over time")}">`;
+      (b.blackouts || []).forEach(([a, z]) => {
+        g += `<rect x="${X(Math.max(0, a)).toFixed(1)}" y="${padT}" width="${Math.max(0, X(Math.min(t1, z)) - X(Math.max(0, a))).toFixed(1)}"
+          height="${ih}" fill="${GRID}" opacity=".45"/>`;
+      });
+      g += `<path d="${path}" fill="none" stroke="${LEG_C[side]}" stroke-width="1.8" stroke-linejoin="round"/>`;
+      (b.stamps || []).forEach(tt => {
+        g += `<circle cx="${X(tt).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="3" fill="${ST.ok.dot}"/>`;
+      });
+      g += axisLabel(padL, H - 6, "0s") + axisLabel(padL + iw, H - 6, `${fmtNum(t1)}s`, "end") + `</svg>`;
+      const c = (((rec.metrics || {}).blocks || {})[key]) || {};
+      const facts = c.scored
+        ? `${t("{n} stamps", { n: c.n_stamps })} · ${fmtNum(c.rate_hz)}/s · ${t("lift")} ${fmtNum(c.amp_pct)}%`
+          + (c.amp_decrement_pct != null ? ` · ${t("lift change")} ${fmtNum(c.amp_decrement_pct)}%` : "")
+        : (c.reason ? t(c.reason) : "");
+      out += `<h4 class="rep-sub">${t(side === "right" ? "Right leg" : "Left leg")}</h4>${svgWrap(g)}
+        <div class="rep-legend"><span>${facts}</span></div>`;
+    });
+    if (!out) return "";
+    return sec(t("Leg stamps"), out,
+      t("How high the knee rose, in thigh lengths, for ten seconds of stamping. Each dot is a stamp the test counted; shaded stretches are where the leg was out of view and nothing was scored."));
+  }
+
+  function gaitStands(rec) {
+    const b = ((rec.raw || {}).blocks || {}).sts5 || {}, si = b.stand_index || [];
+    if (si.length < 2) return "";
+    const W = 640, H = 150, padL = 36, padR = 12, padT = 12, padB = 22;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const t1 = si[si.length - 1][0] || 1;
+    const X = tt => padL + iw * (tt / t1);
+    const Y = v => padT + ih * (1 - (Math.max(-0.2, Math.min(1.3, v)) + 0.2) / 1.5);
+    const path = si.map(([tt, v], i) => `${i ? "L" : "M"}${X(tt).toFixed(1)},${Y(v).toFixed(1)}`).join("");
+    let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="${t("Hip height over time")}">`;
+    g += `<line x1="${padL}" y1="${Y(0.75).toFixed(1)}" x2="${padL + iw}" y2="${Y(0.75).toFixed(1)}"
+      stroke="${GRID}" stroke-width="1.2" stroke-dasharray="5 5"/>`;
+    g += `<path d="${path}" fill="none" stroke="${LINE_C}" stroke-width="2" stroke-linejoin="round"/>`;
+    (b.stands || []).forEach((st, i) => {
+      if (st.up == null) return;
+      const col = st.hands ? ST.warn.dot : ST.ok.dot;
+      g += `<circle cx="${X(st.up).toFixed(1)}" cy="${Y(0.75).toFixed(1)}" r="4.5" fill="${col}"/>`
+        + axisLabel(X(st.up), Y(0.75) - 8, String(i + 1), "middle");
+    });
+    g += axisLabel(padL, H - 6, "0s") + axisLabel(padL + iw, H - 6, `${fmtNum(t1)}s`, "end") + `</svg>`;
+    const m = rec.metrics || {};
+    const legend = `<div class="rep-legend">
+      <span><i class="lg-dot" style="background:${ST.ok.dot}"></i>${t("full stand")}</span>
+      <span><i class="lg-dot" style="background:${ST.warn.dot}"></i>${t("used the hands")}</span>
+      ${m.failed_attempts ? `<span>${t("{n} failed rises", { n: m.failed_attempts })}</span>` : ""}
+    </div>`;
+    return sec(t("Five sit-to-stands"), svgWrap(g) + legend,
+      t("How high the hips were above the knees: 0 is seated, 1 is standing. The dashed line is where a rise counts as a full stand."));
   }
 
   /* ── Spiral ─────────────────────────────────────────────────────── */
@@ -899,6 +1062,7 @@
     spiral: rec => spiralTrace(rec) + spiralSpeed(rec),
     oculomotor: rec => gazeTrace(rec) + fixationPanel(rec),
     tremor: rec => tremorSpectra(rec) + tremorGlove(rec),
+    gait: rec => gaitLegs(rec) + gaitStands(rec),
     ddk: rec => ddkTrace(rec) + intervalBars((rec.raw || {}).onsets_s || [],
       t("Each interval between syllables"),
       t("Bar height is the gap between two syllables; colour is how far that gap sat from your own mean. Breath pauses show as tall bars and are left out of the score.")),

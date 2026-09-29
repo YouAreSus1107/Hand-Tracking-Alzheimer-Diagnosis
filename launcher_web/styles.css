@@ -646,41 +646,6 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .paper-link:hover{gap:8px;color:var(--brand)}
 .paper-link svg{width:13px;height:13px}
 
-/* ── Disclaimer bar ────────────────────────────────────────────────── */
-/* The dock is the fixed box; the bar inside it is what moves. Transforms do
-   not change layout, so the dock keeps the bar's height whether it is up or
-   down and the grabber can be positioned against the real bottom edge. */
-.disclaimer-dock{position:fixed;bottom:0;left:0;right:0;z-index:100;
-                 pointer-events:none}
-.disclaimer-bar{background:rgba(8,14,24,.95);backdrop-filter:blur(12px);
-                border-top:1px solid rgba(245,165,36,.15);
-                padding:10px 24px;text-align:center;
-                font-size:13px;color:var(--warning);
-                box-shadow:0 -2px 16px rgba(0,0,0,.3);
-                transform:translateY(102%);opacity:0;
-                transition:transform .34s cubic-bezier(.22,1,.36,1),
-                           opacity .2s ease}
-.disclaimer-bar strong{color:var(--text)}
-.disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0);opacity:1}
-
-/* Always visible, so the bar is discoverable without a stray mouse finding
-   it by accident. It ducks out of the way as the bar comes up. */
-.disclaimer-grab{position:absolute;left:50%;bottom:5px;width:44px;height:4px;
-                 border-radius:999px;background:rgba(245,165,36,.3);
-                 transform:translateX(-50%);pointer-events:auto;cursor:pointer;
-                 transition:opacity .2s ease,transform .3s cubic-bezier(.22,1,.36,1),
-                            background .2s ease}
-.disclaimer-grab:hover{background:rgba(245,165,36,.6)}
-/* A 4 px line is not a touch target. This is the one people actually hit. */
-.disclaimer-grab::before{content:"";position:absolute;inset:-12px -18px}
-.disclaimer-dock.is-open .disclaimer-grab{opacity:0;pointer-events:none;
-                 transform:translateX(-50%) translateY(6px)}
-@media (prefers-reduced-motion:reduce){
-  .disclaimer-bar,.disclaimer-grab{transition:opacity .15s ease}
-  .disclaimer-bar{transform:translateY(102%)}
-  .disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0)}
-}
-
 /* ── Toast ─────────────────────────────────────────────────────────── */
 .toast{position:fixed;left:50%;bottom:56px;z-index:200;
        transform:translateX(-50%) translateY(20px);
@@ -736,6 +701,11 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 
 /* Trend card */
 .analysis-body{display:grid;gap:20px}
+/* "Supporting checks": the tests charted after the screening ones (tremor). */
+.analysis-group{font-size:15px;font-weight:600;color:var(--text-muted);margin-top:12px;
+                padding-top:18px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;
+                align-items:baseline;gap:4px 12px}
+.analysis-group span{font-size:13px;font-weight:400;color:var(--text-disabled)}
 .trend-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
             padding:22px 24px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .trend-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
@@ -772,33 +742,81 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .cam-chip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .cam-slot.open .cam-chip{color:var(--brand);border-color:var(--brand)}
 .cam-chip-text{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cam-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:252px;
-         padding:12px;border-radius:12px;text-align:left;
+.cam-chip.cam-warn{color:var(--warning);border-color:rgba(245,165,36,.5)}
+.cam-dot{width:6px;height:6px;border-radius:50%;background:var(--warning);flex:none}
+.cam-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;
+         width:288px;max-width:calc(100vw - 32px);
+         padding:10px;border-radius:12px;text-align:left;
          background:var(--surface);border:1px solid var(--border);
          box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.cam-head{display:flex;align-items:center;justify-content:space-between;
+          margin:0 2px 6px 4px}
 .cam-pop-title{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
-               color:var(--text-disabled);font-weight:700;margin-bottom:9px}
-.cam-row{display:flex;align-items:center;gap:8px;font-size:13px;
-         color:var(--text);margin-bottom:7px}
-.cam-opt{display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
-.cam-opt input[type=radio]{accent-color:var(--brand);flex:none;margin:0}
-.cam-idx,.cam-url,.cam-mirror,.cam-dev{font-family:inherit;font-size:12.5px;color:var(--text);
+               color:var(--text-disabled);font-weight:700}
+.cam-refresh{display:inline-flex;align-items:center;justify-content:center;
+             width:26px;height:26px;border:0;border-radius:7px;cursor:pointer;
+             background:none;color:var(--text-muted)}
+.cam-refresh:hover{color:var(--brand);background:var(--surface-2)}
+.cam-refresh:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.cam-refresh.spin svg{animation:cam-spin .7s linear infinite}
+@keyframes cam-spin{to{transform:rotate(360deg)}}
+.cam-list{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto}
+.cam-item{display:flex;align-items:center;gap:9px;width:100%;min-height:36px;
+          padding:7px 8px;border:1px solid transparent;border-radius:9px;
+          font-family:inherit;font-size:13px;text-align:left;cursor:pointer;
+          color:var(--text);background:none;transition:background .12s,border-color .12s}
+.cam-item:hover{background:var(--surface-2)}
+.cam-item:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.cam-item[aria-checked="true"]{background:rgba(18,165,148,.12);border-color:rgba(18,165,148,.4)}
+.cam-item[disabled]{cursor:default}
+.cam-item-stream{flex-wrap:wrap;row-gap:0;margin-top:4px;padding-top:9px;
+                 border-top-color:var(--border);border-radius:0 0 9px 9px}
+.cam-item-stream[aria-checked="true"]{border-radius:9px}
+.cam-ic{display:inline-flex;color:var(--text-muted);flex:none}
+.cam-item[aria-checked="true"] .cam-ic{color:var(--brand)}
+.cam-nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cam-gone .cam-nm{color:var(--text-muted)}
+.cam-sub{order:5;flex-basis:100%;padding-left:22px;font-size:10.5px;color:var(--text-disabled);
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cam-tag{flex:none;font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;
+         color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border)}
+.cam-tag-warn{color:var(--warning);border-color:rgba(245,165,36,.45);background:rgba(245,165,36,.1)}
+.cam-tick{display:inline-flex;width:14px;flex:none;color:var(--brand)}
+.cam-tick svg{width:14px;height:14px}
+.cam-empty{padding:8px 6px 6px;font-size:12px;line-height:1.4;color:var(--text-muted)}
+.cam-idx-row{display:flex;align-items:center;gap:8px;padding:2px 6px 6px;
+             font-size:12.5px;color:var(--text-muted)}
+.cam-idx-row>span{flex:1}
+.cam-idx,.cam-url{font-family:inherit;font-size:12.5px;color:var(--text);
                   background:var(--surface-2);border:1px solid var(--border);
-                  border-radius:7px;padding:4px 7px}
+                  border-radius:7px;padding:5px 7px}
 .cam-idx{width:52px;text-align:center;font-variant-numeric:tabular-nums}
-.cam-mirror{max-width:150px;cursor:pointer}
-.cam-url{width:100%;margin:2px 0 10px}
-.cam-dev{width:100%;margin:0 0 10px;cursor:pointer}
-.cam-idx:focus,.cam-url:focus,.cam-mirror:focus,.cam-dev:focus{outline:none;border-color:var(--brand)}
-.cam-foot{display:flex;align-items:center;gap:10px}
-.cam-note{flex:1;font-size:10.5px;line-height:1.35;color:var(--text-disabled)}
+.cam-url-row{display:flex;gap:6px;padding:6px 2px 2px}
+.cam-url{flex:1;min-width:0}
+.cam-idx:focus,.cam-url:focus{outline:none;border-color:var(--brand)}
+.cam-sec{display:flex;align-items:center;gap:8px;margin-top:8px;padding:9px 4px 0;
+         border-top:1px solid var(--border)}
+.cam-lbl{flex:1;font-size:12px;color:var(--text-muted)}
+.cam-seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--surface-2);
+         border:1px solid var(--border)}
+.cam-seg button{font-family:inherit;font-size:11px;font-weight:600;padding:3px 8px;
+                border:0;border-radius:6px;cursor:pointer;background:none;color:var(--text-muted)}
+.cam-seg button:hover{color:var(--text)}
+.cam-seg button[aria-checked="true"]{background:var(--surface);color:var(--brand);
+                                     box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.cam-seg button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.cam-note{margin:8px 4px 0;font-size:10.5px;line-height:1.4;color:var(--warning)}
+[data-cam].busy .cam-pop{opacity:.7;pointer-events:none}
 .btn-mini{font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
           padding:5px 12px;border-radius:8px;border:1px solid var(--brand);
           color:var(--bg);background:var(--brand)}
 .btn-mini:hover{background:var(--brand-strong);border-color:var(--brand-strong)}
 .btn-mini:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .detail-actions .cam-slot{margin-left:4px;align-self:center}
-@media (prefers-reduced-motion:reduce){.cam-chip{transition:none}}
+@media (prefers-reduced-motion:reduce){
+  .cam-chip,.cam-item{transition:none}
+  .cam-refresh.spin svg{animation:none}
+}
 
 /* ── Patient-profile chip ────────────────────────────────────────────
    The camera chip's sibling, and deliberately the same object: a status
@@ -1594,12 +1612,19 @@ body[data-hub="connected"] .hub-slot{display:inline-flex}
   border-color:rgba(34,197,94,.35)}
 .rs-who{font-size:13px;color:var(--brand)}
 .rs-meta{margin-left:auto;font-size:11px;color:var(--text-disabled)}
-.rs-link{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.rs-link code{flex:1 1 260px;min-width:0;overflow-x:auto;white-space:nowrap;
-  font-family:var(--font-mono,ui-monospace,monospace);font-size:12px;
-  background:var(--surface-2);border:1px solid var(--border);border-radius:8px;
-  padding:8px 10px;color:var(--text-muted)}
-.rs-link .btn{height:36px;padding:0 14px;font-size:13px}
+.rs-has-qr{display:flex;gap:18px;align-items:flex-start}
+.rs-row-body{flex:1 1 auto;min-width:0}
+/* The code itself stays black on white in both themes — see qrSvg(). */
+.rs-qr{flex:0 0 auto;width:168px;height:168px;border-radius:10px;overflow:hidden;
+  background:#fff;box-shadow:0 0 0 1px var(--border)}
+.rs-qr-svg{display:block;width:100%;height:100%}
+.rs-qr-hint{margin:0 0 12px;font-size:13px;color:var(--text-muted)}
+.rs-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rs-actions .btn{height:36px;padding:0 14px;font-size:13px;gap:6px}
+@media (max-width:560px){
+  .rs-has-qr{flex-direction:column;align-items:stretch}
+  .rs-qr{width:min(240px,100%);height:auto;aspect-ratio:1;align-self:center}
+}
 .rs-danger{color:var(--danger);border-color:rgba(239,68,68,.4)}
 .rs-danger:hover{color:var(--danger);background:rgba(239,68,68,.1)}
 .rs-got{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;
@@ -1877,6 +1902,8 @@ body.report-open{overflow:hidden}
 .rep-vtext{min-width:0}
 .rep-metricname{font-size:13px;color:var(--r-muted);margin-top:7px}
 .rep-label{font-size:13.5px;color:var(--r-ink);margin-top:3px;line-height:1.45}
+/* a tremor check near a tapping/spiral run (report.js tremorContext) */
+.rep-confound{color:var(--r-muted);margin-top:8px;padding-left:10px;border-left:2px solid var(--r-line)}
 
 /* Sections */
 .rep-sec{margin-top:26px}
@@ -1905,6 +1932,7 @@ body.report-open{overflow:hidden}
 .lg-dot.vs-bad{background:var(--danger)}
 .lg-dot.vs-none{background:var(--interactive-hover)}
 .lg-dash{width:14px;height:0;border-top:2px dashed var(--r-dim);display:inline-block;flex:none}
+.lg-box{width:12px;height:10px;border-radius:2px;display:inline-block;flex:none;opacity:.35}
 .lg-tri{width:0;height:0;background:none;flex:none;
         border-left:5px solid transparent;border-right:5px solid transparent;
         border-bottom:8px solid var(--success);display:inline-block}

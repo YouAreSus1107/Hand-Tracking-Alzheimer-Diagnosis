@@ -112,6 +112,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "oculomotor": (os.path.join("screening_tests", "oculomotor_test.py"), "Eye Movement Test"),
     "ddk":       (os.path.join("screening_tests", "speech_test.py"), "Speech Test"),
     "tremor":    (os.path.join("screening_tests", "tremor_test.py"), "Hand Tremor Test"),
+    "gait":      (os.path.join("screening_tests", "gait_test.py"), "Walking Test"),
     "tracking":  (os.path.join("core", "hand_tracking.py"),          "Hand Tracking / UDP Broadcast"),
 }
 
@@ -187,8 +188,13 @@ def camera_setting() -> dict:
                     else cam["name"] or f"Webcam {cam['index']}")
     # Whether this camera mirrors its picture: True / False, or None when it
     # has never been checked (the next hand test asks). core/orientation.py.
-    cam["mirror"] = orientation.load(_cam_source(cam))
+    # Keyed by the device name, so the answer follows the camera, not its index.
+    cam["mirror"] = orientation.load(_cam_source(cam), _cam_name(cam))
     return cam
+
+
+def _cam_name(cam: dict) -> str:
+    return "" if cam["mode"] == "stream" else (cam.get("name") or "")
 
 
 # Picture setting from the camera chip: "auto" forgets the saved answer so the
@@ -217,7 +223,7 @@ def set_camera_setting(raw) -> tuple[bool, str]:
     mirror = raw.get("mirror") if isinstance(raw, dict) else None
     if mirror in _MIRROR_CHOICES:
         from core import orientation
-        if not orientation.save(_cam_source(cam), _MIRROR_CHOICES[mirror]):
+        if not orientation.save(_cam_source(cam), _MIRROR_CHOICES[mirror], _cam_name(cam)):
             return False, "Could not save the mirroring setting."
     label = (cam["url"] if cam["mode"] == "stream"
              else cam["name"] or f"webcam {cam['index']}")
@@ -275,6 +281,8 @@ def _tool_env(lang: str | None = None) -> dict:
     else:
         from core.camera_list import resolve_index
         env[ENV_CAMERA] = str(resolve_index(cam["name"], cam["index"]))
+    # the name rides along so a session can record which camera it used
+    env["HAND3D_CAMERA_NAME"] = _cam_name(cam)
     env[ENV_LANG] = lang if lang in _LANGS else lang_setting()
     env[profiles.ENV_PROFILE] = profiles.env_value()
     return env
@@ -808,7 +816,7 @@ def _remote_create(data: dict) -> tuple[bool, str, dict]:
     # way, and an unconfigured relay must not block minting one.
     published, note = (relay.publish_invite(invite)
                        if relay.status()["configured"] else (False, ""))
-    message = "Link created." if published or not note else f"Link created. {note}"
+    message = "QR code created." if published or not note else f"QR code created. {note}"
     return True, message, {"invite": inv_mod.summarise(invite, participant_base_url())}
 
 
@@ -1125,8 +1133,11 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/cameras":
             # Names for the camera chip's picker. Enumerates without opening
             # anything, so no camera LED flashes when the popover opens.
-            from core.camera_list import list_cameras
-            self._send_json({"cameras": list_cameras()})
+            # `listed` false = the OS could not be asked, which the chip must
+            # not present as "no cameras plugged in".
+            from core.camera_list import enumerate_cameras
+            cams, listed = enumerate_cameras()
+            self._send_json({"cameras": cams, "listed": listed})
         elif route == "/api/remote/state":
             self._send_json(remote_state_payload())
         elif route == "/api/dev/env":

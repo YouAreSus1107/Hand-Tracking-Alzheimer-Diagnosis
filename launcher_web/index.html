@@ -59,6 +59,7 @@ button,input{font:inherit;color:inherit}
           <button class="nav-link" role="menuitem" data-page="oculomotor" data-i18n="nav.oculomotor">Eye Movement</button>
           <button class="nav-link" role="menuitem" data-page="ddk" data-i18n="nav.ddk">Speech</button>
           <button class="nav-link" role="menuitem" data-page="tremor" data-i18n="nav.tremor">Hand Tremor</button>
+          <button class="nav-link" role="menuitem" data-page="gait" data-i18n="nav.gait">Walking</button>
           <button class="nav-link" role="menuitem" data-page="tracking" data-i18n="nav.tracking">Hand Tracking</button>
         </div>
       </div>
@@ -352,7 +353,7 @@ button,input{font:inherit;color:inherit}
         <figure class="val-fig">
           <div class="art-slot" style="--ar:16/9" data-art="validation/grade-agreement">
             <img src="img/validation/grade-agreement.webp" loading="lazy"
-                 alt="Scatter of our CV% against motion capture CV% for 264 recordings. 212 fall in the same grade band.">
+                 alt="Scatter of our CV% against motion capture CV% for 264 recordings. 223 fall in the same grade band.">
           </div>
           <figcaption data-i18n="why.val.f1">Our grade against the motion capture grade for all 264 recordings. On the 47 held-out recordings the two matched 45 times.</figcaption>
         </figure>
@@ -374,11 +375,11 @@ button,input{font:inherit;color:inherit}
 
         <div class="val-stats">
           <div class="val-stat"><b>0.86</b><span data-i18n="why.val.p.s1">AUC separating UPDRS 2 to 3 from UPDRS 0</span></div>
-          <div class="val-stat"><b>91%</b><span data-i18n="why.val.p.s2">of unimpaired hands graded Typical</span></div>
+          <div class="val-stat"><b>93%</b><span data-i18n="why.val.p.s2">of unimpaired hands graded Typical</span></div>
           <div class="val-stat"><b>73%</b><span data-i18n="why.val.p.s3">of impaired hands flagged Monitor or Follow-up</span></div>
           <div class="val-stat"><b>0.47</b><span data-i18n="why.val.p.s4">rank correlation between our CV% and the neurologist's grade</span></div>
         </div>
-        <p class="val-meta" data-i18n="why.val.p.meta">234 videos · 118 people · 95% CI for AUC 0.77 to 0.93 · 229 of 234 scored</p>
+        <p class="val-meta" data-i18n="why.val.p.meta">234 videos · 118 people · 95% CI for AUC 0.77 to 0.94 · 229 of 234 scored</p>
 
         <figure class="val-fig">
           <div class="art-slot" style="--ar:16/9" data-art="validation/updrs-cv">
@@ -430,7 +431,7 @@ button,input{font:inherit;color:inherit}
           <div class="analysis-icon" id="remote-icon"></div>
           <div>
             <h1 data-i18n="remote.h1">Remote Sessions</h1>
-            <p data-i18n="remote.intro">Send a link to someone who is not here. They open it on a phone or
+            <p data-i18n="remote.intro">Give a QR code to someone who is not here. They scan it with a phone or
             iPad, run the test in their browser, and the measurements come back to this machine and
             appear in <strong>Analysis</strong> alongside everything run locally. The camera video
             never leaves their device &#8212; only the numbers travel. Plan:
@@ -441,11 +442,11 @@ button,input{font:inherit;color:inherit}
 
       <div class="rs-note" id="remote-stage"></div>
 
-      <div class="section-head"><h2 data-i18n="remote.sec.invite">Create a Link</h2><div class="sh-line"></div>
+      <div class="section-head"><h2 data-i18n="remote.sec.invite">Create a QR Code</h2><div class="sh-line"></div>
         <span class="cmp-legend" data-i18n="remote.invite.legend">expires by default in 48 hours, single use</span></div>
       <div class="rs-form" id="remote-form"></div>
 
-      <div class="section-head" style="margin-top:36px"><h2 data-i18n="remote.sec.links">Links You Have Sent</h2><div class="sh-line"></div>
+      <div class="section-head" style="margin-top:36px"><h2 data-i18n="remote.sec.links">QR Codes You Have Sent</h2><div class="sh-line"></div>
         <span class="cmp-legend" id="remote-links-note"></span></div>
       <div class="rs-list" id="remote-links"></div>
 
@@ -609,6 +610,12 @@ button,input{font:inherit;color:inherit}
               <h4 data-i18n="iiv.tl.12.h">The gate hid patients</h4><p data-i18n="iiv.tl.12.p">On HUBU-FIS, 234 videos of Parkinson&#8217;s patients and controls, the gate held back 10 of 26 severe patients, because uneven openings are a sign of Parkinson&#8217;s. We removed it and accepted the extra false alarms.</p></li>
             <li class="tl-item tl-tested"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.tested">Tested</span></div>
               <h4 data-i18n="iiv.tl.13.h">Tested on patients</h4><p data-i18n="iiv.tl.13.p">With the gate gone, CV% separates impaired from unimpaired hands with an AUC of 0.86. It grades 91% of unimpaired hands Typical and flags 73% of impaired ones.</p></li>
+            <li class="tl-item tl-fixed"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.fixed">Fixed</span></div>
+              <h4 data-i18n="iiv.tl.14.h">Forgive one missed tap</h4><p data-i18n="iiv.tl.14.p">Fast tappers were marked down for one slip, often our own missed tap. If the only long gap in a steady run holds a full closure we failed to count, it is now forgiven, and it may lift the result by one band at most. Pauses and half closures still count. No patient lost their flag, and 93% of unimpaired hands now read Typical.</p></li>
+            <li class="tl-item tl-added"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.added">Added</span></div>
+              <h4 data-i18n="iiv.tl.15.h">Compared with your own usual</h4><p data-i18n="iiv.tl.15.p">Some patients tap slowly but evenly, which rhythm alone cannot see. A fixed speed limit would flag healthy people who simply tap at a relaxed pace at home. So each run is now compared with the same person's earlier runs. If your last five runs are under 55% of your usual speed, a Typical result becomes Monitor. Opening size and shrinking openings are shown but do not change the result.</p></li>
+            <li class="tl-item tl-rejected"><div class="tl-meta"><span class="tl-date" data-i18n="iiv.tl.date.sep">Sep 2026</span><span class="tl-tag" data-i18n="iiv.tl.tag.rejected">Rejected</span></div>
+              <h4 data-i18n="iiv.tl.16.h">More measures tested, none added yet</h4><p data-i18n="iiv.tl.16.p">We tested extra rules for the patients rhythm alone misses. A speed limit caught 85% of impaired hands instead of 73%, but at home it would flag a quarter of healthy runs, so it waits for a supervised mode. Uneven opening size added two patients at no cost, a gain too small to act on yet. Shrinking and small openings flagged more healthy hands than patients.</p></li>
         </ol>
       </div>
         <p class="band-note" data-i18n="iiv.paradigm">This is the <strong>MDS-UPDRS finger-tapping movement</strong> &#8212; thumb to index through the widest range you can manage, hand in the air. It is not the desk-tapping test, where one finger taps a key with the wrist resting and the amplitude does not matter. That distinction sets the whole scale: desk tapping runs at 5&#8211;7 taps per second, full-excursion tapping at 2.4&#8211;3.6, falling with age. A rate that looks alarmingly slow against the wrong test is unremarkable against the right one.</p>
@@ -1018,8 +1025,9 @@ button,input{font:inherit;color:inherit}
         <div class="detail-icon" id="detail-icon-tremor"></div>
         <div class="detail-info">
           <h1 data-i18n="tremor.h1">Hand Tremor Test</h1>
-          <p data-i18n="tremor.v2.lede">Hold both hands still for three short holds.</p>
+          <p data-i18n="tremor.v3.lede">A supporting check. Shaking can raise the tapping and spiral numbers, so this looks for it: hold both hands still for three short holds.</p>
           <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg><span data-i18n="common.fact.supporting">Supporting check</span></span>
             <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.2min">~2 min</span></span>
             <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V6a1.6 1.6 0 0 1 3.2 0v5M10.2 10.5V4.6a1.6 1.6 0 0 1 3.2 0v6M13.8 11V7a1.6 1.6 0 0 1 3.2 0v6a7 7 0 0 1-14 0v-2.2a1.6 1.6 0 0 1 3.2 0"/></svg><span data-i18n="common.fact.bothHands">Both hands</span></span>
             <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
@@ -1032,22 +1040,22 @@ button,input{font:inherit;color:inherit}
         <h2 data-i18n="common.howItWorks">How It Works</h2>
         <ol class="filmstrip">
           <li class="frame">
-            <figure title="Side view: the laptop lid tilted forward, forearms flat on the table, and the camera&#x27;s view cone covering both hands." class="art-slot" data-art="tremor/step-1-set-up">
-              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Tilt the screen down</b><code class="slot-file">img/tremor/step-1-set-up.webp</code></div>
+            <figure title="Side view: seated, a webcam on a stand aimed down at the lap, its view cone covering both hands resting on the thighs." class="art-slot" data-art="tremor/step-1-set-up">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Camera on your lap</b><code class="slot-file">img/tremor/step-1-set-up.webp</code></div>
             </figure>
-            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="tremor.v2.s1.h">Tilt the screen down</h4><p data-i18n="tremor.v2.s1.p">Both hands on the table, in view.</p></div></div>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="tremor.v2.s1.h">Aim the camera at your lap</h4><p data-i18n="tremor.v2.s1.p">Both hands in your lap, in view.</p></div></div>
           </li>
           <li class="frame">
-            <figure title="Both hands lying relaxed, palms down, fingers loose. 20 s ring in the corner." class="art-slot" data-art="tremor/step-2-rest">
-              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Hands at rest</b><code class="slot-file">img/tremor/step-2-rest.webp</code></div>
+            <figure title="Top-down view of the lap: both hands resting on the thighs, palms up, fingers loosely curled. 20 s ring in the corner." class="art-slot" data-art="tremor/step-2-palms-up">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Palms up</b><code class="slot-file">img/tremor/step-2-palms-up.webp</code></div>
             </figure>
-            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="tremor.v2.s2.h">Hands relaxed</h4><p data-i18n="tremor.v2.s2.p">20 seconds, completely still.</p></div></div>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="tremor.v2.s2.h">Palms up in your lap</h4><p data-i18n="tremor.v2.s2.p">20 seconds, fully relaxed.</p></div></div>
           </li>
           <li class="frame">
-            <figure title="The same resting hands, with a speech bubble reading 100 97 94." class="art-slot" data-art="tremor/step-3-count">
-              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Rest and count</b><code class="slot-file">img/tremor/step-3-count.webp</code></div>
+            <figure title="The same top-down view: both hands turned over, palms down on the thighs, fingers loose. 20 s ring in the corner." class="art-slot" data-art="tremor/step-3-palms-down">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Palms down</b><code class="slot-file">img/tremor/step-3-palms-down.webp</code></div>
             </figure>
-            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="tremor.v2.s3.h">Count backward aloud</h4><p data-i18n="tremor.v2.s3.p">Same hold, counting down by 3.</p></div></div>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="tremor.v2.s3.h">Turn them over</h4><p data-i18n="tremor.v2.s3.p">Palms down, 20 seconds.</p></div></div>
           </li>
           <li class="frame">
             <figure title="Front view: both arms straight out, palms down. 20 s ring in the corner." class="art-slot" data-art="tremor/step-4-arms-out">
@@ -1077,7 +1085,7 @@ button,input{font:inherit;color:inherit}
               <figure title="Fingers soft and slightly curled, resting." class="art-slot" data-art="tremor/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
                 <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Loose hands</b><code class="slot-file">img/tremor/tip-2-do.webp</code></div>
               </figure>
-              <figure title="Fists or fingers pressed flat into the table." class="art-slot" data-art="tremor/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+              <figure title="Fists, or fingers pressed down into the legs." class="art-slot" data-art="tremor/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
                 <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Tense hands</b><code class="slot-file">img/tremor/tip-2-dont.webp</code></div>
               </figure>
             </div>
@@ -1114,9 +1122,9 @@ button,input{font:inherit;color:inherit}
         <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
         <div class="science-body">
           <div class="detail-file">screening_tests/tremor_test.py</div>
-          <p class="science-lede" data-i18n="tremor.lede">Three 20-second holds with <strong>both hands</strong> in view: at rest, at rest while counting backward, and with the arms held out.
+          <p class="science-lede" data-i18n="tremor.lede">Three 20-second holds with <strong>both hands</strong> in view: resting in the lap palms up, then palms down, then with the arms held out.
           The test looks for a rhythmic shake between 3.5 and 12 Hz in each hand. The headline is the tremor's <strong>frequency</strong>, which a webcam measures reliably, with its size given as an estimate.</p>
-          <p class="science-lede" data-i18n="tremor.how.intro">Rest your forearms flat on the table and tilt the laptop screen down until both hands are in the picture. A doctor would check rest tremor with your hands in your lap, but a laptop camera cannot see that far down.</p>
+          <p class="science-lede" data-i18n="tremor.how.intro">Rest tremor is checked with the hands <strong>in the lap</strong>, fully supported, the way a neurologist examines it, and both sides of the hand are seen. A laptop's own camera on the table cannot see your lap, so aim a webcam down at it before you start.</p>
       <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
         <div class="metrics-grid">
           <div class="metric-card"><h4 data-i18n="tremor.m1.h">Tremor frequency (Hz)</h4><p data-i18n="tremor.m1.p">The strongest rhythm in the 3.5&#8211;12 Hz band. Rest tremor in Parkinson's runs at about 4&#8211;6 Hz; essential and physiological tremor run faster.</p><div class="metric-num" data-i18n="tremor.m1.num">within ~0.2 Hz of an accelerometer</div><div class="metric-cite" data-i18n="tremor.m1.cite">Sci Rep 2025 &#183; Williams 2021</div></div>
@@ -1124,12 +1132,125 @@ button,input{font:inherit;color:inherit}
           <div class="metric-card"><h4 data-i18n="tremor.m3.h">Left / right ratio</h4><p data-i18n="tremor.m3.p">How much larger the rest movement is in one hand than the other. Parkinsonian tremor usually starts on one side.</p><div class="metric-num" data-i18n="tremor.m3.num">both hands recorded together</div><div class="metric-cite" data-i18n="tremor.m3.cite">MDS-UPDRS 3.17</div></div>
           <div class="metric-card"><h4 data-i18n="tremor.m4.h">Camera vs glove (Hz)</h4><p data-i18n="tremor.m4.p">With the sensor glove plugged in, its motion sensor records every hold too. The gap between the glove's peak and the camera's peak is how this test is being validated.</p><div class="metric-num" data-i18n="tremor.m4.num">glove gyro, 100 Hz</div><div class="metric-cite" data-i18n="tremor.m4.cite">docs/tests/TREMOR_TEST_PLAN.md</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="tremor.note">A hold is scored when at least 8 seconds of it had the hand fully in view and still. The camera must reach 14 frames a second: at the ~16 fps a busy laptop manages, the test sees tremor up to about 7.6 Hz, which covers rest tremor but not the faster kinds. <strong>The detection thresholds are provisional</strong> (<code>core/tremor/metrics.py</code>). A tremor is not a sign of Alzheimer's disease; the test is here to catch a tremor that would distort the other motor tests, and to flag one that is worth a doctor's look.</p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="tremor.v2.note">A hold is scored when at least 8 seconds of it had the hand fully in view and still. The band the test can see depends on the frame rate: at the 60 frames a second of an external webcam it covers the full 3.5-12 Hz, while at the ~16 fps of a busy laptop camera it stops near 7.6 Hz, which covers rest tremor but not the faster kinds. <strong>The detection thresholds are provisional</strong> (<code>core/tremor/metrics.py</code>). A tremor is not a sign of Alzheimer's disease; the test is here to catch a tremor that would distort the other motor tests, and to flag one that is worth a doctor's look.</p>
       </div>
       <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
         <div class="paper"><h4 data-i18n="tremor.p1.title"><a href="https://www.nature.com/articles/s41598-025-97252-4" target="_blank" rel="noopener">Validity of Tremor Analysis Using Smartphone-Compatible Computer Vision</a></h4><div class="paper-authors" data-i18n="tremor.p1.authors">Scientific Reports, 2025 &#183; PMC12008214</div><p data-i18n="tremor.p1.body">Compared MediaPipe and Apple Vision hand tracking against reference equipment. Both measured tremor peak frequency accurately, and video amplitude correlated with clinical tremor ratings (TETRAS). We cite it because it is the same hand model this test uses.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p1.tag">Validates MediaPipe</span><a class="paper-link" href="https://www.nature.com/articles/s41598-025-97252-4" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="tremor.p2.title"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8607978/" target="_blank" rel="noopener">Accuracy of Smartphone Video for Contactless Measurement of Hand Tremor Frequency</a></h4><div class="paper-authors" data-i18n="tremor.p2.authors">Williams et al., 2021 &#183; Movement Disorders Clinical Practice &#183; PMC8607978</div><p data-i18n="tremor.p2.body">Tremor frequency from ordinary phone video fell within 0.5 Hz of an accelerometer in 36 of 37 recordings. We cite it because it is why frequency, not size, leads this test.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p2.tag">Why frequency leads</span><a class="paper-link" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8607978/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
         <div class="paper"><h4 data-i18n="tremor.p3.title"><a href="https://www.nature.com/articles/s41746-024-01153-1" target="_blank" rel="noopener">Validation and Application of Computer Vision Algorithms for Video-Based Tremor Analysis</a></h4><div class="paper-authors" data-i18n="tremor.p3.authors">npj Digital Medicine, 2024</div><p data-i18n="tremor.p3.body">Validated video tremor measures against motion capture. Frequency held up well; amplitude accuracy was not yet sufficient for clinical use. We cite it for the limit on how the size of a tremor is reported here.</p><div class="paper-foot"><span class="paper-tag" data-i18n="tremor.p3.tag">Why size is an estimate</span><a class="paper-link" href="https://www.nature.com/articles/s41746-024-01153-1" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+      </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- WALKING TEST DETAIL (seated part) -->
+  <div class="page" id="page-gait">
+    <div class="detail">
+      <button class="detail-back" onclick="showPage('home')" aria-label="Back to dashboard"></button>
+      <div class="detail-hero">
+        <div class="detail-icon" id="detail-icon-gait"></div>
+        <div class="detail-info">
+          <h1 data-i18n="gait.h1">Walking Test</h1>
+          <p data-i18n="gait.v2.lede">The seated part: leg stamps, then five sit-to-stands.</p>
+          <div class="fact-chips">
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg><span data-i18n="common.fact.2min">~2 min</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v8h10M7 12v8M17 12v8M5 12h14"/></svg><span data-i18n="gait.fact.chair">Sturdy chair</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2"/><circle cx="17" cy="9" r="2.5"/><path d="M13 20v-1a4 4 0 0 1 8 0v1"/></svg><span data-i18n="gait.fact.helper">A helper with you</span></span>
+            <span class="fact-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="common.fact.webcam">Webcam</span></span>
+          </div>
+          <div class="detail-actions" id="gait-actions"></div>
+        </div>
+      </div>
+
+      <section class="how-it-works">
+        <h2 data-i18n="common.howItWorks">How It Works</h2>
+        <ol class="filmstrip">
+          <li class="frame">
+            <figure title="Side view of a room: a person seated in profile on a sturdy chair, a phone or webcam on a shelf 2-3 m away at hip height, its view cone covering head to feet." class="art-slot" data-art="gait/step-1-set-up">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Camera side-on</b><code class="slot-file">img/gait/step-1-set-up.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">1</span><div><h4 data-i18n="gait.v2.s1.h">Sit side-on to the camera</h4><p data-i18n="gait.v2.s1.p">2-3 m away, head to feet in view.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="The same seated person raising their right arm straight above the head; a check mark appears." class="art-slot" data-art="gait/step-2-right-arm">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Right arm up</b><code class="slot-file">img/gait/step-2-right-arm.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">2</span><div><h4 data-i18n="gait.v2.s2.h">Raise your right arm</h4><p data-i18n="gait.v2.s2.p">So the test knows left from right.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Seated, one foot lifted high with motion arcs, about to stamp down; the other foot flat. 10 s ring in the corner." class="art-slot" data-art="gait/step-3-stamps">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Leg stamps</b><code class="slot-file">img/gait/step-3-stamps.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">3</span><div><h4 data-i18n="gait.v2.s3.h">Stamp each foot</h4><p data-i18n="gait.v2.s3.p">High and fast, 10 seconds a leg.</p></div></div>
+          </li>
+          <li class="frame">
+            <figure title="Three overlaid poses of the same person, arms crossed on the chest: seated, leaning forward, standing tall. A counter reads 3 of 5." class="art-slot" data-art="gait/step-4-sit-to-stand">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Five sit-to-stands</b><code class="slot-file">img/gait/step-4-sit-to-stand.webp</code></div>
+            </figure>
+            <div class="frame-cap"><span class="frame-num">4</span><div><h4 data-i18n="gait.v2.s4.h">Stand up five times</h4><p data-i18n="gait.v2.s4.p">Arms crossed, as fast as is safe.</p></div></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tips-section">
+        <h2 data-i18n="common.tips.h">For a Good Recording</h2>
+        <div class="dodont-grid">
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="The whole body in the frame, head to feet, with room above the head for standing up." class="art-slot" data-art="gait/tip-1-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Head to feet in view</b><code class="slot-file">img/gait/tip-1-do.webp</code></div>
+              </figure>
+              <figure title="Camera too close: the feet cut off at the bottom edge; amber edge band." class="art-slot" data-art="gait/tip-1-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Feet cut off</b><code class="slot-file">img/gait/tip-1-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="gait.v2.tip1">Whole body in the picture, standing too</h4>
+          </div>
+          <div class="dodont">
+            <div class="dd-pair">
+              <figure title="A heavy chair with armrests against a wall; a helper standing beside it." class="art-slot" data-art="gait/tip-2-do"><span class="dd-badge ok"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span data-i18n="common.do">Do</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Sturdy chair, helper near</b><code class="slot-file">img/gait/tip-2-do.webp</code></div>
+              </figure>
+              <figure title="A rolling office chair with castors, nobody nearby." class="art-slot" data-art="gait/tip-2-dont"><span class="dd-badge no"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span data-i18n="common.dont">Avoid</span></span>
+                <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Chair on wheels</b><code class="slot-file">img/gait/tip-2-dont.webp</code></div>
+              </figure>
+            </div>
+            <h4 data-i18n="gait.v2.tip2">A chair that cannot roll, and someone nearby</h4>
+          </div>
+        </div>
+      </section>
+
+      <section class="measure-section">
+        <h2 data-i18n="common.measure.h">What We Measure</h2>
+        <div class="rec-card is-empty" data-rec="gait">
+          <div class="rec-head"><span class="rec-eyebrow" data-i18n="common.rec.eyebrow">A real recording</span><div class="rec-stats"></div></div>
+          <div class="rec-body">
+            <figure title="Knee lift for each leg with every stamp marked, and the rise-and-sit trace of the five stands. No run has been recorded yet." class="art-slot rec-slot" data-art="gait/recording">
+              <div class="slot-ph"><span class="slot-ico"></span><b class="slot-name">Real recording goes here</b><code class="slot-file">img/gait/example-recording.json</code></div>
+            </figure>
+          </div>
+          <div class="metric-chips"></div>
+        </div>
+      </section>
+
+      <details class="science">
+        <summary><span data-i18n="common.science">The science</span><small data-i18n="common.scienceHint">Metrics, cut-offs and research papers</small></summary>
+        <div class="science-body">
+          <div class="detail-file">screening_tests/gait_test.py</div>
+          <p class="science-lede" data-i18n="gait.lede">The seated part of the walking test, for Parkinson's signs in the legs. It needs about a metre of floor and carries no fall risk: <strong>leg stamps</strong> (MDS-UPDRS 3.8), then <strong>five sit-to-stands</strong> (3.9), filmed side-on. The walking part is still to come.</p>
+          <p class="science-lede" data-i18n="gait.how.intro">The camera watches from the side, 2&#8211;3 m away, so it can see the knee lift and the hips rise. A phone streaming over Wi-Fi works through the camera chip's URL option. Before the first block you raise your right arm: that tells the test which leg is which on this camera. Only body landmarks are saved, never video.</p>
+      <div class="metrics-section"><h2 data-i18n="common.metrics">Metrics Measured</h2>
+        <div class="metrics-grid">
+          <div class="metric-card"><h4 data-i18n="gait.m1.h">Five sit-to-stands (s)</h4><p data-i18n="gait.m1.p">Time from the beep to the fifth full stand. Rising from a chair takes leg strength, balance and the movement speed Parkinson's slows. Failed attempts and pushing off with the hands are counted too, as the MDS-UPDRS scores them.</p><div class="metric-num" data-i18n="gait.m1.num">provisional bands: 13 s / 16 s</div><div class="metric-cite" data-i18n="gait.m1.cite">Bohannon 2006 &#183; Duncan 2011</div></div>
+          <div class="metric-card"><h4 data-i18n="gait.m2.h">Leg stamps</h4><p data-i18n="gait.m2.p">Stamps per second and how high the knee lifts, as a share of thigh length, for each leg. Measured with the same detector as finger tapping, and so is the fade in lift over the ten seconds.</p><div class="metric-num" data-i18n="gait.m2.num">reported, not banded</div><div class="metric-cite" data-i18n="gait.m2.cite">MDS-UPDRS 3.8</div></div>
+          <div class="metric-card"><h4 data-i18n="gait.m3.h">Left vs right</h4><p data-i18n="gait.m3.p">Which leg is weaker, when the two differ by more than a fifth. Parkinson's usually starts on one side.</p><div class="metric-num" data-i18n="gait.m3.num">named only on a clear difference</div><div class="metric-cite" data-i18n="gait.m3.cite">docs/tests/GAIT_TEST_PLAN.md</div></div>
+        </div>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="gait.note">Frames where part of the body is out of the picture are left out. <strong>The sit-to-stand bands are provisional</strong> (<code>core/gait/metrics.py</code>) and come from published norms that still have to be checked against this setup. This is a screening aid, not a diagnosis.</p>
+      </div>
+      <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
+        <div class="paper"><h4 data-i18n="gait.p1.title"><a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8975117/" target="_blank" rel="noopener">Smartphone-Based Estimation of Item 3.8 of the MDS-UPDRS-III for Assessing Leg Agility</a></h4><div class="paper-authors" data-i18n="gait.p1.authors">IEEE, 2020 &#183; PMC8975117</div><p data-i18n="gait.p1.body">Scored the leg-agility item automatically in 93 people with Parkinson's; the output correlated 0.92 with four neurologists' average rating. We cite it because it shows the item can be measured by a device.</p><div class="paper-foot"><span class="paper-tag" data-i18n="gait.p1.tag">Leg agility, automated</span><a class="paper-link" href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8975117/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
+        <div class="paper"><h4 data-i18n="gait.p2.title"><a href="https://www.sciencedirect.com/science/article/pii/S2666521221000223" target="_blank" rel="noopener">Computer-Vision Based Method for Quantifying Rising from Chair in Parkinson's Disease</a></h4><div class="paper-authors" data-i18n="gait.p2.authors">Intelligence-Based Medicine, 2021</div><p data-i18n="gait.p2.body">Estimated the arising-from-chair item from markerless pose estimation; it matched clinicians exactly in 79% of videos and within one point in all of them. We cite it because it is the same kind of video measurement.</p><div class="paper-foot"><span class="paper-tag" data-i18n="gait.p2.tag">Chair rise from video</span><a class="paper-link" href="https://www.sciencedirect.com/science/article/pii/S2666521221000223" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
       </div>
         </div>
       </details>
@@ -1252,18 +1373,6 @@ button,input{font:inherit;color:inherit}
   </div>
 </div>
 
-<!-- Disclaimer dock. The bar sits below the viewport edge and rises only
-     while the pointer is in the strip it occupies (app.js, disclaimerDock).
-     The dock itself is pointer-transparent so a hidden bar cannot swallow a
-     click; the grabber is the only always-visible part, and it is what tells
-     anyone the bar is down there at all. -->
-<div class="disclaimer-dock" id="disclaimer-dock">
-  <span class="disclaimer-grab" aria-hidden="true"></span>
-  <div class="disclaimer-bar" data-i18n="bar.disclaimer">
-    Screening tool, <strong>not an official medical diagnosis</strong>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <!-- Session report panel (report.js). Opened by clicking a chart point or a
@@ -1278,6 +1387,7 @@ button,input{font:inherit;color:inherit}
 <script src="/app.js"></script>
 <script src="/profiles.js"></script>
 <script src="/dev.js"></script>
+<script src="/vendor/qrcode.js"></script>
 <script src="/remote.js"></script>
 <script src="/report.js"></script>
 <script type="module" src="/hand3d.js"></script>

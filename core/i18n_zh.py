@@ -18,8 +18,8 @@ Three kinds of entry:
 
 Covers the shared UI toolkit and all four tools — finger tapping, spiral
 tracing, the oculomotor test and the hand-tracking inspector (phases 1-2 of
-docs/platform/OVERLAY_I18N_PLAN.md). The console splash and the camera prompt are
-phase 3 and are not here yet.
+docs/platform/OVERLAY_I18N_PLAN.md), plus the console splash, camera prompt and
+start/close lines (phase 3), which are printed through i18n.ct().
 """
 
 import re
@@ -121,6 +121,11 @@ ZH: dict[str, object] = {
     "Result saved": "結果已儲存",
     "Close to a band edge - repeat for a firmer reading.":
         "接近分級邊界 — 建議重測以取得更穩定的結果。",
+    "1 missed tap forgiven": "已略過 1 次漏判的敲擊",
+    "1 interruption": "1 次中斷",
+    "{n} interruptions": "{n} 次中斷",
+    "Speed {pct}% of your usual": "速度為平常的 {pct}%",
+    "Slower than your usual - consider monitoring": "比平常慢 — 建議持續觀察",
     "Typical < {typical}% | monitor {typical}-{monitor}% | elevated > {monitor}%":
         "典型 < {typical}% ｜ 追蹤 {typical}-{monitor}% ｜ 偏高 > {monitor}%",
     "Saved: results/{name}": "已儲存：results/{name}",
@@ -465,24 +470,22 @@ ZH: dict[str, object] = {
         "三段各 20 秒的姿勢，雙手都要在畫面中。",
     "Measures shaking at rest and with arms held out.":
         "測量靜止時與雙臂平舉時的抖動。",
-    "Sensor glove connected - its motion sensor is recorded too.":
-        "已連接感測手套 — 也會一併記錄它的動作感測器。",
 
     # ── Phases (core/tremor/phases.py, drawn only) ─────────────────────────
-    "Hands at Rest": "雙手靜止",
-    "Rest While Counting": "靜止時倒數",
+    "Palms Up in Your Lap": "掌心朝上放在腿上",
+    "Palms Down in Your Lap": "掌心朝下放在腿上",
     "Arms Held Out": "雙臂平舉",
-    "tremor.rest.instructions": [
-        "把雙前臂平放在桌上，掌心朝下，",
-        "雙手完全放鬆。",
-        "讓手自然鬆開 — 不要刻意保持不動。",
+    "tremor.rest_palm_up.instructions": [
+        "往後坐好，雙手放在腿上，",
+        "掌心朝上，手指放鬆。",
+        "讓手完全放鬆 — 不要刻意保持不動。",
         "雙手都要留在畫面中。",
     ],
-    "tremor.rest_count.instructions": [
-        "姿勢相同，雙手放鬆放在桌上。",
-        "這次請大聲倒數：",
-        "從 100 開始每次減 3：100、97、94…",
-        "數數時雙手保持放鬆。",
+    "tremor.rest_palm_down.instructions": [
+        "現在把雙手翻過來，",
+        "掌心朝下，放在腿上。",
+        "讓手完全放鬆 — 不要刻意保持不動。",
+        "雙手都要留在畫面中。",
     ],
     "tremor.postural.instructions": [
         "雙臂向前伸直，",
@@ -490,8 +493,9 @@ ZH: dict[str, object] = {
         "保持在那個位置，平穩不動，",
         "雙手都要留在畫面中。",
     ],
-    "Relax both hands completely": "雙手完全放鬆",
-    "Count backward from 100 by 3s, out loud": "從 100 開始每次減 3，大聲倒數",
+    "Palms up, hands fully relaxed": "掌心朝上，雙手完全放鬆",
+    "Palms down, hands fully relaxed": "掌心朝下，雙手完全放鬆",
+    "Aim the camera at your lap before you start.": "開始前，請先把鏡頭對準您的腿上。",
     "Hold both arms out, palms down": "雙臂向前平舉，掌心朝下",
     "Part {n} of {total}": "第 {n} 部分，共 {total} 部分",
     "Hold for {s} seconds. Press Space when ready.":
@@ -514,15 +518,18 @@ ZH: dict[str, object] = {
     "Strongest rhythm: {phase}, {hand}": "最強節律：{phase}，{hand}",
     "Largest movement in the tremor band (% of hand length)":
         "顫抖頻段中最大的動作量（手長的 %）",
-    "Rest": "靜止",
-    "Counting": "倒數",
+    "Palms up": "掌心朝上",
+    "Palms down": "掌心朝下",
     "Arms out": "平舉",
-    "Peak frequency and movement (% of hand length). Size is an estimate - screening, not diagnosis.":
-        "主頻與動作量（手長的 %）。大小為估計值 — 僅供篩檢，並非診斷。",
     "Glove sensor at rest: {hz} Hz": "手套感測器（靜止）：{hz} Hz",
 
     # ── Bands + failure states (core/tremor/metrics.py) ────────────────────
     "Tremor detected - consider follow-up": "偵測到顫抖 — 建議追蹤檢查",
+    "No rhythmic shaking found": "沒有發現規律的抖動",
+    "A weak rhythm - repeat to confirm": "微弱的節律 — 請重做一次確認",
+    "Rhythmic shaking found": "發現規律的抖動",
+    "A supporting check for the tapping and spiral tests. Size is an estimate.":
+        "點擊與螺旋測驗的輔助檢查。幅度為估計值。",
     "Possible tremor - repeat to confirm": "可能有顫抖 — 請重做一次確認",
     "No tremor detected": "未偵測到顫抖",
     "The camera frame rate was too low to see tremor - close other programs and try again.":
@@ -539,6 +546,10 @@ ZH: dict[str, object] = {
         "有些部分無法量測到一隻或兩隻手。",
     "The hands were in view for only part of each hold.":
         "每段姿勢中，雙手只有部分時間在畫面裡。",
+    "Measuring every frame": "正在分析每一格畫面",
+    "Sensor glove connected - which hand is wearing it?": "已連接感測手套 — 戴在哪一隻手？",
+    "You can rest your hands.": "雙手可以休息了。",
+    "The camera lost frames during the holds.": "錄影時鏡頭掉了一些畫面。",
     "The hands moved during the holds, so parts of the recording were left out.":
         "姿勢維持期間手有移動，所以部分錄製內容被排除。",
     "A hand was often at the edge of the picture.": "手常常位於畫面邊緣。",
@@ -567,6 +578,140 @@ ZH: dict[str, object] = {
     "Picture is not mirrored": "畫面不是鏡像的",
     "Checked once per camera. Press Q to skip": "每台相機只需檢查一次。按 Q 略過",
     "Show one hand only": "只讓一隻手入鏡",
+    "Camera mirroring check could not run: {error}": "無法執行相機鏡像檢查：{error}",
+    "Camera mirroring check skipped - frames are used as the camera sends them. "
+    "It will be asked again next launch.":
+        "已略過相機鏡像檢查，畫面維持相機原樣。下次啟動時會再詢問",
+    "Could not save the mirroring answer; it will be asked again next launch.":
+        "無法儲存鏡像檢查結果，下次啟動時會再詢問",
+    "Camera picture is mirrored - corrected.": "相機畫面是鏡像的，已自動修正",
+    "Camera picture is not mirrored.": "相機畫面不是鏡像的",
+
+    # ══ Console (phase 3: core/splash.py, core/camera.py, entry scripts) ══
+    # Printed through i18n.ct(), which keeps English on a console that cannot
+    # show CJK. Stage names that are product names (OpenCV, MediaPipe) stay Latin.
+    "Modes: Big & Fast (primary) / Paced Rhythm":
+        "模式：大動作快速敲擊（主要）／節拍同步敲擊",
+    "Eye Movement Test (Pro/Anti-saccade)": "眼球運動測驗（順向／反向掃視）",
+    "Part 1: look toward - Part 2: look away - Part 3: hold still":
+        "第一部分：看向光點　第二部分：看向反方向　第三部分：保持不動",
+    "Parts: Pa-Ta-Ka / Sustained Ahh": "兩部分：Pa-Ta-Ka 交替音節／持續發「啊」",
+    "Click 'Start Test' in the camera window.  Q to quit.":
+        "請在相機視窗中按「開始測驗」。按 Q 離開",
+    "Hand Detection 3D - Data Inspector": "Hand Detection 3D － 資料檢視器",
+    "Live landmark inspector + UDP broadcast": "即時關鍵點檢視＋UDP 廣播",
+    "Test engine": "測驗引擎",
+    "Gaze engine + MediaPipe": "視線引擎＋MediaPipe",
+    "Audio engine": "音訊引擎",
+    "Loading {what}...": "正在載入 {what}…",
+    "Ready": "準備完成",
+    "{note} in {secs} s": "{note}，用時 {secs} 秒",
+    "First launch reads ~130 MB of vision libraries from disk.":
+        "首次啟動需從磁碟讀取約 130 MB 的視覺函式庫",
+    "Slow cold start - see docs/performance/COLD_START.md to speed it up.":
+        "冷啟動較慢，加速方法見 docs/performance/COLD_START.md",
+    "webcam {n}": "網路攝影機 {n}",
+    "Press Enter to close...": "按 Enter 關閉…",
+    "Camera source: {source}  (set in the launcher)": "相機來源：{source}（於控制台設定）",
+    "Camera source:": "相機來源：",
+    "Webcam (default)  - or type an index, e.g. 0 / 1 / 2":
+        "網路攝影機（預設），或輸入編號，例如 0 / 1 / 2",
+    "IP stream URL": "IP 串流網址",
+    "Select [1]: ": "請選擇 [1]：",
+    "Stream URL: ": "串流網址：",
+    "Opening camera and loading the hand model - a few seconds...":
+        "正在開啟相機並載入手部模型，約需數秒…",
+    "Opening camera and loading the face model - a few seconds...":
+        "正在開啟相機並載入臉部模型，約需數秒…",
+    "Could not open camera.": "無法開啟相機",
+    "Finger tapping test closed.": "手指敲擊測驗已關閉",
+    "Spiral tracing test closed.": "螺旋描繪測驗已關閉",
+    "Hand tremor test closed.": "手部顫抖測驗已關閉",
+    "Eye movement test closed.": "眼球運動測驗已關閉",
+    "Speech test closed.": "說話測驗已關閉",
+
+    # ── Walking test, seated part (screening_tests/gait_test.py, core/gait)
+    "Walking test closed.": "行走測驗已關閉",
+    "Opening camera and loading the pose model - a few seconds...":
+        "正在開啟相機並載入姿勢模型，約需數秒…",
+    "Walking Test": "行走測驗",
+    "Walking Test - Results": "行走測驗－結果",
+    "Seated part: leg stamps and five sit-to-stands.":
+        "坐姿部分：踏腳與五次坐站。",
+    "Use a sturdy chair. Have someone with you.":
+        "請使用穩固的椅子，並有人在旁陪同。",
+    "Camera side-on, 2-3 m away, whole body in view.":
+        "相機放在側面，距離 2-3 公尺，全身入鏡。",
+    "Your helper presses Space to move on.": "由陪同者按空白鍵繼續。",
+    "Sit so your whole body is in view": "坐好，讓全身都在畫面中",
+    "Side-on to the camera, feet included.": "側身面向相機，雙腳也要入鏡。",
+    "Raise your right arm above your head": "請把右手舉過頭頂",
+    "This tells the test which side is which.": "這讓測驗分辨左右。",
+    "hold it up": "保持舉起",
+    "Skip this check": "略過此檢查",
+    "Press Space when ready.": "準備好後請按空白鍵。",
+    "Sit still": "請坐著不動",
+    "{n} stamps": "{n} 次踏腳",
+    "{n} of {total} stands": "第 {n}／{total} 次站起",
+    "Stay in the picture": "請留在畫面中",
+    "Five sit-to-stands": "五次坐站",
+    "{hz} stamps/s, lift {amp}%": "每秒 {hz} 次，抬高 {amp}%",
+    "Right leg": "右腳",
+    "Left leg": "左腳",
+    "Rises": "站起",
+    "{n} stands, {f} failed, hands used {u}":
+        "站起 {n} 次，失敗 {f} 次，用手 {u} 次",
+    "Left vs right": "左右比較",
+    "{leg} weaker": "{leg}較弱",
+    "No clear difference": "無明顯差異",
+    "No one in view": "畫面中沒有人",
+    "Body at the edge": "身體在畫面邊緣",
+    "Body in view": "身體在畫面中",
+    "Sides checked": "已確認左右",
+    "Move the camera back so your feet are in view":
+        "請把相機往後移，讓雙腳入鏡",
+    "Move the camera back so your head is in view":
+        "請把相機往後移，讓頭部入鏡",
+    "Move toward the middle of the picture": "請往畫面中間移動",
+    "Right Leg Stamps": "右腳踏腳",
+    "Left Leg Stamps": "左腳踏腳",
+    "Five Sit-to-Stands": "五次坐站",
+    "Stamp your right foot, high and fast": "右腳抬高並快速踏下",
+    "Stamp your left foot, high and fast": "左腳抬高並快速踏下",
+    "Stand up and sit down, five times": "站起再坐下，共五次",
+    "gait.leg_right.instructions": [
+        "坐好靠著椅背。",
+        "把右腳盡量抬高，",
+        "再用力踏下，反覆進行，",
+        "越快越好。左腳保持不動。",
+    ],
+    "gait.leg_left.instructions": [
+        "現在換另一隻腳。",
+        "把左腳盡量抬高，",
+        "再用力踏下，反覆進行，",
+        "越快越好。右腳保持不動。",
+    ],
+    "gait.sts5.instructions": [
+        "雙臂交叉放在胸前。",
+        "聽到嗶聲後，完全站起再坐下，",
+        "共五次，在安全的前提下越快越好。",
+        "需要時可以用手扶。",
+    ],
+    "Too few stamps were seen to score this leg.":
+        "偵測到的踏腳次數太少，無法評分這隻腳。",
+    "The leg was out of view for too much of the block.":
+        "這段測驗中，腳有太多時間不在畫面內。",
+    "No stand was seen - check that your hips and knees are in view.":
+        "沒有偵測到站起，請確認髖部與膝蓋都在畫面中。",
+    "The sit-to-stand part could not be measured.": "坐站部分無法測量。",
+    "Did not finish five stands": "未完成五次站起",
+    "Slower than typical - consider monitoring": "比一般慢，建議持續觀察",
+    "Slow to rise - recommend follow-up": "站起緩慢，建議進一步檢查",
+    "Parts of your body were often out of the picture.":
+        "身體有部分常常不在畫面中。",
+    "Some parts of the test could not be measured.": "測驗有部分無法測量。",
+    "Left and right were not confirmed, so the legs may be swapped.":
+        "左右未經確認，兩腳的結果可能對調。",
 }
 
 

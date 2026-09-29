@@ -195,6 +195,7 @@ _REASON_MODULES = (
     ("core", "speech", "metrics.py"),
     ("core", "speech", "phonation.py"),
     ("core", "tremor", "metrics.py"),
+    ("core", "gait", "seated.py"),
 )
 
 _BAND_MODULES = (
@@ -205,6 +206,7 @@ _BAND_MODULES = (
     ("core", "speech", "metrics.py"),
     ("core", "speech", "phonation.py"),
     ("core", "tremor", "metrics.py"),
+    ("core", "gait", "metrics.py"),
 )
 
 _STATUS_TOKENS = {"success", "warning", "danger", "info"}
@@ -305,6 +307,7 @@ def test_every_instruction_block_is_translated():
     from core.speech.tasks import PHONATION, TASKS as SPEECH_TASKS
     from core.tapping.modes import MODES
     from core.tremor.phases import PHASES as TREMOR_PHASES
+    from core.gait.phases import BLOCKS as GAIT_BLOCKS
 
     _reset("zh")
     blocks = [(f"tap.{k}.instructions", m.instructions) for k, m in MODES.items()]
@@ -314,6 +317,8 @@ def test_every_instruction_block_is_translated():
     blocks.append(("phon.ahh.instructions", PHONATION.instructions))
     blocks += [(f"tremor.{k}.instructions", p.instructions)
                for k, p in TREMOR_PHASES.items()]
+    blocks += [(f"gait.{k}.instructions", b.instructions)
+               for k, b in GAIT_BLOCKS.items()]
     blocks.append(("gaze.fix.instructions", ("x",)))
     blocks.append(("spiral.instructions", ("x",)))
     for key, english in blocks:
@@ -329,16 +334,19 @@ def test_every_screen_title_is_translated():
     from core.speech.tasks import PHONATION, TASKS as SPEECH_TASKS
     from core.tapping.modes import MODES
     from core.tremor.phases import PHASES as TREMOR_PHASES
+    from core.gait.phases import BLOCKS as GAIT_BLOCKS
 
     _reset("zh")
     titles = ["Finger Tapping Test", "Spiral Tracing Test", "Eye Movement Test",
               "Part 3 - Hold Still", "Speech Test", "Hand Tremor Test",
-              "Hand Tremor - Results"]
+              "Hand Tremor - Results", "Walking Test", "Walking Test - Results"]
     titles += [m.title for m in MODES.values()]
     titles += [t.title for t in TASKS.values()]
     titles += [t.title for t in SPEECH_TASKS.values()] + [PHONATION.title]
     titles += [p.title for p in TREMOR_PHASES.values()]
     titles += [p.cue for p in TREMOR_PHASES.values()]
+    titles += [b.title for b in GAIT_BLOCKS.values()]
+    titles += [b.cue for b in GAIT_BLOCKS.values()]
     for title in titles:
         assert _is_chinese(i18n.t(title)), f"untranslated title: {title!r}"
 
@@ -472,8 +480,111 @@ def test_canvas_demotes_mono_for_chinese_text():
     assert i18n.has_wide("") is False
 
 
+# ── Console text (phase 3: splash, camera prompt) ──────────────────────────
+
+def _console(lang, can_show):
+    i18n.set_lang(lang)
+    i18n.set_render_capable(True)
+    i18n._console_cjk = can_show
+
+
+def test_console_translates_when_it_can_show_chinese():
+    _console("zh", True)
+    try:
+        assert i18n.ct("Camera source:") == "相機來源："
+        assert i18n.ct("webcam {n}", n=1) == "網路攝影機 1"
+    finally:
+        i18n._console_cjk = None
+
+
+def test_console_stays_english_when_it_cannot_show_chinese():
+    """A legacy code page or a Latin-only conhost font must get English, not
+    '???' or boxes -- even when the overlay itself can draw Chinese."""
+    _console("zh", False)
+    try:
+        assert i18n.ct("Camera source:") == "Camera source:"
+        assert i18n.ct("webcam {n}", n=1) == "webcam 1"
+    finally:
+        i18n._console_cjk = None
+
+
+def test_console_does_not_follow_the_overlay_font():
+    """The console has its own font; a missing overlay CJK face is no reason
+    to print English there, and vice versa."""
+    _console("zh", True)
+    i18n.set_render_capable(False)
+    try:
+        assert i18n.ct("Ready") == "準備完成"
+    finally:
+        i18n._console_cjk = None
+        _reset("en")
+
+
+def test_console_is_english_when_english_is_asked_for():
+    _console("en", True)
+    try:
+        assert i18n.ct("Ready") == "Ready"
+    finally:
+        i18n._console_cjk = None
+
+
+def test_text_width_counts_cjk_as_two_columns():
+    assert i18n.text_width("Ready") == 5
+    assert i18n.text_width("準備完成") == 8
+    assert i18n.text_width("") == 0
+
+
+def _ct_literals() -> set:
+    """Every literal passed as the first argument to i18n.ct()."""
+    import ast
+
+    found = set()
+    for p in _source_files():
+        tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and node.args
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "ct"
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)):
+                found.add(node.args[0].value)
+    return found
+
+
+def _splash_literals() -> set:
+    """Titles, subtitles and stage labels handed to core.splash, which
+    translates them itself."""
+    import ast
+    from core import splash
+
+    found = {label for steps in (splash.IMPORT_STEPS, splash.GAZE_IMPORT_STEPS,
+                                 splash.SPEECH_IMPORT_STEPS)
+             for label, _ in steps}
+    for p in _source_files():
+        tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "Splash"):
+                found |= {a.value for a in node.args[:2]
+                          if isinstance(a, ast.Constant) and isinstance(a.value, str)}
+    return found
+
+
+# Product names, kept Latin by house style.
+_CONSOLE_LATIN = {"OpenCV", "MediaPipe"}
+
+
+def test_every_console_string_is_translated():
+    """A console line added without a translation would print English inside
+    an otherwise Chinese console."""
+    wanted = (_ct_literals() | _splash_literals()) - _CONSOLE_LATIN
+    assert len(wanted) > 20, "the console walk found almost nothing"
+    missing = sorted(s for s in wanted if s not in ZH)
+    assert not missing, f"console strings with no translation: {missing}"
+
+
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items())
+    fns =[v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
     failed = 0
     for fn in fns:

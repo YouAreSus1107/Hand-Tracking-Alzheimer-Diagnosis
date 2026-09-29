@@ -130,10 +130,69 @@ def console_supports(text: str) -> bool:
         return False
 
 
+# OEM code pages whose default console font carries CJK glyphs:
+# Japanese, Simplified Chinese, Korean, Traditional Chinese.
+_CJK_CODE_PAGES = (932, 936, 949, 950)
+_console_cjk: bool | None = None
+
+
+def _console_font_has_cjk() -> bool:
+    """Whether the console will draw CJK as glyphs rather than boxes.
+
+    Encoding is only half of it. Python writes UTF-16 to a Windows console, so
+    `console_supports()` passes everywhere there, but legacy conhost does no
+    font fallback: on an English Windows it draws Chinese in Consolas, as boxes.
+    Windows Terminal (WT_SESSION, also set when it is the default terminal the
+    launcher's CREATE_NEW_CONSOLE is delegated to) falls back per glyph, and a
+    CJK-locale conhost defaults to a CJK face. Elsewhere, terminals fall back.
+    """
+    if os.name != "nt" or os.environ.get("WT_SESSION"):
+        return True
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetOEMCP() in _CJK_CODE_PAGES
+    except Exception:                       # noqa: BLE001 - no Win32 at all
+        return False
+
+
+def console_zh() -> bool:
+    """Whether console text should be Chinese: asked for *and* displayable."""
+    global _console_cjk
+    if requested_lang() != "zh":
+        return False
+    if _console_cjk is None:
+        _console_cjk = console_supports(PROBE_CHAR) and _console_font_has_cjk()
+    return _console_cjk
+
+
+def ct(text: str, **params) -> str:
+    """`t()` for console output: Chinese only where the console can show it.
+
+    The console is a separate surface from the overlay. The overlay degrades on
+    the font it can find, the console on its code page and its font, and one
+    can succeed where the other fails, so this deliberately does not consult
+    the overlay's render capability. A miss still prints English, never '???'.
+    """
+    if text is None:
+        return ""
+    if not console_zh():
+        return _fill(text, params)
+    return _fill(_dict_for("zh").get(text, text), params)
+
+
+def text_width(text: str) -> int:
+    """Terminal columns `text` occupies: CJK and full-width forms take two."""
+    return sum(2 if _is_wide(ch) else 1 for ch in text or "")
+
+
 # ── Lookups ────────────────────────────────────────────────────────────────
 
 def _dict() -> dict:
-    if active_lang() != "zh":
+    return _dict_for(active_lang())
+
+
+def _dict_for(lang: str) -> dict:
+    if lang != "zh":
         return {}
     try:
         from core import i18n_zh

@@ -6,6 +6,7 @@ const I = {
   mic: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>',
   eye: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
   wave: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l2-5 3 10 3-12 3 12 2-5h4"/></svg>',
+  walk: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M11 21l2-6-3-3 1-5 4 3 3 1"/><path d="M10 12l-2 4-3 1"/><path d="M13 15l3 6"/></svg>',
   play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6,3 20,12 6,21"/></svg>',
   stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
   check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -30,6 +31,8 @@ const I = {
   person: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>',
   image: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>',
   chevron: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
+  refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/></svg>',
+  stream: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg>',
 };
 
 const TOOLS = [
@@ -61,7 +64,9 @@ const TOOLS = [
       </svg>`;
     })() },
   { key:"tremor", title:"Hand Tremor Test", file:"tremor_test.py", icon:"wave",
-    tags:["~2 min test","2 hands","Rest + arms out","Glove IMU optional"],
+    // A supporting check, not a screening result (the way paced tapping sits
+    // beside Big & Fast): docs/tests/TREMOR_RESTRUCTURE_PLAN.md §2.
+    tags:["Supporting check","~2 min test","2 hands","Glove IMU optional"],
     // No preview clip yet: a still of what the test computes — one hand's
     // tremor-band spectrum with a single peak standing out of the noise.
     art:(()=>{
@@ -77,6 +82,26 @@ const TOOLS = [
         <line x1="10" y1="122" x2="370" y2="122" stroke="var(--border)" stroke-width="1"/>
         <polyline points="${pts.join(" ")}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/>
         <circle cx="${20+340*0.36}" cy="${122-6-70}" r="4" fill="var(--warning)"/>
+      </svg>`;
+    })() },
+  { key:"gait", title:"Walking Test", file:"gait_test.py", icon:"walk",
+    tags:["~2 min, seated","Side-on camera","Leg stamps","5 sit-to-stands"],
+    // No preview clip yet: a still of the sit-to-stand trace the test scores,
+    // the hip rising to standing and back, five times, each stand marked.
+    art:(()=>{
+      const pts = [];
+      for(let i=0;i<=100;i++){
+        const f = i/100, x = 20 + f*340;
+        const ph = (f*5) % 1;
+        const s = Math.max(0, Math.min(1, ph < .45 ? ph/.3 : ph < .6 ? 1 : 1 - (ph-.6)/.3));
+        pts.push(`${x.toFixed(1)},${(122 - 86*s).toFixed(1)}`);
+      }
+      const ups = [0,1,2,3,4].map(k => 20 + ((k + .3)/5)*340);
+      return `<svg class="card-art" viewBox="0 0 380 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <line x1="10" y1="122" x2="370" y2="122" stroke="var(--border)" stroke-width="1"/>
+        <line x1="10" y1="${122-86*.75}" x2="370" y2="${122-86*.75}" stroke="var(--border)" stroke-width="1" stroke-dasharray="3 4"/>
+        <polyline points="${pts.join(" ")}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/>
+        ${ups.map(x=>`<circle cx="${x.toFixed(1)}" cy="${122-86*.75}" r="3.5" fill="var(--success)"/>`).join("")}
       </svg>`;
     })() },
   { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py", icon:"broadcast",
@@ -151,7 +176,7 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
 /* ── Inject SVG icons into detail pages + research cards ─────────── */
 function renderStaticBits(){
   // Detail page icons
-  const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", ddk:"mic", tremor:"wave", tracking:"broadcast"};
+  const map = {iiv:"hand", spiral:"spiral", oculomotor:"eye", ddk:"mic", tremor:"wave", gait:"walk", tracking:"broadcast"};
   for(const [k,v] of Object.entries(map)){
     const el = document.getElementById("detail-icon-"+k);
     if(el) el.innerHTML = I[v];
@@ -475,15 +500,29 @@ function updateCardStates(running){
   TOOLS.forEach(tool => renderDetailActions(tool.key));
 }
 
+/* Built once, then only the two buttons are touched. This runs on every 3 s
+   status poll, and it used to rewrite the whole row — which deleted the camera
+   and profile chips in it, so an open popover (or a native <select> dropdown
+   inside one) vanished mid-choice every few seconds. */
 function renderDetailActions(key){
   const el = document.getElementById(key+"-actions");
   if(!el) return;
+  if(!el.querySelector("[data-act-go]")){
+    el.innerHTML = `
+      <button class="btn btn-primary" data-act-go onclick="act('launch','${key}')"></button>
+      <button class="btn btn-danger" data-act-stop onclick="act('stop','${key}')"></button>
+      <span class="cam-slot" data-cam></span>
+      <span class="pf-slot" data-profile></span>`;
+  }
   const on = !!currentRunning[key];
-  el.innerHTML = `
-    <button class="btn btn-primary" onclick="act('launch','${key}')" ${on?"disabled":""} aria-label="${t("Launch test")}">${on?t("Running..."):I.play+" "+t("Launch Test")}</button>
-    <button class="btn btn-danger" onclick="act('stop','${key}')" ${on?"":"disabled"} aria-label="${t("Stop test")}">${I.stop} ${t("Stop")}</button>
-    <span class="cam-slot" data-cam></span>
-    <span class="pf-slot" data-profile></span>`;
+  const go = el.querySelector("[data-act-go]");
+  const stop = el.querySelector("[data-act-stop]");
+  go.disabled = on;
+  go.setAttribute("aria-label", t("Launch test"));
+  go.innerHTML = on ? t("Running...") : I.play + " " + t("Launch Test");
+  stop.disabled = !on;
+  stop.setAttribute("aria-label", t("Stop test"));
+  stop.innerHTML = I.stop + " " + t("Stop");
   renderCamChips();
   window.renderProfileChips?.();      // profiles.js loads after this file
 }
@@ -491,24 +530,32 @@ function renderDetailActions(key){
 /* ── Camera-source chip ───────────────────────────────────────────────
    The tools used to stop at a console prompt asking for a camera; the
    choice is made here instead and travels to the spawned process as an
-   env var (launcher.py `_camera_env`). Deliberately a small chip that
-   reads as status — "which camera will be used" — and only unfolds the
-   inputs when clicked, since almost nobody changes it. One shared
-   setting rendered into every `[data-cam]` slot: the dashboard section
-   head and each test page's action row. */
+   env var (launcher.py `_tool_env`). A small chip that reads as status —
+   "which camera will be used" — and folds open into a list of the cameras
+   actually plugged in. One click on a row saves it: there is no Save
+   button, because a picker that forgets your choice when you click away
+   is a picker people think is broken. One shared setting rendered into
+   every `[data-cam]` slot: the dashboard section head and each test
+   page's action row. */
 let camState = {mode:"webcam", index:0, url:"", name:"", label:"Webcam 0", mirror:null};
-let camSeq = 0;   // radio groups need a unique name per instance
 // Cameras plugged in, by name, in index order (GET /api/cameras, from
-// core/camera_list.py). null until first asked; [] when the OS would not say,
-// in which case the chip keeps the plain index box.
+// core/camera_list.py). null until first asked. `camListed` is false when the
+// OS could not be asked, which must not read as "nothing is plugged in".
 let camList = null;
+let camListed = false;
 
 const esc = s => String(s??"").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function camChipText(){
-  return camState.mode === "stream" ? t("IP stream")
+  return camState.mode === "stream" ? t("Phone / IP stream")
        : camState.name || t("Webcam {n}", {n: camState.index});
+}
+
+// The saved camera is known by name and the list says it is not plugged in.
+function camMissing(){
+  return camState.mode !== "stream" && !!camState.name && camListed
+      && Array.isArray(camList) && !camList.some(c => c.name === camState.name);
 }
 
 // camState.mirror is true / false / null (never checked), from core/orientation.py
@@ -517,79 +564,102 @@ function mirrorVal(){
 }
 
 function buildCamChip(root){
-  const stream = camState.mode === "stream";
-  const name = "cam-mode-" + (++camSeq);
-  const tip = t("Camera the tests will use") + (stream && camState.url ? " — " + camState.url : "");
-  // The index/URL inputs sit outside their <label> on purpose: nested inside,
-  // a click on them is ambiguous with the label activating its radio.
+  const missing = camMissing();
+  const tip = t("Camera the tests will use")
+    + (camState.mode === "stream" && camState.url ? " — " + camState.url : "")
+    + (missing ? " — " + t("not plugged in") : "");
+  const seg = [["auto", "Auto"], ["on", "Mirrored"], ["off", "Normal"]];
   root.innerHTML = `
-    <button class="cam-chip" type="button" aria-expanded="false" aria-haspopup="dialog"
-            title="${esc(tip)}">
-      ${I.camera}<span class="cam-chip-text">${esc(camChipText())}</span>${I.chevron}
+    <button class="cam-chip${missing?" cam-warn":""}" type="button" aria-expanded="false"
+            aria-haspopup="dialog" title="${esc(tip)}">
+      ${I.camera}<span class="cam-chip-text">${esc(camChipText())}</span>
+      ${missing ? '<span class="cam-dot" aria-hidden="true"></span>' : ""}${I.chevron}
     </button>
-    <div class="cam-pop" role="dialog" aria-label="${t("Camera source")}" hidden>
-      <div class="cam-pop-title">${t("Camera source")}</div>
-      <div class="cam-row">
-        <label class="cam-opt">
-          <input type="radio" name="${name}" value="webcam" ${stream?"":"checked"}>
-          <span>${t("Camera")}</span>
-        </label>
-        <input class="cam-idx" type="number" min="0" max="9" step="1"
-               value="${camState.index}" aria-label="${t("Webcam index")}">
+    <div class="cam-pop" role="dialog" aria-label="${t("Camera")}" hidden>
+      <div class="cam-head">
+        <span class="cam-pop-title">${t("Camera")}</span>
+        <button class="cam-refresh" type="button" title="${t("Look for cameras again")}"
+                aria-label="${t("Look for cameras again")}">${I.refresh}</button>
       </div>
-      <select class="cam-dev" aria-label="${t("Camera device")}" hidden></select>
-      <div class="cam-row">
-        <label class="cam-opt">
-          <input type="radio" name="${name}" value="stream" ${stream?"checked":""}>
-          <span>${t("IP stream")}</span>
-        </label>
+      <div class="cam-list" role="radiogroup" aria-label="${t("Camera")}"></div>
+      <div class="cam-url-row" hidden>
+        <input class="cam-url" type="url" placeholder="http://192.168.1.5:8080/video"
+               value="${esc(camState.url||"")}" aria-label="${t("Stream URL")}">
+        <button class="cam-connect btn-mini" type="button">${t("Use")}</button>
       </div>
-      <input class="cam-url" type="url" placeholder="http://192.168.1.5:8080/video"
-             value="${esc(camState.url||"")}" aria-label="${t("Stream URL")}">
-      <div class="cam-row" title="${esc(t("Some cameras send a mirrored picture. The hand tests check each camera once and correct it."))}">
-        <span class="cam-opt">${t("Picture")}</span>
-        <select class="cam-mirror" aria-label="${t("Mirrored picture")}">
-          <option value="auto" ${mirrorVal()==="auto"?"selected":""}>${t("Check at next launch")}</option>
-          <option value="on" ${mirrorVal()==="on"?"selected":""}>${t("Mirrored")}</option>
-          <option value="off" ${mirrorVal()==="off"?"selected":""}>${t("Not mirrored")}</option>
-        </select>
+      <div class="cam-sec" title="${esc(t("Some cameras send a mirrored picture. The hand tests check each camera once and correct it."))}">
+        <span class="cam-lbl">${t("Picture")}</span>
+        <div class="cam-seg" role="radiogroup" aria-label="${t("Mirrored picture")}">
+          ${seg.map(([v, label]) => `<button type="button" role="radio" data-mirror="${v}"
+              aria-checked="${mirrorVal()===v}">${t(label)}</button>`).join("")}
+        </div>
       </div>
-      <div class="cam-foot">
-        <span class="cam-note">${t("Applies to the next launch.")}</span>
-        <button class="cam-save btn-mini" type="button">${t("Save")}</button>
-      </div>
+      <div class="cam-note" hidden></div>
     </div>`;
+
   root.querySelector(".cam-chip").addEventListener("click", e => {
     e.stopPropagation();
     toggleCam(root, !root.classList.contains("open"));
   });
-  // Editing a field implies the mode it belongs to — saves the classic
-  // "typed the URL, forgot to tick IP stream" mistake.
-  const pick = v => root.querySelector(`input[value='${v}']`).checked = true;
-  root.querySelector(".cam-idx").addEventListener("input", () => pick("webcam"));
-  root.querySelector(".cam-dev").addEventListener("change", e => {
-    e.target.dataset.touched = "1";               // survives the list refresh
-    root.querySelector(".cam-idx").value = e.target.value;
-    pick("webcam");
+  root.querySelector(".cam-refresh").addEventListener("click", async e => {
+    const btn = e.currentTarget;
+    btn.classList.add("spin");
+    await loadCamList();
+    btn.classList.remove("spin");
+    if(root.classList.contains("open")) fillCamList(root);
+    renderCamChips();                              // the chip's missing dot too
   });
-  root.querySelector(".cam-url").addEventListener("input", () => pick("stream"));
-  // Sent only once touched: switching camera must not copy the old camera's
-  // answer onto the new one.
-  root.querySelector(".cam-mirror").addEventListener("change", e => e.target.dataset.dirty = "1");
-  root.querySelector(".cam-save").addEventListener("click", () => saveCam(root));
+  root.querySelector(".cam-list").addEventListener("click", e => {
+    if(e.target.closest(".cam-use")){
+      const n = parseInt(root.querySelector(".cam-idx").value, 10) || 0;
+      saveCam(root, {mode:"webcam", index:n, name:"", url:camState.url}, true);
+      return;
+    }
+    const item = e.target.closest(".cam-item");
+    if(!item || item.disabled) return;
+    if(item.dataset.kind === "stream"){
+      showCamUrl(root, true);
+      // A stream already saved is one click like a camera; a new one needs its URL.
+      if(camState.url) saveCam(root, {mode:"stream", url:camState.url, index:camState.index, name:camState.name}, true);
+      return;
+    }
+    saveCam(root, {mode:"webcam", index:+item.dataset.index,
+                   name:item.dataset.name || "", url:camState.url}, true);
+  });
+  root.querySelector(".cam-connect").addEventListener("click", () => saveStream(root));
+  root.querySelector(".cam-seg").addEventListener("click", e => {
+    const b = e.target.closest("[data-mirror]");
+    if(!b || b.getAttribute("aria-checked") === "true") return;
+    // Only sent when touched, so switching camera never copies the old
+    // camera's answer onto the new one.
+    saveCam(root, {mode:camState.mode, index:camState.index, url:camState.url,
+                   name:camState.name, mirror:b.dataset.mirror}, false);
+  });
   root.addEventListener("click", e => e.stopPropagation());
   root.addEventListener("keydown", e => {
-    if(e.key === "Escape"){ toggleCam(root, false); root.querySelector(".cam-chip").focus(); }
-    if(e.key === "Enter" && e.target.tagName === "INPUT"){ e.preventDefault(); saveCam(root); }
+    if(e.key === "Escape"){ toggleCam(root, false); root.querySelector(".cam-chip").focus(); return; }
+    if(e.key === "Enter" && e.target.classList.contains("cam-url")){ e.preventDefault(); saveStream(root); return; }
+    if(e.key === "Enter" && e.target.classList.contains("cam-idx")){
+      e.preventDefault(); root.querySelector(".cam-use")?.click(); return;
+    }
+    // Arrow keys walk the list, as in any radio group.
+    if((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target.closest(".cam-list")){
+      const items = [...root.querySelectorAll(".cam-item:not([disabled])")];
+      const i = items.indexOf(e.target.closest(".cam-item"));
+      if(i < 0) return;
+      e.preventDefault();
+      items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+    }
   });
 }
 
 function renderCamChips(){
   // Signature covers the setting *and* its rendered text, so a language
   // switch rebuilds but the 3 s status poll does not churn the DOM.
-  const sig = [camState.mode, camState.index, camState.url||"", mirrorVal(), camChipText()].join("|");
+  const sig = [camState.mode, camState.index, camState.url||"", camState.name||"",
+               mirrorVal(), camChipText(), camMissing()].join("|");
   document.querySelectorAll("[data-cam]").forEach(root => {
-    // Never rebuild a chip the user has open — it would wipe what they typed.
+    // Never rebuild a chip that is open — it would close under the pointer.
     if(root.classList.contains("open") || root.dataset.camSig === sig) return;
     buildCamChip(root);
     root.dataset.camSig = sig;
@@ -601,44 +671,96 @@ function toggleCam(root, open){
   root.classList.toggle("open", open);
   root.querySelector(".cam-pop").hidden = !open;
   root.querySelector(".cam-chip").setAttribute("aria-expanded", String(open));
-  if(!open) return;
-  fillCamDevices(root);                           // last known list, instantly
-  loadCamList().then(() => { if(root.classList.contains("open")) fillCamDevices(root); });
-  const dev = root.querySelector(".cam-dev");
-  (dev.hidden ? root.querySelector(".cam-idx") : dev).focus();
+  if(!open){
+    renderCamChips();                             // catch up on anything the poll skipped
+    return;
+  }
+  // The URL field only shows for a stream, or once "Phone / IP stream" is clicked.
+  root.querySelector(".cam-url-row").hidden = true;
+  fillCamList(root);                              // last known list, instantly
+  camRunningNote(root);
+  const focusCurrent = () => (root.querySelector(".cam-item[aria-checked='true']")
+                             || root.querySelector(".cam-item"))?.focus();
+  focusCurrent();
+  // Re-listed on every open, so a camera plugged in since the last look appears.
+  loadCamList().then(() => {
+    if(!root.classList.contains("open")) return;
+    const had = document.activeElement?.closest?.(".cam-list");
+    fillCamList(root);
+    if(had) focusCurrent();
+  });
 }
 
-// Re-listed on every open, so a camera plugged in since the last look appears.
 async function loadCamList(){
   try{
     const r = await fetch("/api/cameras");
     const data = await r.json();
     camList = Array.isArray(data.cameras) ? data.cameras : [];
+    // An older hub sends no `listed`; a non-empty list proves it listed.
+    camListed = data.listed === true || camList.length > 0;
   }catch(e){ camList = camList || []; }
 }
 
-function fillCamDevices(root){
-  const sel = root.querySelector(".cam-dev");
-  const idx = root.querySelector(".cam-idx");
+function fillCamList(root){
+  const list = root.querySelector(".cam-list");
   const cams = camList || [];
-  sel.hidden = !cams.length;
-  idx.hidden = !!cams.length;
-  if(!cams.length) return;
-  const want = parseInt(idx.value, 10) || 0;
-  const opts = cams.map(c => ({index:c.index, name:c.name}));
+  const stream = camState.mode === "stream";
+  const rows = cams.map(c => ({index:c.index, name:c.name, virtual:!!c.virtual}));
   // The saved camera is unplugged: keep it listed rather than silently
   // showing a different one as the choice.
-  if(camState.name && !cams.some(c => c.name === camState.name))
-    opts.push({index:camState.index, name:camState.name, gone:true});
+  if(!stream && camState.name && camList && !cams.some(c => c.name === camState.name))
+    rows.push({index:camState.index, name:camState.name, gone:true});
   // Prefer the saved name (its index may have shifted), then the index.
-  const hit = opts.find(o => o.name === camState.name && o.index === want)
-           || (camState.name && opts.find(o => o.name === camState.name))
-           || opts.find(o => o.index === want);
-  const prev = sel.value;
-  sel.innerHTML = opts.map(o => `<option value="${o.index}" data-name="${esc(o.name)}"
-      ${o === hit ? "selected" : ""}>${esc(o.name)}${o.gone ? " " + esc(t("(not plugged in)")) : ""}</option>`).join("");
-  if(prev && sel.dataset.touched) sel.value = prev;
-  idx.value = sel.value;
+  const hit = stream ? null
+    : (camState.name ? rows.find(r => r.name === camState.name && r.index === camState.index)
+                       || rows.find(r => r.name === camState.name)
+                     : rows.find(r => r.index === camState.index));
+  const item = (attrs, body, on, extra="") => `<button type="button" role="radio"
+      class="cam-item${extra}" aria-checked="${on}" ${attrs}>${body}
+      <span class="cam-tick" aria-hidden="true">${on ? I.check : ""}</span></button>`;
+  let html = rows.map(r => item(
+    `data-kind="webcam" data-index="${r.index}" data-name="${esc(r.name)}" ${r.gone?"disabled":""}`,
+    `<span class="cam-ic">${I.camera}</span>
+     <span class="cam-nm">${esc(r.name)}</span>
+     ${r.gone ? `<span class="cam-tag cam-tag-warn">${t("not plugged in")}</span>` : ""}
+     ${r.virtual ? `<span class="cam-tag" title="${esc(t("Listed by DirectShow only. Usually a virtual camera, such as OBS."))}">${t("virtual")}</span>` : ""}`,
+    r === hit, r.gone ? " cam-gone" : "")).join("");
+  if(!rows.length){
+    // No names to show: say why, and keep a plain number as the way through.
+    html += `<div class="cam-empty">${camList === null ? t("Looking for cameras...")
+      : camListed ? t("No cameras found. Plug one in, then refresh.")
+      : t("Camera names are not available here. Choose by number.")}</div>`;
+    if(camList !== null) html += `<div class="cam-idx-row">
+        <span>${t("Camera number")}</span>
+        <input class="cam-idx" type="number" min="0" max="9" step="1"
+               value="${camState.index}" aria-label="${t("Camera number")}">
+        <button type="button" class="cam-use btn-mini">${t("Use")}</button>
+      </div>`;
+  }
+  html += item('data-kind="stream"',
+    `<span class="cam-ic">${I.stream}</span>
+     <span class="cam-nm">${t("Phone / IP stream")}</span>
+     ${camState.url ? `<span class="cam-sub">${esc(camState.url)}</span>` : ""}`,
+    stream, " cam-item-stream");
+  list.innerHTML = html;
+  showCamUrl(root, stream || !root.querySelector(".cam-url-row").hidden);
+}
+
+function showCamUrl(root, on){
+  const row = root.querySelector(".cam-url-row");
+  const wasHidden = row.hidden;
+  row.hidden = !on;
+  if(on && wasHidden && !camState.url) root.querySelector(".cam-url").focus();
+}
+
+// Changing camera mid-run is allowed but only reaches the next launch; say so
+// only when it applies, rather than printing it under every choice.
+function camRunningNote(root){
+  const note = root.querySelector(".cam-note");
+  const tool = TOOLS.find(tool => currentRunning[tool.key]);
+  note.hidden = !tool;
+  if(tool) note.textContent = t("{test} is running. A change here applies to its next launch.",
+                                {test: t(tool.title)});
 }
 
 function closeCamChips(){
@@ -647,33 +769,43 @@ function closeCamChips(){
 document.addEventListener("click", closeCamChips);
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeCamChips(); });
 
-async function saveCam(root){
-  const mode = root.querySelector("input[value='stream']").checked ? "stream" : "webcam";
-  const body = {camera:{
-    mode,
-    index: parseInt(root.querySelector(".cam-idx").value, 10) || 0,
-    url: root.querySelector(".cam-url").value.trim(),
-    // Keep the device name, so the launch can find it again if the indices
-    // shift; a hand-typed index has none.
-    name: "",
-  }};
-  const dev = root.querySelector(".cam-dev");
-  if(!dev.hidden && dev.selectedOptions[0]) body.camera.name = dev.selectedOptions[0].dataset.name || "";
-  const mirror = root.querySelector(".cam-mirror");
-  if(mirror.dataset.dirty) body.camera.mirror = mirror.value;
+function saveStream(root){
+  const url = root.querySelector(".cam-url").value.trim();
+  saveCam(root, {mode:"stream", url, index:camState.index, name:camState.name}, true);
+}
+
+async function saveCam(root, camera, close){
+  if(root.classList.contains("busy")) return;
+  root.classList.add("busy");
   try{
     const r = await fetch("/api/camera", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(body)
+      body: JSON.stringify({camera})
     });
     const data = await r.json();
     toast(tMsg(data.message) || t(data.ok?"Done":"Failed"), data.ok?"ok":"fail");
-    if(!data.ok) return;                          // leave it open to be fixed
+    if(!data.ok){                                 // leave it open to be fixed
+      if(camera.mode === "stream") root.querySelector(".cam-url")?.focus();
+      return;
+    }
     camState = data.camera;
-    closeCamChips();
+    if(close){
+      toggleCam(root, false);
+      root.querySelector(".cam-chip")?.focus();
+    } else {
+      // Stays open (the Picture switch): refresh its contents in place.
+      root.querySelectorAll("[data-mirror]").forEach(b =>
+        b.setAttribute("aria-checked", String(b.dataset.mirror === mirrorVal())));
+      fillCamList(root);
+    }
     renderCamChips();
   }catch(e){ toast(t("Request failed"),"fail"); }
+  finally{ root.classList.remove("busy"); }
 }
+
+// Asked once up front so the chip can show a saved camera that is unplugged
+// before anyone opens it.
+loadCamList().then(renderCamChips);
 
 /* ── "Why This" page render (build once) ─────────────────────────── */
 function renderWhy(){
@@ -804,6 +936,7 @@ window.rehydrate = function(){
   analysisSessions = null;
   refresh();
   window.reloadProfiles?.();          // the roster came from the old hub too
+  loadCamList().then(renderCamChips); // and so did the camera list
   loadVitals(true);
   const page = document.getElementById("page-analysis");
   if(page && page.classList.contains("active")) loadAnalysis();
@@ -916,9 +1049,13 @@ const TREND = {
   },
   tremor: {
     label:"Hand Tremor", icon:"wave", page:"tremor",
-    // No bands: a tremor is detected or not (metrics.status), and the size is
-    // an estimate. The dot colour is that recorded verdict.
-    headline:{ key:"tremor_amp_pct", name:"Tremor-band movement", unit:"%", lowerBetter:true, bands:null },
+    // A supporting check (TREMOR_RESTRUCTURE_PLAN.md §2): off the home
+    // readings strip, charted after the screening tests, and its dots drawn
+    // as Logged whatever the recorded verdict. The verdict itself is still
+    // saved and read out in words (tremorFinding); only the colour goes.
+    secondary:true,
+    headline:{ key:"tremor_amp_pct", name:"Tremor-band movement (estimate)", unit:"%", lowerBetter:true,
+      bands:null, neutral:true },
     supporting:[
       {key:"tremor_peak_hz", name:"Tremor peak", unit:"Hz"},
       {key:"confidence_pct", name:"Confidence", unit:"%"},
@@ -926,8 +1063,23 @@ const TREND = {
       {key:"cam_glove_hz_diff", name:"Camera vs glove", unit:"Hz"},
     ],
   },
+  gait: {
+    label:"Walking", icon:"walk", page:"gait",
+    // Seated part only so far. The bands mirror core/gait/metrics.py and are
+    // provisional (Bohannon 2006 / Duncan 2011, still to be verified).
+    headline:{ key:"sts5_s", name:"Five sit-to-stands", unit:"s", lowerBetter:true,
+      bands:[{max:13,status:"ok"},{max:16,status:"warn"},{max:Infinity,status:"bad"}] },
+    supporting:[
+      {key:"leg_right_rate_hz", name:"Right leg stamps", unit:"/s"},
+      {key:"confidence_pct", name:"Confidence", unit:"%"},
+      {key:"leg_left_rate_hz", name:"Left leg stamps", unit:"/s"},
+      {key:"failed_attempts", name:"Failed rises", unit:""},
+    ],
+  },
 };
-const TREND_ORDER = ["finger_tapping","spiral","oculomotor","ddk","phonation","tremor"];
+// Supporting checks (TREND[k].secondary) go last: the Analysis page opens a
+// "Supporting checks" group before the first of them.
+const TREND_ORDER = ["finger_tapping","spiral","oculomotor","ddk","phonation","gait","tremor"];
 const ST = {
   ok:  {word:"Typical",   dot:"#22C55E", band:"rgba(34,197,94,.13)"},
   warn:{word:"Monitor",   dot:"#F5A524", band:"rgba(245,165,36,.14)"},
@@ -973,9 +1125,27 @@ function bandFor(v, bands){
 // Older records without one still fall back to the provisional bands.
 const VERDICT = {success:"ok", warning:"warn", danger:"bad", info:"none"};
 function statusOf(session, h){
+  if(h.neutral) return "none";            // a supporting check: no verdict colour
   const m = session.metrics || {};
   if(m.status && VERDICT[m.status]) return VERDICT[m.status];
   return bandFor(m[h.key], h.bands);
+}
+
+/* A tremor run's finding in words, in place of a coloured verdict. The saved
+   verdict (metrics.status) is unchanged; this only says it neutrally. */
+const TREMOR_HOLDS = {rest_palm_up:"Palms up", rest_palm_down:"Palms down", postural:"Arms out",
+                      rest:"Rest", rest_count:"Rest, counting"};
+function tremorFinding(m){
+  if(!m || m.scoreable === false) return m && m.reason ? t(m.reason) : "";
+  if(m.tremor_peak_hz == null) return t("No rhythmic shaking found");
+  const [hold, hand] = String(m.tremor_where || ":").split(":");
+  const where = [TREMOR_HOLDS[hold] ? t(TREMOR_HOLDS[hold]) : hold,
+                 hand ? t(hand === "left" ? "Left hand" : "Right hand") : ""]
+    .filter(Boolean).join(", ");
+  const hz = fmtNum(m.tremor_peak_hz);
+  return m.status === "warning"
+    ? t("A weak rhythm at {hz} Hz ({where}) - repeat to confirm", {hz, where})
+    : t("Rhythmic shaking at {hz} Hz ({where})", {hz, where});
 }
 
 function profileFilter(){
@@ -1061,7 +1231,12 @@ function renderAnalysis(){
     body.innerHTML = `<div class="analysis-empty"><p>${t("No sessions for this test yet.")}</p></div>`;
     return;
   }
-  body.innerHTML = show.map(k => trendCard(k, byTest[k])).join("");
+  const firstSecondary = show.find(k => TREND[k].secondary);
+  body.innerHTML = show.map(k =>
+    (k === firstSecondary
+      ? `<h3 class="analysis-group">${t("Supporting checks")}
+           <span>${t("Not screening results: they help explain the readings above.")}</span></h3>`
+      : "") + trendCard(k, byTest[k])).join("");
 }
 
 function renderAnalysisSummary(sessions, byTest){
@@ -1249,7 +1424,8 @@ function cardPoints(sessions, h){
     const v = s.metrics ? s.metrics[h.key] : null;
     const scoreable = v!=null && isFinite(v);
     return {v, iso:s.timestamp, id:s.session_id, mode:s.mode, scoreable,
-            label:s.metrics ? (s.metrics.reason || s.metrics.label) : null,
+            label:s.metrics ? (h.neutral ? tremorFinding(s.metrics)
+                                        : (s.metrics.reason || s.metrics.label)) : null,
             status:scoreable ? statusOf(s,h) : "none"};
   });
 }
@@ -1581,7 +1757,8 @@ function renderVitals(){
   const byTest = {};
   TREND_ORDER.forEach(k => byTest[k] = []);
   visibleSessions().forEach(s => { if(byTest[s.test]) byTest[s.test].push(s); });
-  el.innerHTML = TREND_ORDER.map(k => vitalTile(k, byTest[k])).join("");
+  el.innerHTML = TREND_ORDER.filter(k => !TREND[k].secondary)
+    .map(k => vitalTile(k, byTest[k])).join("");
 
   // The strip follows the same person as the Analysis page, so it has to say
   // whose readings these are - one patient's numbers must not read as pooled.
@@ -1680,53 +1857,6 @@ function idleSpark(){
       stroke-linecap="round" stroke-dasharray="3 9"/></svg>`;
 }
 
-/* ── Disclaimer dock ──────────────────────────────────────────────────
-   The bar used to sit across the bottom of every page permanently. It is a
-   standing legal note, not a status line, so it now lives just below the
-   viewport edge and rises while the pointer is in the strip it occupies.
-
-   The zone is measured from the bar itself rather than hard-coded: a
-   transform does not change the layout box, so offsetHeight is the bar's
-   real height whether it is up or down, and the trigger is therefore exactly
-   where the bar lands. Pointer position is read instead of a CSS :hover on
-   an invisible catcher, so nothing transparent is sitting over the bottom of
-   the page swallowing clicks.
-
-   Touch has no hover at all, and this must stay reachable: the grabber is a
-   real target and a tap pins the bar open. */
-(function disclaimerDock(){
-  const dock = document.getElementById("disclaimer-dock");
-  if(!dock) return;
-  const bar = dock.querySelector(".disclaimer-bar");
-  const grab = dock.querySelector(".disclaimer-grab");
-  let near = false, pinned = false;
-
-  const apply = () => dock.classList.toggle("is-open", near || pinned);
-
-  // The report sheet sits at z-index 300, so a bar rising behind its backdrop
-  // would animate for nobody. Treat an open report as "not near".
-  const blocked = () => !document.getElementById("report")?.hidden;
-
-  addEventListener("mousemove", e => {
-    const zone = bar.offsetHeight || 40;
-    const n = !blocked() && (innerHeight - e.clientY) <= zone;
-    if(n === near) return;            // only touch the DOM on a real change
-    near = n; apply();
-  }, {passive:true});
-
-  // Leaving the window leaves no final mousemove, so the bar would stay up.
-  document.addEventListener("mouseleave", () => { near = false; apply(); });
-  addEventListener("blur", () => { near = false; apply(); });
-
-  grab.addEventListener("click", e => {
-    e.preventDefault(); pinned = !pinned; apply();
-  });
-  // Pinned is the touch path; any click elsewhere puts it back down.
-  addEventListener("click", e => {
-    if(pinned && !dock.contains(e.target)){ pinned = false; apply(); }
-  });
-})();
-
 /* ── Finger tapping: mode switcher ────────────────────────────────────
    The two modes share their first two steps, so they are one filmstrip each
    behind a tablist rather than two half-width columns. The choice is a
@@ -1810,6 +1940,15 @@ const RECORDINGS = {
       [t("Peak frequency"), recNum(m.tremor_peak_hz, 1), "Hz", true],
       [t("Tremor size"), recNum(m.tremor_amp_pct, 2), "%"],
       [t("Left / right"), recNum(m.asymmetry_ratio, 2), "×"],
+    ],
+  },
+  gait: {
+    file: null,   // not run live yet
+    tiles: m => [
+      [t("Five sit-to-stands"), recNum(m.sts5_s, 1), "s", true],
+      [t("Right leg stamps"), recNum(m.leg_right_rate_hz, 1), "/s"],
+      [t("Left leg stamps"), recNum(m.leg_left_rate_hz, 1), "/s"],
+      [t("Failed rises"), recNum(m.failed_attempts, 0), ""],
     ],
   },
 };
