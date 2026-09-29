@@ -164,10 +164,10 @@ def test_hand_length_and_select_read_the_right_landmarks():
 def test_one_sided_rest_tremor_is_flagged_and_asymmetric():
     cells = {p: {"left": tm.analyse_hand(*_hand()),
                  "right": tm.analyse_hand(*_hand())} for p in PHASE_ORDER}
-    cells["rest"]["right"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
+    cells["rest_palm_up"]["right"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
     m = _run(cells)
     assert m["scoreable"] and m["status"] == "danger"
-    assert m["tremor_where"] == "rest:right"
+    assert m["tremor_where"] == "rest_palm_up:right"
     assert abs(m["tremor_peak_hz"] - 5.0) <= 0.3
     assert m["asymmetry_ratio"] > 3.0
     assert m["detected_cells"] == 1 and m["scored_cells"] == 6
@@ -184,12 +184,17 @@ def test_clean_run_reads_no_tremor_with_high_confidence():
     assert m["tremor_amp_pct"] is not None
 
 
-def test_emergence_under_counting_is_reported():
+def test_rest_tremor_in_either_lap_hold_counts_as_rest():
+    # A tremor seen only palms-down is still a rest tremor: the hand's rest
+    # figure is the stronger of its two lap holds, and each hold keeps its own.
     cells = {p: {h: tm.analyse_hand(*_hand()) for h in HANDS}
              for p in PHASE_ORDER}
-    cells["rest_count"]["left"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
+    cells["rest_palm_down"]["left"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
     m = _run(cells)
-    assert m["emergence_ratio"] > 2.0
+    assert abs(m["rest_peak_hz"] - 5.0) <= 0.3
+    assert m["rest_amp_left_pct"] > 3 * m["rest_amp_right_pct"]
+    assert m["palm_down_amp_pct"] > 3 * m["palm_up_amp_pct"]
+    assert m["asymmetry_ratio"] > 3.0
 
 
 def test_nothing_scoreable_explains_itself():
@@ -234,11 +239,34 @@ def test_glove_gyro_peak_matches_the_tremor():
 def test_glove_disagreement_is_the_validation_number():
     cells = {p: {h: tm.analyse_hand(*_hand()) for h in HANDS}
              for p in PHASE_ORDER}
-    cells["rest"]["left"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
+    cells["rest_palm_down"]["left"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
+    # the glove is compared over the hold the camera's rest figure came from
+    glove = {"rest_palm_up": tm.analyse_glove(_imu_series(hz=9.0)),
+             "rest_palm_down": tm.analyse_glove(_imu_series(hz=5.0))}
     m = tm.compute_metrics(cells, phase_order=PHASE_ORDER, hands=HANDS,
-                           glove={"rest": tm.analyse_glove(_imu_series(hz=5.0))})
+                           glove=glove)
     assert m["glove_rest_peak_hz"] is not None
     assert m["cam_glove_hz_diff"] < 0.5
+
+
+def test_glove_is_compared_with_the_hand_that_wears_it():
+    # The camera's tremor is in the LEFT hand; the glove is on the RIGHT, which
+    # is still. Told which hand wears it, the comparison is right hand against
+    # glove -- no camera peak there, so no difference is claimed -- instead of
+    # the left hand's 5 Hz against a still glove.
+    cells = {p: {h: tm.analyse_hand(*_hand()) for h in HANDS}
+             for p in PHASE_ORDER}
+    cells["rest_palm_down"]["left"] = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.05))
+    glove = {p: tm.analyse_glove(_imu_series(hz=9.0)) for p in PHASE_ORDER}
+    old = tm.compute_metrics(cells, phase_order=PHASE_ORDER, hands=HANDS,
+                             glove=glove)
+    assert old["cam_glove_hz_diff"] is not None and old["cam_glove_hz_diff"] > 3
+    new = tm.compute_metrics(cells, phase_order=PHASE_ORDER, hands=HANDS,
+                             glove=glove, glove_hand="right")
+    assert new["glove_hand"] == "right" and new["cam_glove_hz_diff"] is None
+    same = tm.compute_metrics(cells, phase_order=PHASE_ORDER, hands=HANDS,
+                              glove=glove, glove_hand="left")
+    assert same["cam_glove_hz_diff"] == old["cam_glove_hz_diff"]
 
 
 def test_empty_glove_window_is_none_not_zero():

@@ -39,10 +39,18 @@ import math
 import numpy as np
 
 from core.tremor import confidence as conf
+from core.tremor.phases import REST_PHASES
 
 # ── Analysis constants ──────────────────────────────────────────────────────
 #: Tremor band, Hz. The same band as core/glove/imu.TREMOR_BAND and the
 #: spiral's, so a camera and a glove tremor figure mean the same thing.
+#: Stamped on every session. 1: live landmarks / live optical flow at the
+#: loop's rate. 2: the offline pass over every recorded frame
+#: (core/tremor/offline.py, docs/tests/TREMOR_RESTRUCTURE_PLAN.md) -- a 60 fps
+#: flow reading and a 16 fps landmark reading of one hand are different
+#: instruments, so the report says which one it is showing.
+ENGINE_VERSION = 2
+
 TREMOR_BAND = (3.5, 12.0)
 #: Below this camera rate the band's usable top falls under 7 Hz and no longer
 #: covers parkinsonian rest tremor (4-6 Hz) with any margin. Field sessions run
@@ -117,12 +125,49 @@ def band(verdict: str) -> tuple[str, str]:
 
 # ── one hand, one phase ──────────────────────────────────────────────────────
 
-def _segments(ts: np.ndarray) -> list[tuple[int, int]]:
+#: With exact frame times (offline, device-stamped), up to this many lost
+#: frames in a row are filled by linear interpolation; a longer hole splits
+#: the recording. Filling one sample at 60 fps is a negligible low-pass below
+#: 12 Hz -- unlike resampling a 16 fps stream, which under-read a 5 Hz tremor
+#: by a quarter and was rejected (analyse_hand). Left alone, one lost frame
+#: shifts every later sample of its window one period early: 30 deg at 5 Hz.
+FILL_MAX = 2
+
+
+def fill_drops(ts: np.ndarray, arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
+    """Insert linearly interpolated samples where 1..FILL_MAX frames are
+    missing. Returns (ts, arr, frames_filled). `arr` is (n, C)."""
+    if len(ts) < 3:
+        return ts, arr, 0
+    dt = np.diff(ts)
+    period = float(np.median(dt))
+    if period <= 0:
+        return ts, arr, 0
+    k = np.rint(dt / period).astype(int) - 1          # lost frames per interval
+    holes = np.nonzero((dt > 1.5 * period) & (k >= 1) & (k <= FILL_MAX))[0]
+    if not len(holes):
+        return ts, arr, 0
+    t_out, a_out, prev, filled = [], [], 0, 0
+    for i in holes:
+        t_out.append(ts[prev:i + 1])
+        a_out.append(arr[prev:i + 1])
+        n = int(k[i])
+        f = np.arange(1, n + 1, dtype=np.float64) / (n + 1)
+        t_out.append(ts[i] + f * (ts[i + 1] - ts[i]))
+        a_out.append(arr[i] + np.outer(f, arr[i + 1] - arr[i]))
+        prev, filled = i + 1, filled + n
+    t_out.append(ts[prev:])
+    a_out.append(arr[prev:])
+    return np.concatenate(t_out), np.concatenate(a_out), filled
+
+
+def _segments(ts: np.ndarray, gap: float | None = None) -> list[tuple[int, int]]:
     """[start, end) index ranges with no hole longer than the gap threshold."""
     if len(ts) < 2:
         return []
     dt = np.diff(ts)
-    gap = max(GAP_MIN_S, 3.0 * float(np.median(dt)))
+    if gap is None:
+        gap = max(GAP_MIN_S, 3.0 * float(np.median(dt)))
     cuts = np.nonzero(dt > gap)[0]
     out, start = [], 0
     for c in cuts:
@@ -143,13 +188,19 @@ def _slow_range(x: np.ndarray, fs: float) -> float:
     return float(np.ptp(slow))
 
 
-def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX) -> dict:
+def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
+                 exact_times: bool = False) -> dict:
     """Spectrum of one hand over one phase.
 
     ts   : frame times, s (trusted frames only, settle already removed)
     pts  : per frame, the LANDMARKS as (x, y) pixels (see `select`)
     lens : per frame, hand_length in the same pixels
     move_max : the voluntary-movement gate for this hold, in hand lengths
+    exact_times : the frame times are capture times from a camera that
+           delivers every frame (the offline pass, core/tremor/offline.py):
+           lost frames are then filled (fill_drops) and anything longer
+           splits. Off for the live loop, whose intervals vary all the time
+           with the CPU and would read as losses everywhere.
 
     Always returns a dict. ``scored`` False carries ``why`` — a code, not a
     sentence; compute_metrics turns codes into the one reason a person reads.
@@ -170,7 +221,13 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX) -> dict:
     n_ch = arr.shape[1] * 2
     arr = arr.reshape(len(ts), n_ch) / scale                 # hand lengths
 
-    segs = _segments(ts)
+    filled = 0
+    if exact_times:
+        ts, arr, filled = fill_drops(ts, arr)
+        period = float(np.median(np.diff(ts))) if len(ts) > 2 else 0.0
+        segs = _segments(ts, gap=(FILL_MAX + 1.5) * period if period > 0 else None)
+    else:
+        segs = _segments(ts)
     # Mean frame rate, not 1/median(dt): a CPU-bound camera drops frames
     # unevenly, and the median interval then overstates the rate — which
     # would move the peak frequency, the one number this test trusts.
@@ -226,6 +283,8 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX) -> dict:
 
     base = {"fs": round(fs, 1), "windows": used, "rejected_windows": rejected,
             "valid_s": round(valid_s, 1)}
+    if exact_times:
+        base["filled"] = filled
     if used < MIN_WINDOWS:
         why = "moving" if rejected and rejected >= used else "too_short"
         return {"scored": False, "why": why, **base}
@@ -330,11 +389,16 @@ _RANK = {NONE: 0, POSSIBLE: 1, DETECTED: 2}
 
 
 def compute_metrics(cells: dict, *, phase_order, hands=("left", "right"),
-                    glove: dict | None = None, clipped_pct: float = 0.0) -> dict:
+                    glove: dict | None = None, clipped_pct: float = 0.0,
+                    glove_hand: str | None = None) -> dict:
     """Score a run from the per-cell analyses.
 
     cells : {phase: {hand: analyse_hand(...) result}}
     glove : {phase: analyse_glove(...) result} or None when no glove was worn
+    glove_hand : "left"/"right" when the person said which hand wears it; the
+            glove is then compared with THAT hand's rest reading. None keeps
+            the old rule (the camera's strongest rest cell), which compares
+            the wrong hand whenever the tremor is in the other one.
 
     Always returns a dict; ``scoreable`` False with a human-readable
     ``reason`` when no honest reading can be formed.
@@ -343,11 +407,13 @@ def compute_metrics(cells: dict, *, phase_order, hands=("left", "right"),
         "scoreable": False, "reason": None, "status": None, "label": None,
         "tremor_amp_pct": None, "tremor_peak_hz": None, "tremor_where": None,
         "rest_amp_left_pct": None, "rest_amp_right_pct": None,
-        "rest_peak_hz": None, "count_amp_pct": None, "postural_amp_pct": None,
+        "rest_peak_hz": None, "palm_up_amp_pct": None,
+        "palm_down_amp_pct": None, "postural_amp_pct": None,
         "postural_peak_hz": None, "asymmetry_ratio": None,
-        "emergence_ratio": None, "scored_cells": 0, "detected_cells": 0,
+        "scored_cells": 0, "detected_cells": 0,
         "possible_cells": 0, "sample_fps": None, "band_hi_hz": None,
         "glove_rest_peak_hz": None, "cam_glove_hz_diff": None,
+        "glove_hand": glove_hand if glove else None,
         "confidence_pct": None, "confidence_level": None,
         "confidence_reasons": [], "cells": cells, "glove": glove,
     }
@@ -403,28 +469,51 @@ def compute_metrics(cells: dict, *, phase_order, hands=("left", "right"),
         cs = [c for h in hands if (c := cell(phase, h))]
         return max(cs, key=lambda c: c["amp_pct"]) if cs else None
 
-    rl, rr = cell("rest", "left"), cell("rest", "right")
+    # Rest tremor per hand is the stronger of its two lap holds (palm up,
+    # palm down): a tremor that shows on either side of the hand is a rest
+    # tremor, and ranking by verdict first keeps a real peak from losing to
+    # a larger but peakless reading in the other hold.
+    rest_keys = [k for k in REST_PHASES if k in phase_order]
+
+    def rest_of(hand):
+        cs = [(k, c) for k in rest_keys if (c := cell(k, hand))]
+        return max(cs, key=lambda kc: (_RANK[kc[1]["verdict"]],
+                                       kc[1]["amp_pct"])) if cs else (None, None)
+
+    (_, rl), (_, rr) = rest_of("left"), rest_of("right")
     out["rest_amp_left_pct"] = rl["amp_pct"] if rl else None
     out["rest_amp_right_pct"] = rr["amp_pct"] if rr else None
     if rl and rr and min(rl["amp_pct"], rr["amp_pct"]) > 0:
         out["asymmetry_ratio"] = round(max(rl["amp_pct"], rr["amp_pct"])
                                        / min(rl["amp_pct"], rr["amp_pct"]), 2)
-    rest, count, post = best("rest"), best("rest_count"), best("postural")
+    rest_cells = [kc for h in hands if (kc := rest_of(h))[1]]
+    rest_key, rest = (max(rest_cells, key=lambda kc: (_RANK[kc[1]["verdict"]],
+                                                      kc[1]["amp_pct"]))
+                      if rest_cells else (None, None))
     if rest:
         out["rest_peak_hz"] = _peak(rest)
-    if count:
-        out["count_amp_pct"] = count["amp_pct"]
+    for key, field in (("rest_palm_up", "palm_up_amp_pct"),
+                       ("rest_palm_down", "palm_down_amp_pct")):
+        b = best(key)
+        out[field] = b["amp_pct"] if b else None
+    post = best("postural")
     if post:
         out["postural_amp_pct"] = post["amp_pct"]
         out["postural_peak_hz"] = _peak(post)
-    if rest and count and rest["amp_pct"] > 0:
-        out["emergence_ratio"] = round(count["amp_pct"] / rest["amp_pct"], 2)
 
     if glove:
-        g_rest = glove_peak_hz(glove.get("rest"))
+        # Compared over the same hold the camera's figure came from, so both
+        # read the same seconds of movement -- and, when we know which hand
+        # wears the glove, from that hand's own rest cell.
+        if glove_hand in hands:
+            g_key, g_cell = rest_of(glove_hand)
+            cam_hz = _peak(g_cell) if g_cell else None
+        else:
+            g_key, cam_hz = rest_key, out["rest_peak_hz"]
+        g_rest = glove_peak_hz(glove.get(g_key or (rest_keys[0] if rest_keys else "")))
         out["glove_rest_peak_hz"] = g_rest
-        if g_rest is not None and out["rest_peak_hz"] is not None:
-            out["cam_glove_hz_diff"] = round(abs(out["rest_peak_hz"] - g_rest), 2)
+        if g_rest is not None and cam_hz is not None:
+            out["cam_glove_hz_diff"] = round(abs(cam_hz - g_rest), 2)
 
     q = conf.confidence(
         expected_cells=len(phase_order) * len(hands),

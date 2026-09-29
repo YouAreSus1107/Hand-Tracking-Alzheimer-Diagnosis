@@ -6,16 +6,27 @@ settle time and the on-screen copy hang off one entry, so what the person is
 told and what the engine scores cannot drift apart.
 
 Order matters and is the order they run in:
-  rest        forearms on the table, hands relaxed — rest tremor (MDS-UPDRS 3.17)
-  rest_count  the same, while counting backward aloud — mental load is the
-              standard way to bring out a rest tremor that is hiding
-  postural    both arms held out — postural tremor (MDS-UPDRS 3.15), which is
-              what essential and enhanced physiological tremor show
+  rest_palm_up    hands resting in the lap, palms up — rest tremor (MDS-UPDRS 3.17)
+  rest_palm_down  the same, palms down, so both sides of the hand are seen
+  postural        both arms held out — postural tremor (MDS-UPDRS 3.15), which is
+                  what essential and enhanced physiological tremor show
+
+The rest holds are in the lap because that is where the hands are fully
+supported and at rest, which is how a neurologist examines it (revised
+2026-09-27 on a neurologist's advice). An earlier protocol had the forearms on
+a table and a second hold counting backward aloud; both were dropped. The lap
+needs a camera that can see it — a webcam aimed down at it, not a laptop's own
+camera on the table in front of it.
 """
+
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+#: The holds that measure rest tremor. Run-level rest figures (asymmetry, the
+#: glove comparison) are taken across these.
+REST_PHASES: tuple[str, ...] = ("rest_palm_up", "rest_palm_down")
 
 
 @dataclass(frozen=True)
@@ -39,31 +50,31 @@ class TremorPhase:
 
 
 PHASES: dict[str, TremorPhase] = {
-    "rest": TremorPhase(
-        key="rest",
-        title="Hands at Rest",
+    "rest_palm_up": TremorPhase(
+        key="rest_palm_up",
+        title="Palms Up in Your Lap",
         duration_s=20.0,
         settle_s=2.0,
         instructions=(
-            "Rest both forearms flat on the table,",
-            "palms down, with your hands fully relaxed.",
-            "Let them go loose - do not hold them still.",
+            "Sit back and rest both hands in your lap,",
+            "palms facing up, fingers loose.",
+            "Let them go completely - do not hold them still.",
             "Keep both hands inside the picture.",
         ),
-        cue="Relax both hands completely",
+        cue="Palms up, hands fully relaxed",
     ),
-    "rest_count": TremorPhase(
-        key="rest_count",
-        title="Rest While Counting",
+    "rest_palm_down": TremorPhase(
+        key="rest_palm_down",
+        title="Palms Down in Your Lap",
         duration_s=20.0,
         settle_s=2.0,
         instructions=(
-            "Same position, hands relaxed on the table.",
-            "This time, count backward out loud",
-            "from 100 in steps of 3: 100, 97, 94 ...",
-            "Keep your hands loose while you count.",
+            "Now turn both hands over,",
+            "palms facing down, resting on your legs.",
+            "Let them go completely - do not hold them still.",
+            "Keep both hands inside the picture.",
         ),
-        cue="Count backward from 100 by 3s, out loud",
+        cue="Palms down, hands fully relaxed",
     ),
     "postural": TremorPhase(
         key="postural",
@@ -83,6 +94,6 @@ PHASES: dict[str, TremorPhase] = {
     ),
 }
 
-PHASE_ORDER: tuple[str, ...] = ("rest", "rest_count", "postural")
+PHASE_ORDER: tuple[str, ...] = ("rest_palm_up", "rest_palm_down", "postural")
 
 HANDS: tuple[str, ...] = ("left", "right")
