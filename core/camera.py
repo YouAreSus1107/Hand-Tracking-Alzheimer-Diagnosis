@@ -18,11 +18,12 @@ import ctypes
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import cv2
 
-from core import orientation
+from core import i18n, orientation
 
 # Remembers the capture config that actually worked, so a later run opens the
 # camera once instead of probing (each probe = a visible camera-LED flash and
@@ -32,6 +33,14 @@ _CACHE_PATH = Path(__file__).resolve().parents[1] / ".camera_cache.json"
 # Set by launcher.py on the spawned tool's environment. An integer string is a
 # webcam index; anything else is handed to OpenCV as a stream URL.
 ENV_CAMERA = "HAND3D_CAMERA"
+# The camera's name, when the launcher knows it. Saved with each session so a
+# person's own-baseline comparison of opening size only uses the same camera
+# (core/tapping/baseline.py). Empty for streams and direct runs.
+ENV_CAMERA_NAME = "HAND3D_CAMERA_NAME"
+
+
+def preset_camera_name() -> str:
+    return (os.environ.get(ENV_CAMERA_NAME) or "").strip()
 
 
 def preset_camera_source() -> int | str | None:
@@ -43,7 +52,8 @@ def preset_camera_source() -> int | str | None:
 
 
 def describe_source(source: int | str) -> str:
-    return f"webcam {source}" if isinstance(source, int) else str(source)
+    return (i18n.ct("webcam {n}", n=source) if isinstance(source, int)
+            else str(source))
 
 
 def pause_before_exit() -> None:
@@ -55,7 +65,7 @@ def pause_before_exit() -> None:
     the test silently refused to launch.
     """
     try:
-        input("\nPress Enter to close...")
+        input("\n" + i18n.ct("Press Enter to close..."))
     except EOFError:
         pass
 
@@ -63,19 +73,19 @@ def pause_before_exit() -> None:
 def select_camera_source() -> int | str:
     preset = preset_camera_source()
     if preset is not None:
-        print(f"  Camera source: {describe_source(preset)}"
-              f"  (set in the launcher)\n")
+        print("  " + i18n.ct("Camera source: {source}  (set in the launcher)",
+                             source=describe_source(preset)) + "\n")
         return preset
-    print("Camera source:")
-    print("  [1] Webcam (default)  - or type an index, e.g. 0 / 1 / 2")
-    print("  [2] IP stream URL")
+    print(i18n.ct("Camera source:"))
+    print("  [1] " + i18n.ct("Webcam (default)  - or type an index, e.g. 0 / 1 / 2"))
+    print("  [2] " + i18n.ct("IP stream URL"))
     try:
-        choice = input("Select [1]: ").strip()
+        choice = input(i18n.ct("Select [1]: ")).strip()
     except EOFError:
         choice = ""
     if choice == "2":
         try:
-            url = input("Stream URL: ").strip()
+            url = input(i18n.ct("Stream URL: ")).strip()
         except EOFError:
             url = ""
         return url or 0
@@ -96,19 +106,46 @@ def _configure(cap, width: int, height: int, mjpg: bool,
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # keep only the latest frame (low latency)
 
 
+# A candidate delivering less than this share of the requested frame rate is
+# kept only as a fallback. The Razer Kiyo V2 X is why: over DirectShow its
+# driver reports 60 fps, ignores the MJPG request and delivers 30 in YUY2,
+# while MSMF delivers a true 60 (measured 2026-09-28,
+# docs/tests/TREMOR_RESTRUCTURE_PLAN.md §1). A driver's word is not evidence.
+DELIVER_FRAC = 0.85
+BETTER_BY = 1.25          # a less-preferred backend must beat the best by this
+# MSMF hands over a burst of buffered frames right after opening: with 3
+# warm-up frames the Razer "measured" 95 fps and the 30 fps ASUS 32. Ten
+# drain it; the rate is then timed between the first and last arrival.
+MEASURE_WARMUP = 10
+MEASURE_FRAMES = 20       # ~0.33 s at 60 fps, ~0.67 s at 30
+
+_BACKEND_NAMES = {cv2.CAP_DSHOW: "DSHOW", cv2.CAP_MSMF: "MSMF"}
+
+
+def _cache_key(source: int | str, width: int, height: int,
+               fps: int | None) -> str:
+    """Keyed by the camera's name when the launcher knows it: indices shift
+    when cameras are plugged in or out, and an index key would hand one
+    camera's backend to whichever camera lands on that index next."""
+    name = preset_camera_name() if isinstance(source, int) else ""
+    who = f"name:{name}" if name else str(source)
+    return f"{who}|{width}x{height}|{fps or 0}"
+
+
 def _load_cached(key: str) -> list | None:
-    """The [backend, mjpg] combo that last worked for this source, if any."""
+    """The [backend, mjpg, measured_fps, ask_fps] that last worked for this
+    key, if any. Older two- and three-element entries are still honoured."""
     try:
         entry = json.loads(_CACHE_PATH.read_text("utf-8")).get(key)
     except (OSError, ValueError, AttributeError):
         return None
-    if (isinstance(entry, list) and len(entry) == 2
+    if (isinstance(entry, list) and len(entry) in (2, 3, 4)
             and isinstance(entry[1], bool)):
         return entry
     return None
 
 
-def _store_cached(key: str, combo: tuple) -> None:
+def _store_cached(key: str, combo: tuple, measured: float | None) -> None:
     """Remember a working combo; a read-only checkout just means no cache."""
     try:
         try:
@@ -117,10 +154,39 @@ def _store_cached(key: str, combo: tuple) -> None:
             data = {}
         if not isinstance(data, dict):
             data = {}
-        data[key] = [combo[0], combo[1]]
+        entry = [combo[0], combo[1]]
+        if measured is not None:
+            entry.append(round(measured, 1))
+            if len(combo) > 2 and not combo[2]:
+                entry.append(False)      # opened without asking for a rate
+        data[key] = entry
         _CACHE_PATH.write_text(json.dumps(data), "utf-8")
     except OSError:
         pass
+
+
+def _fourcc_str(cap) -> str:
+    try:
+        v = int(cap.get(cv2.CAP_PROP_FOURCC))
+    except (cv2.error, TypeError, ValueError):
+        return ""
+    s = "".join(chr((v >> 8 * i) & 0xFF) for i in range(4))
+    return s if s.isprintable() and s.strip() else ""
+
+
+def measure_fps(cap, frames: int = MEASURE_FRAMES,
+                warmup: int = MEASURE_WARMUP) -> float:
+    """Frames per second actually delivered, timed over `frames` reads."""
+    for _ in range(warmup):
+        cap.read()
+    stamps = []
+    for _ in range(frames):
+        ok, _f = cap.read()
+        if ok:
+            stamps.append(time.perf_counter())
+    if len(stamps) < 2 or stamps[-1] <= stamps[0]:
+        return 0.0
+    return (len(stamps) - 1) / (stamps[-1] - stamps[0])
 
 
 class Capture:
@@ -129,12 +195,25 @@ class Capture:
     `mirrored` starts from the answer saved for this source (core/orientation.py)
     and is set by core/mirror_check.py when the source has never been checked.
     Everything else is passed straight through to the wrapped capture.
+
+    It also says what was actually negotiated (`info()`, saved in each
+    session's `device` block), and `frame_time_ms()` gives the device's own
+    timestamp for the frame just read when the backend has one: MSMF's
+    CAP_PROP_POS_MSEC steps exactly one frame period per frame, and jumps by
+    whole periods over frames that were not read, where host read times
+    jitter by ±7 ms (measured on the Razer at 60 fps, 2026-09-28).
     """
 
-    def __init__(self, cap, source: int | str):
+    def __init__(self, cap, source: int | str, backend: int | None = None,
+                 fps_requested: int | None = None,
+                 fps_measured: float | None = None):
         self._cap = cap
         self.source = source
         self.mirrored = bool(orientation.load(source))
+        self.backend = _BACKEND_NAMES.get(backend, "default") \
+            if backend is not None else "default"
+        self.fps_requested = fps_requested
+        self.fps_measured = fps_measured
 
     def read(self):
         ok, frame = self._cap.read()
@@ -142,8 +221,48 @@ class Capture:
             frame = cv2.flip(frame, 1)
         return ok, frame
 
+    def frame_time_ms(self) -> float | None:
+        """Device timestamp (ms) of the last frame read, or None when this
+        backend has no trustworthy one (DSHOW reports nothing useful)."""
+        if self.backend != "MSMF":
+            return None
+        try:
+            v = float(self._cap.get(cv2.CAP_PROP_POS_MSEC))
+        except (cv2.error, TypeError, ValueError):
+            return None
+        return v if v > 0 else None
+
+    def info(self) -> dict:
+        """What was negotiated, for a session's `device` block."""
+        try:
+            drv = float(self._cap.get(cv2.CAP_PROP_FPS))
+        except (cv2.error, TypeError, ValueError):
+            drv = -1.0
+        return {
+            "backend": self.backend,
+            "fourcc": _fourcc_str(self._cap),
+            "fps_requested": self.fps_requested,
+            "fps_driver": round(drv, 1) if drv > 0 else None,
+            "fps_measured": (round(self.fps_measured, 1)
+                             if self.fps_measured else None),
+        }
+
     def __getattr__(self, name):
         return getattr(self._cap, name)
+
+
+def capture_info(cap) -> dict:
+    """The `device` fields every camera test saves: which camera, and what
+    the capture really negotiated. Tolerates any capture-like object (the
+    run-loop harness passes a fake), which then just reports the name."""
+    out = {"camera_name": preset_camera_name()}
+    info = getattr(cap, "info", None)
+    if callable(info):
+        try:
+            out.update(info())
+        except Exception:  # noqa: BLE001 - provenance must never end a run
+            pass
+    return out
 
 
 def open_capture(source: int | str, width: int = 640, height: int = 480,
@@ -167,39 +286,112 @@ def open_capture(source: int | str, width: int = 640, height: int = 480,
 
     `fps` is requested during configuration rather than by re-setting the
     property after opening, which would renegotiate the stream (another flash).
+
+    When `fps` is asked for, the request itself is not trusted: each
+    candidate's delivered rate is timed (~0.5 s), and the first to reach
+    DELIVER_FRAC of it is taken. Measured 2026-09-28: the Razer Kiyo V2 X
+    delivers 30 over DirectShow whatever is asked and 60 over MSMF; the ASUS
+    delivers 30 over DirectShow when NO rate is asked, but only 15 when 60 is
+    (or MJPG, which it lacks), and 30 over MSMF. So the preferred backend is
+    also tried without the rate request, and when nothing reaches the rate
+    the most-preferred candidate within BETTER_BY of the best is reopened.
+    The answer is cached, so only the first launch pays for the probe.
     IP-stream (str) sources and non-Windows platforms use OpenCV's default open.
     """
     if not isinstance(source, int):
         cap = cv2.VideoCapture(source)
         return Capture(cap, source) if cap.isOpened() else (cap.release() or None)
 
+    # (backend, mjpg, ask for the rate), in order of preference: DSHOW first
+    # (lower read latency, no MSMF decode-thread contention, FPS_FINDINGS.md).
     if sys.platform.startswith("win"):
-        candidates = [(cv2.CAP_DSHOW, True), (cv2.CAP_DSHOW, False),
-                      (cv2.CAP_MSMF, True), (cv2.CAP_MSMF, False)]
+        pref = [(cv2.CAP_DSHOW, True), (cv2.CAP_DSHOW, False),
+                (cv2.CAP_MSMF, True), (cv2.CAP_MSMF, False)]
     else:
-        candidates = [(None, True), (None, False)]
+        pref = [(None, True), (None, False)]
+    if fps:
+        candidates = ([(b, m, True) for b, m in pref[:2]]
+                      + [(pref[1][0], False, False)]
+                      + [(b, m, True) for b, m in pref[2:]])
+    else:
+        candidates = [(b, m, False) for b, m in pref]
+    order = list(candidates)
 
-    key = f"{source}|{width}x{height}|{fps or 0}"
+    key = _cache_key(source, width, height, fps)
     cached = _load_cached(key)
+    cached_combo = None
     if cached is not None:
-        combo = (cached[0], cached[1])
-        if combo in candidates:
-            candidates.remove(combo)
-        candidates.insert(0, combo)
+        cached_combo = (cached[0], cached[1],
+                        bool(fps) and (cached[3] if len(cached) > 3 else True))
+        if cached_combo in candidates:
+            candidates.remove(cached_combo)
+        candidates.insert(0, cached_combo)
+    want = DELIVER_FRAC * fps if fps else 0.0
 
-    for combo in candidates:
-        backend, mjpg = combo
-        cap = (cv2.VideoCapture(source, backend) if backend is not None
-               else cv2.VideoCapture(source))
+    # The source index is DirectShow's (the launcher resolves the chosen
+    # camera's name against DirectShow's list). MSMF numbers cameras by Media
+    # Foundation's own list, which skips DirectShow-only virtual cameras, so
+    # the same integer can open a different camera there. Mapped by name once,
+    # on the first MSMF attempt; None means MSMF cannot see this camera at all.
+    msmf = {}
+
+    def index_for(backend):
+        if backend != getattr(cv2, "CAP_MSMF", None):
+            return source
+        if "i" not in msmf:
+            from core.camera_list import msmf_index
+            msmf["i"] = msmf_index(preset_camera_name(), source)
+        return msmf["i"]
+
+    def attempt(combo):
+        backend, mjpg, ask = combo
+        idx = index_for(backend)
+        if idx is None:
+            return None, None
+        cap = (cv2.VideoCapture(idx, backend) if backend is not None
+               else cv2.VideoCapture(idx))
         if cap.isOpened():
-            _configure(cap, width, height, mjpg, fps)
+            _configure(cap, width, height, mjpg, fps if ask else None)
             ok, _frame = cap.read()   # verify frames actually flow
             if ok:
-                if cached != [combo[0], combo[1]]:
-                    _store_cached(key, combo)
-                return Capture(cap, source)
+                return cap, (measure_fps(cap) if fps else None)
         cap.release()
-    return None
+        return None, None
+
+    def done(cap, combo, measured):
+        if (cached is None or cached_combo != combo
+                or (fps and len(cached) < 3)):
+            _store_cached(key, combo, measured)
+        return Capture(cap, source, combo[0], fps, measured)
+
+    tried = []                         # (measured, combo) of the short ones
+    for combo in candidates:
+        cap, measured = attempt(combo)
+        if cap is None:
+            continue
+        # A cached answer that was already the best this camera could do
+        # stands while it still delivers what it did then; otherwise every
+        # launch of a 30 fps camera would re-probe every candidate.
+        floor = want
+        if cached is not None and len(cached) >= 3 and fps and combo == cached_combo:
+            floor = min(want, DELIVER_FRAC * cached[2])
+        if not fps or measured >= floor:
+            return done(cap, combo, measured)
+        cap.release()                  # a device opens once: release before the next
+        tried.append((measured, combo))
+
+    if not tried:
+        return None
+    # Nothing reached the rate. The most-preferred candidate within BETTER_BY
+    # of the best wins: a later backend has to be clearly faster, not 29.5
+    # against 29.3 -- which is how the ASUS first landed on MSMF.
+    top = max(m for m, _ in tried)
+    rank = lambda c: order.index(c) if c in order else len(order)  # noqa: E731
+    pick = min((c for m, c in tried if m * BETTER_BY >= top), key=rank)
+    cap, measured = attempt(pick)
+    if cap is None:
+        return None
+    return done(cap, pick, measured)
 
 
 def _screen_size() -> tuple[int, int]:

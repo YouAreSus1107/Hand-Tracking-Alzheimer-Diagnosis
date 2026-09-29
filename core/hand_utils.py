@@ -142,6 +142,16 @@ _SHARPEN_KERNEL = np.array(
 )
 
 
+# Mean luma (0-255) below which a frame counts as dark. A normally lit webcam
+# picture sits around 100-130; the backlit Razer frames measured 36-57.
+DARK_MEAN = 80
+
+
+def is_dark(bgr_frame: np.ndarray) -> bool:
+    """Cheap: the mean of every 8th pixel in each direction."""
+    return float(bgr_frame[::8, ::8].mean()) < DARK_MEAN
+
+
 def preprocess_for_mediapipe(bgr_frame: np.ndarray, enable: bool = True) -> np.ndarray:
     """
     Improve MediaPipe detection quality under varied or low lighting.
@@ -156,9 +166,14 @@ def preprocess_for_mediapipe(bgr_frame: np.ndarray, enable: bool = True) -> np.n
     array ready for mp.Image(). Pass the original frame to cv2.imshow so the
     display is not affected.
 
-    Set enable=False to bypass all preprocessing (useful for A/B latency tests).
+    enable=False skips it on a well-lit frame only. Callers pass
+    `enable=self.fps >= 20` to save ~2-3 ms when the loop is slow, but a slow
+    loop and a dark picture go together (a dim room, a backlit camera), so
+    the enhancement was being skipped on exactly the frames it exists for
+    (seen 2026-09-29: a backlit Razer Kiyo V2 X, mean luma ~36, one of two
+    hands not found in the tremor test). A dark frame is always enhanced.
     """
-    if not enable:
+    if not enable and not is_dark(bgr_frame):
         return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
 
     ycrcb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2YCrCb)

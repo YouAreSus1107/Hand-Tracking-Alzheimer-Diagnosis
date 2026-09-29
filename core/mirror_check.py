@@ -48,17 +48,20 @@ def ensure_orientation(cap: Capture) -> None:
     try:
         result = _run_check(cap)
     except Exception as exc:        # a missing model must not stop the test itself
-        print(f"[WARNING] Camera mirroring check could not run: {exc}")
+        print("[WARNING] " + i18n.ct("Camera mirroring check could not run: {error}",
+                                     error=exc))
         result = None
     if result is None:
-        print("[INFO] Camera mirroring check skipped - frames are used as the "
-              "camera sends them. It will be asked again next launch.")
+        print("[INFO] " + i18n.ct("Camera mirroring check skipped - frames are "
+                                  "used as the camera sends them. It will be "
+                                  "asked again next launch."))
         return
     cap.mirrored = result
     if not orientation.save(cap.source, result):
-        print("[WARNING] Could not save the mirroring answer; "
-              "it will be asked again next launch.")
-    print(f"[INFO] Camera picture is {'mirrored - corrected' if result else 'not mirrored'}.")
+        print("[WARNING] " + i18n.ct("Could not save the mirroring answer; "
+                                     "it will be asked again next launch."))
+    print("[INFO] " + (i18n.ct("Camera picture is mirrored - corrected.") if result
+                       else i18n.ct("Camera picture is not mirrored.")))
 
 
 def _landmarkers():

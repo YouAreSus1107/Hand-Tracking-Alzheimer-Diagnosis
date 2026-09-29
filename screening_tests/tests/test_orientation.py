@@ -7,6 +7,7 @@ Run:  python screening_tests/tests/test_orientation.py
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -145,6 +146,38 @@ def test_store_round_trip_and_forget():
             assert ori.load(1) is None                     # other cameras untouched
             assert ori.save(0, None) and ori.load(0) is None
             assert '"0|640x480|0"' in ori.CACHE_PATH.read_text("utf-8")
+        finally:
+            ori.CACHE_PATH = old
+
+
+def test_a_named_camera_keeps_its_answer_when_its_index_moves():
+    old = ori.CACHE_PATH
+    with tempfile.TemporaryDirectory() as d:
+        ori.CACHE_PATH = Path(d) / "cache.json"
+        try:
+            # an answer saved before names were known is still read...
+            assert ori.save(0, True, name="")
+            assert ori.load(0, name="Razer") is True
+            # ...until the camera is answered by name, which drops the index key
+            assert ori.save(0, False, name="Razer")
+            assert ori.load(0, name="") is None, "index key left for the next camera"
+            # the Razer moves to index 1; its answer goes with it
+            assert ori.load(1, name="Razer") is False
+            # and the camera that now sits at 0 does not inherit it
+            assert ori.load(0, name="ASUS") is None
+            # forgetting by name clears it
+            assert ori.save(1, None, name="Razer") and ori.load(1, name="Razer") is None
+            # the tools pass no name and read the launcher's env var instead
+            ori.save(2, True, name="Kiyo")
+            prev = os.environ.get("HAND3D_CAMERA_NAME")
+            os.environ["HAND3D_CAMERA_NAME"] = "Kiyo"
+            try:
+                assert ori.load(5) is True
+            finally:
+                if prev is None:
+                    os.environ.pop("HAND3D_CAMERA_NAME", None)
+                else:
+                    os.environ["HAND3D_CAMERA_NAME"] = prev
         finally:
             ori.CACHE_PATH = old
 

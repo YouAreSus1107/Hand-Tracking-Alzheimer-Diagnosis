@@ -25,16 +25,87 @@ import sys
 
 def list_cameras() -> list[dict]:
     """[{"index": int, "name": str}, ...] in OpenCV index order; [] if unknown."""
+    return enumerate_cameras()[0]
+
+
+def enumerate_cameras() -> tuple[list[dict], bool]:
+    """(cameras, listed). `listed` is False when the OS could not be asked,
+    which the chip must not read as "nothing is plugged in".
+
+    On Windows each entry also carries `virtual`: True when DirectShow lists
+    the device but Media Foundation does not. That is almost always a virtual
+    camera (OBS, Snap, some vendor "effects" filters), and it matters beyond
+    the label: OpenCV's MSMF backend numbers cameras by Media Foundation's
+    list, so every DirectShow-only entry shifts the MSMF index of the cameras
+    after it (see msmf_index()).
+    """
     try:
         if sys.platform == "win32":
             names = _dshow_names()
         elif sys.platform.startswith("linux"):
-            return _v4l2_cameras()
+            return _v4l2_cameras(), True
         else:
-            names = []
+            return [], False
     except Exception:  # noqa: BLE001 — a listing failure must never break the hub
-        return []
-    return [{"index": i, "name": n} for i, n in enumerate(names)]
+        return [], False
+    cams = [{"index": i, "name": n} for i, n in enumerate(names)]
+    mf = msmf_names()
+    if mf is not None:
+        for cam in cams:
+            cam["virtual"] = cam["name"] not in mf
+    return cams, True
+
+
+def msmf_names() -> list[str] | None:
+    """Media Foundation's video-capture devices in the order OpenCV's MSMF
+    backend indexes them; None when they cannot be listed (not Windows, or
+    the enumeration failed) — distinct from [] (listed, none present)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        return _mf_names()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def msmf_index(name: str, dshow_index: int,
+               dshow: list[str] | None = None,
+               mf: list[str] | None = None) -> int | None:
+    """The index to hand cv2.CAP_MSMF for the camera DirectShow calls
+    `dshow_index` (named `name`).
+
+    The two backends number cameras independently, so the same integer can
+    open a *different* camera under MSMF — which is exactly the fallback
+    core/camera.open_capture() takes for the cameras that only reach 60 fps
+    there. Matched by name; among several identical models, by their order
+    within that name, which both enumerators keep in device-arrival order.
+
+    Returns None when Media Foundation does not list the camera at all (a
+    DirectShow-only virtual camera: MSMF cannot open it, and trying its
+    index would open something else), and `dshow_index` unchanged when
+    either list is unavailable, so nothing is worse than before.
+    """
+    if not name:
+        return dshow_index
+    mf = msmf_names() if mf is None else mf
+    if mf is None:
+        return dshow_index
+    same_mf = [i for i, n in enumerate(mf) if n == name]
+    if not same_mf:
+        return None
+    if len(same_mf) == 1:
+        return same_mf[0]
+    if dshow is None:
+        try:
+            dshow = _dshow_names() if sys.platform == "win32" else None
+        except Exception:  # noqa: BLE001
+            dshow = None
+    if dshow is None:
+        return dshow_index
+    same_ds = [i for i, n in enumerate(dshow) if n == name]
+    if dshow_index in same_ds and same_ds.index(dshow_index) < len(same_mf):
+        return same_mf[same_ds.index(dshow_index)]
+    return dshow_index
 
 
 def resolve_index(name: str, index: int, cameras: list[dict] | None = None) -> int:
@@ -135,6 +206,87 @@ def _dshow_names() -> list[str]:
     return names
 
 
+# ── Windows: Media Foundation device sources via ctypes COM ────────────────
+# The list cv2.CAP_MSMF indexes into: MFEnumDeviceSources filtered to video
+# capture, in the order it returns them. Enumerating activates nothing.
+
+def _mf_names() -> list[str]:
+    import ctypes
+    import uuid
+    from ctypes import POINTER, byref, c_long, c_uint32, c_ulong, c_void_p, c_wchar_p
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("d", ctypes.c_ubyte * 16)]
+
+    def guid(s: str) -> GUID:
+        return GUID.from_buffer_copy(uuid.UUID(s).bytes_le)
+
+    def method(obj, index, *argtypes):
+        vtbl = ctypes.cast(obj, POINTER(POINTER(c_void_p)))[0]
+        fn = ctypes.WINFUNCTYPE(c_long, c_void_p, *argtypes)(vtbl[index])
+        return lambda *a: fn(obj, *a)
+
+    def release(obj):
+        if obj:
+            vtbl = ctypes.cast(obj, POINTER(POINTER(c_void_p)))[0]
+            ctypes.WINFUNCTYPE(c_ulong, c_void_p)(vtbl[2])(obj)
+
+    SOURCE_TYPE = guid("c60ac5fe-252a-478f-a0ef-bc8fa5f7cad3")
+    SOURCE_TYPE_VIDCAP = guid("8ac3587a-4ae7-42d8-99e0-0a6013eef90f")
+    FRIENDLY_NAME = guid("60d0e559-52f8-4fa2-bbce-acdb34a8ec01")
+    MF_VERSION = 0x00020070
+    MFSTARTUP_LITE = 1
+
+    ole32 = ctypes.windll.ole32
+    mfplat = ctypes.windll.mfplat
+    mf = ctypes.windll.mf
+    ole32.CoTaskMemFree.argtypes = [c_void_p]
+    hr = ole32.CoInitializeEx(None, 0)
+    owns_init = hr in (0, 1)
+    if mfplat.MFStartup(MF_VERSION, MFSTARTUP_LITE) != 0:
+        if owns_init:
+            ole32.CoUninitialize()
+        raise OSError("MFStartup failed")
+    names: list[str] = []
+    attrs = c_void_p()
+    devices = POINTER(c_void_p)()
+    count = c_uint32()
+    try:
+        if mfplat.MFCreateAttributes(byref(attrs), 1) != 0:
+            raise OSError("MFCreateAttributes failed")
+        # IMFAttributes::SetGUID (vtable slot 24)
+        if method(attrs, 24, POINTER(GUID), POINTER(GUID))(
+                byref(SOURCE_TYPE), byref(SOURCE_TYPE_VIDCAP)) != 0:
+            raise OSError("SetGUID failed")
+        if mf.MFEnumDeviceSources(attrs, byref(devices), byref(count)) != 0:
+            raise OSError("MFEnumDeviceSources failed")
+        try:
+            for i in range(count.value):
+                act = c_void_p(devices[i])
+                text, length = c_wchar_p(), c_uint32()
+                try:
+                    # IMFAttributes::GetAllocatedString (slot 13); IMFActivate
+                    # inherits IMFAttributes, so the slot is the same.
+                    if method(act, 13, POINTER(GUID), POINTER(c_wchar_p), POINTER(c_uint32))(
+                            byref(FRIENDLY_NAME), byref(text), byref(length)) == 0:
+                        name = text.value or ""
+                        ole32.CoTaskMemFree(ctypes.cast(text, c_void_p))
+                    else:
+                        name = ""
+                finally:
+                    release(act)
+                names.append(name.strip() or f"Camera {i}")
+        finally:
+            if devices:
+                ole32.CoTaskMemFree(ctypes.cast(devices, c_void_p))
+    finally:
+        release(attrs)
+        mfplat.MFShutdown()
+        if owns_init:
+            ole32.CoUninitialize()
+    return names
+
+
 # ── Linux: V4L2 names from sysfs ───────────────────────────────────────────
 
 def _v4l2_cameras() -> list[dict]:
@@ -155,5 +307,14 @@ def _v4l2_cameras() -> list[dict]:
 
 
 if __name__ == "__main__":
-    for cam in list_cameras():
-        print(f"{cam['index']}: {cam['name']}")
+    cams, listed = enumerate_cameras()
+    if not listed:
+        print("Cameras could not be listed on this machine.")
+    for cam in cams:
+        tag = "  (DirectShow only)" if cam.get("virtual") else ""
+        print(f"{cam['index']}: {cam['name']}{tag}")
+    mf = msmf_names()
+    if mf is not None:
+        print("Media Foundation order:")
+        for i, name in enumerate(mf):
+            print(f"{i}: {name}")

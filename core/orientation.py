@@ -30,6 +30,7 @@ for the camera chip's "Picture" setting.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 # Shared with core/camera.py's backend cache: one git-ignored file of
@@ -45,8 +46,33 @@ MIN_FRAMES = 8        # ...over at least this many frames (a 5 fps stall cannot)
 GAP_S = 0.30          # a longer run of unusable frames restarts the hold
 
 
+# Same variable core/camera.py reads (ENV_CAMERA_NAME); repeated here so this
+# module stays stdlib-only and import-cheap.
+_ENV_NAME = "HAND3D_CAMERA_NAME"
+
+
 def source_key(source: int | str) -> str:
     return str(source).strip()
+
+
+def _name_for(source: int | str, name: str | None) -> str:
+    """The camera's device name, for webcams only. None means "whatever the
+    launcher handed this tool", which is how the tools call load/save
+    without knowing about names; the launcher passes it explicitly."""
+    if not isinstance(source, int):
+        return ""
+    if name is None:
+        name = os.environ.get(_ENV_NAME, "")
+    return (name or "").strip()
+
+
+def _keys(source: int | str, name: str | None) -> list[str]:
+    """Keys an answer may live under, most specific first. An index is only a
+    position — replugging hands it to another camera — so a named camera is
+    remembered by name, and the index key is read only as a fallback for
+    answers saved before names were known."""
+    nm = _name_for(source, name)
+    return ([f"name:{nm}"] if nm else []) + [source_key(source)]
 
 
 def _read() -> dict:
@@ -57,26 +83,33 @@ def _read() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def load(source: int | str) -> bool | None:
+def load(source: int | str, name: str | None = None) -> bool | None:
     """True mirrored, False not, None never checked."""
     entry = _read().get(_KEY)
     if not isinstance(entry, dict):
         return None
-    value = entry.get(source_key(source))
-    return value if isinstance(value, bool) else None
+    for key in _keys(source, name):
+        value = entry.get(key)
+        if isinstance(value, bool):
+            return value
+    return None
 
 
-def save(source: int | str, mirrored: bool | None) -> bool:
+def save(source: int | str, mirrored: bool | None, name: str | None = None) -> bool:
     """Remember the answer; None forgets it so the next launch asks again.
-    Returns False when the file cannot be written (read-only checkout)."""
+    Returns False when the file cannot be written (read-only checkout).
+
+    A named camera also drops any old index-keyed answer, which would
+    otherwise be handed to whichever camera next lands on that index."""
     data = _read()
     entry = data.get(_KEY)
     if not isinstance(entry, dict):
         entry = {}
-    if mirrored is None:
-        entry.pop(source_key(source), None)
-    else:
-        entry[source_key(source)] = bool(mirrored)
+    keys = _keys(source, name)
+    for key in keys:
+        entry.pop(key, None)
+    if mirrored is not None:
+        entry[keys[0]] = bool(mirrored)
     data[_KEY] = entry
     try:
         CACHE_PATH.write_text(json.dumps(data), "utf-8")

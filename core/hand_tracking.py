@@ -280,7 +280,7 @@ class Inspector:
 
     # ── main loop ─────────────────────────────────────────────────────────
     def run(self):
-        win = "Hand Detection 3D - Data Inspector  |  Q or window ✕ to quit"
+        win = "Hand Detection 3D - Data Inspector  |  Q or close the window to quit"
         window_ready = False
         while self.cap.isOpened():
             ok, frame = self.cap.read()
@@ -319,7 +319,7 @@ class Inspector:
 
 def main():
     source = select_camera_source()
-    cap = open_capture(source)
+    cap = open_capture(source, fps=60)
     if cap is None:
         print(f"[ERROR] Could not open camera source: {source}. "
               "Please check your connection.")
