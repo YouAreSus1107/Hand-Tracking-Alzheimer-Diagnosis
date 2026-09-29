@@ -17,6 +17,7 @@ results/
 
 # Large model bundle — install.py downloads it on setup
 model/face_landmarker.task
+model/pose_landmarker_*.task
 
 # Runtime state
 .launcher.pid
@@ -49,3 +50,6 @@ web-build/
 # Firebase web config for the participant page: published in the build, never
 # tracked, so no AIza... literal sits in the repo for a scanner to flag.
 participant/firebase-config.js
+
+# Screen recordings (R in a test) - faces on camera, never published
+recordings/

@@ -32,8 +32,8 @@ REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.txt")
 MODEL_DIR = os.path.join(REPO_ROOT, "model")
 
 # MediaPipe model bundles. hand_landmarker.task is committed to the repo and so
-# normally arrives with the clone; face_landmarker.task is NOT in git and must be
-# downloaded. Both are re-fetched here if missing, for robustness.
+# normally arrives with the clone; the face and pose models are NOT in git and
+# must be downloaded. All are re-fetched here if missing, for robustness.
 MODELS = {
     "hand_landmarker.task": (
         "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
@@ -42,6 +42,11 @@ MODELS = {
     "face_landmarker.task": (
         "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
         "face_landmarker/float16/latest/face_landmarker.task"
+    ),
+    # walking test (docs/tests/GAIT_TEST_PLAN.md); lite, not committed
+    "pose_landmarker_lite.task": (
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+        "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
     ),
 }
 
