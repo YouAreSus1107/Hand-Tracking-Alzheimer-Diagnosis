@@ -18,7 +18,10 @@ import math
 from core.framing import overlaps
 
 from .confidence import confidence, straddles_band
+from .gaps import count_interruptions, label_gaps, restore_missed_tap
 from .modes import TapMode
+
+_BANDS = ("success", "warning", "danger")
 
 def _sd(vals: list[float]) -> float | None:
     if len(vals) < 2:
@@ -103,7 +106,49 @@ def compute_metrics(mode: TapMode,
 
     `blackouts` are (start, end) stretches, on the same clock as the taps,
     when the hand was out of frame (core/framing.py); intervals touching them
-    are excluded. None -- the remote port's only case -- changes nothing."""
+    are excluded. None -- the remote port's only case -- changes nothing.
+
+    One missed tap is forgiven (core/tapping/gaps.py): when the only long
+    interval in the run is a full closure the detector failed to count, that
+    tap is restored and the run rescored. The forgiveness may move the verdict
+    by one band at most -- if restoring a single inferred tap would turn a
+    Follow-up into Typical, the evidence rests on the inference alone, so the
+    run keeps its measured score. Pauses and partial closures always count.
+    `cv_pct_unrepaired` keeps the score before any repair."""
+    kw = dict(beat_times=beat_times, hand_visible_ratio=hand_visible_ratio,
+              camera_fps=camera_fps, near_miss=near_miss, blackouts=blackouts)
+    out = _score(mode, tap_times, series, t_start, t_end, **kw)
+    scored = scored_taps(mode, tap_times)
+    labels = label_gaps(scored, series, blackouts) if out["scoreable"] else []
+    out.update(missed_tap_forgiven=0, cv_pct_unrepaired=out["cv_pct"],
+               interruptions=count_interruptions(labels) if out["scoreable"] else None)
+    if not out["scoreable"]:
+        return out
+    t_new = restore_missed_tap(scored, series, blackouts)
+    if t_new is None:
+        return out
+    fixed = _score(mode, sorted(tap_times + [t_new]), series, t_start, t_end, **kw)
+    if (not fixed["scoreable"]
+            or _BANDS.index(out["status"]) - _BANDS.index(fixed["status"]) > 1):
+        return out
+    fixed.update(missed_tap_forgiven=1, cv_pct_unrepaired=out["cv_pct"],
+                 interruptions=out["interruptions"])
+    return fixed
+
+
+def scored_taps(mode: TapMode, tap_times: list[float]) -> list[float]:
+    """The taps that count: the ramp-up trim, when enough taps remain."""
+    if len(tap_times) - mode.trim_taps >= mode.min_taps:
+        return tap_times[mode.trim_taps:]
+    return tap_times
+
+
+def _score(mode: TapMode, tap_times: list[float],
+           series: list[tuple[float, float]], t_start: float, t_end: float,
+           beat_times=None, hand_visible_ratio: float = 1.0,
+           camera_fps: float | None = None, near_miss: int = 0,
+           blackouts=None) -> dict:
+    """compute_metrics() without the missed-tap repair."""
     out: dict = {
         "scoreable": False,
         "reason": None,
@@ -117,7 +162,7 @@ def compute_metrics(mode: TapMode,
         "n_intervals": None, "cv_ci_low_pct": None, "cv_ci_high_pct": None,
         "confidence_pct": None, "band_edge": None,
         "taps_w10": None, "frequency_hz_w10": None, "cv_pct_w10": None,
-        "near_miss_taps": near_miss,
+        "near_miss_taps": near_miss, "opening_shrink_ratio": None,
     }
 
     if len(tap_times) < mode.min_taps:
@@ -133,9 +178,7 @@ def compute_metrics(mode: TapMode,
         return out
 
     # Explicit ramp-up trim: only when enough taps remain (audit A10).
-    taps = tap_times
-    if len(taps) - mode.trim_taps >= mode.min_taps:
-        taps = taps[mode.trim_taps:]
+    taps = scored_taps(mode, tap_times)
 
     stats = _interval_stats(mode, taps, blackouts)
     iti = stats["iti"] if stats else []
@@ -211,6 +254,14 @@ def compute_metrics(mode: TapMode,
         a_sd = _sd(amps)
         if a_sd is not None and out["amplitude_mean"] > 0:
             out["amplitude_cv_pct"] = a_sd / out["amplitude_mean"] * 100.0
+    # Shrinking openings (the "sequence effect" neurologists look for): the
+    # last quarter of openings over the first. Information only -- on HUBU-FIS
+    # it did not separate impaired from unimpaired hands (AUC 0.57).
+    if len(amps) >= 8:
+        k = max(3, len(amps) // 4)
+        first = sum(amps[:k]) / k
+        if first > 0:
+            out["opening_shrink_ratio"] = (sum(amps[-k:]) / k) / first
 
     # Paced sync: nearest-beat assignment (replaces the mis-centered window
     # of audit A2 — no window edge to fall off).

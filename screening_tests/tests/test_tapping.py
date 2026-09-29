@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT))
 
 from core.tapping.confidence import confidence, cv_rel_se
 from core.tapping.detector import TapDetector
+from core.tapping import baseline
+from core.tapping.gaps import label_gaps
 from core.tapping.metrics import compute_metrics
 from core.tapping.modes import MODES
 
@@ -292,6 +294,162 @@ class ParkinsonianSignsAreScoredTests(unittest.TestCase):
         self.assertTrue(m["scoreable"])
         self.assertGreater(m["cv_pct"], 25.0)
         self.assertEqual(m["status"], "danger")
+
+
+class MissedTapTests(unittest.TestCase):
+    """One missed tap is forgiven; pauses and partial closures never are
+    (core/tapping/gaps.py)."""
+
+    LAG = 0.05      # detector fires this long before each closure's minimum
+
+    @staticmethod
+    def trace(closures, floors, peaks, fps=30.0):
+        """Distance series through closure minima (time, floor) with a peak
+        of the given height midway between consecutive closures."""
+        knots = []
+        for k, c in enumerate(closures):
+            knots.append((c, floors[k]))
+            if k + 1 < len(closures):
+                knots.append(((c + closures[k + 1]) / 2, peaks[k]))
+        out, t, j = [], closures[0], 0
+        while t <= closures[-1]:
+            while knots[j + 1][0] < t:
+                j += 1
+            (t0, d0), (t1, d1) = knots[j], knots[j + 1]
+            w = (t - t0) / (t1 - t0)
+            out.append((t, d0 + (d1 - d0) * 0.5 * (1 - math.cos(math.pi * w))))
+            t += 1.0 / fps
+        return out
+
+    def take(self, n=30, slips=(15,), floor_at=None, pause_at=None):
+        closures = [1.0 + 0.5 * k for k in range(n)]
+        floors = [0.2] * n
+        peaks = [1.0] * (n - 1)
+        for k in slips:                      # hand only half re-opens around k
+            peaks[k - 1] = peaks[k] = 0.45
+        if floor_at is not None:
+            floors[floor_at] = 0.6          # that closure never reaches the floor
+        if pause_at is not None:            # no closure at all: hold open
+            floors[pause_at] = 1.0
+            peaks[pause_at - 1] = peaks[pause_at] = 1.0
+        series = self.trace(closures, floors, peaks)
+        missed = set(slips) | ({floor_at} if floor_at is not None else set())             | ({pause_at} if pause_at is not None else set())
+        taps = [c - self.LAG for k, c in enumerate(closures) if k not in missed]
+        return compute_metrics(MODE, taps, series, 0.0, closures[-1] + 0.5), taps, series
+
+    def test_one_missed_full_closure_is_forgiven(self):
+        m, _, _ = self.take()
+        self.assertEqual(m["missed_tap_forgiven"], 1)
+        self.assertGreater(m["cv_pct_unrepaired"], 12.0)
+        self.assertLess(m["cv_pct"], 3.0)
+        self.assertEqual(m["status"], "success")
+        self.assertEqual(m["interruptions"], 0)
+
+    def test_two_slips_are_a_pattern_not_a_slip(self):
+        m, _, _ = self.take(slips=(10, 20))
+        self.assertEqual(m["missed_tap_forgiven"], 0)
+        self.assertEqual(m["cv_pct"], m["cv_pct_unrepaired"])
+
+    def test_partial_closure_is_never_forgiven(self):
+        m, taps, series = self.take(slips=(), floor_at=15)
+        self.assertEqual(m["missed_tap_forgiven"], 0)
+        kinds = [k for _, _, k in label_gaps(taps[MODE.trim_taps:], series)]
+        self.assertEqual(kinds, ["partial_closure"])
+        self.assertEqual(m["interruptions"], 1)
+
+    def test_pause_is_never_forgiven(self):
+        m, taps, series = self.take(slips=(), pause_at=15)
+        self.assertEqual(m["missed_tap_forgiven"], 0)
+        self.assertEqual([k for _, _, k in label_gaps(taps[MODE.trim_taps:], series)], ["pause"])
+        self.assertEqual(m["interruptions"], 1)
+
+    def test_forgiveness_moves_the_verdict_one_band_at_most(self):
+        # In a short run one doubled interval reads Follow-up; restoring it
+        # would read Typical. That jump rests on the inference alone.
+        m, _, _ = self.take(n=11, slips=(6,))
+        self.assertEqual(m["cv_pct_unrepaired"], m["cv_pct"])
+        self.assertEqual(m["status"], "danger")
+        self.assertEqual(m["missed_tap_forgiven"], 0)
+
+    def test_no_series_means_no_repair(self):
+        _, taps, _ = self.take()
+        m = compute_metrics(MODE, taps, [], 0.0, 16.0)
+        self.assertEqual(m["missed_tap_forgiven"], 0)
+        self.assertEqual(m["interruptions"], 0)
+
+
+class BaselineTests(unittest.TestCase):
+    """Own-baseline comparison (core/tapping/baseline.py)."""
+
+    @staticmethod
+    def rows(n=14, days=4, rate=1.6, conf=70, pid="p1", hand="left", opening=0.8,
+             camera="Cam A"):
+        """index.csv-style rows: every value a string, as csv.DictReader gives."""
+        out = []
+        for k in range(n):
+            out.append({"timestamp": f"2026-09-{10 + k % days:02d}T10:{k:02d}:00",
+                        "profile_id": pid, "hand": hand, "mode": "big_and_fast",
+                        "scoreable": "True", "frequency_hz": str(rate),
+                        "confidence_pct": str(conf), "amplitude_mean": str(opening),
+                        "camera_name": camera})
+        return out
+
+    def cmp(self, rows, rate, conf=70, opening=None, camera=None, pid="p1"):
+        prior = baseline.eligible(rows, pid, "left", "big_and_fast")
+        return baseline.compare(prior, rate, conf, opening, camera)
+
+    def test_no_profile_no_baseline(self):
+        self.assertEqual(baseline.eligible(self.rows(), None, "left", "big_and_fast"), [])
+        self.assertIsNone(self.cmp(self.rows(), 0.5, pid="")["rate_vs_usual"])
+
+    def test_needs_enough_runs_and_days(self):
+        self.assertIsNone(self.cmp(self.rows(n=9), 0.5)["rate_vs_usual"])
+        self.assertIsNone(self.cmp(self.rows(n=20, days=2), 0.5)["rate_vs_usual"])
+        self.assertIsNotNone(self.cmp(self.rows(n=14, days=4), 1.6)["rate_vs_usual"])
+
+    def test_low_confidence_runs_are_not_learned_from(self):
+        rows = self.rows(conf=30)
+        self.assertEqual(baseline.eligible(rows, "p1", "left", "big_and_fast"), [])
+
+    def test_other_hands_and_people_do_not_mix(self):
+        rows = self.rows(hand="right") + self.rows(pid="p2")
+        self.assertEqual(baseline.eligible(rows, "p1", "left", "big_and_fast"), [])
+
+    def test_one_slow_run_is_not_enough(self):
+        # the previous 4 runs are normal, so the 5-run median barely moves
+        m = self.cmp(self.rows(n=16), 0.5)
+        self.assertEqual(m["slower_than_usual"], 0)
+
+    def test_a_sustained_halving_is_flagged(self):
+        rows = self.rows(n=14) + [dict(r, frequency_hz="0.8", timestamp=f"2026-09-20T1{k}:00:00")
+                                  for k, r in enumerate(self.rows(n=4))]
+        m = self.cmp(rows, 0.8)
+        self.assertAlmostEqual(m["rate_vs_usual"], 0.5, places=3)
+        self.assertEqual(m["slower_than_usual"], 1)
+
+    def test_opening_needs_the_same_camera(self):
+        rows = self.rows(n=16)
+        self.assertIsNotNone(self.cmp(rows, 1.6, opening=0.8, camera="Cam A")["opening_vs_usual"])
+        self.assertIsNone(self.cmp(rows, 1.6, opening=0.8, camera="Cam B")["opening_vs_usual"])
+
+    def test_the_verdict_only_ever_moves_up_to_monitor(self):
+        """The rule in finger_tapping._compare_with_usual, replayed on results."""
+        for status in ("success", "warning", "danger"):
+            r = {"scoreable": True, "status": status, "label": "x", "slower_than_usual": 1}
+            if r["slower_than_usual"] and r["status"] == "success":
+                r["status"], r["label"] = "warning", baseline.SLOWER_LABEL
+            self.assertEqual(r["status"], {"success": "warning"}.get(status, status))
+
+    def test_shrinking_openings_is_reported(self):
+        t = [1.0 + 0.5 * i for i in range(30)]
+        amps = [1.0 - 0.02 * i for i in range(len(t))]
+        series = []
+        for k, (a, b) in enumerate(zip(t, t[1:])):
+            series += [(a, 0.2), ((a + b) / 2, 0.2 + amps[k])]
+        series.append((t[-1], 0.2))
+        m = compute_metrics(MODE, t, series, 0.0, 16.0)
+        self.assertLess(m["opening_shrink_ratio"], 0.7)
+        self.assertEqual(m["status"], "success")        # information only
 
 
 if __name__ == "__main__":

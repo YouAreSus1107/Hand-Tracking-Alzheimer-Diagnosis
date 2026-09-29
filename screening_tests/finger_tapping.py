@@ -47,13 +47,17 @@ from core import i18n
 from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe,
                              true_hand)
-from core.camera import (select_camera_source, open_capture,
+from core.camera import (capture_info, preset_camera_name, select_camera_source, open_capture,
                          create_display_window, window_closed, pause_before_exit)
+from core.screen_recorder import ScreenRecorder
 from core.mirror_check import ensure_orientation
-from core.session import save_session
+from core import profiles
+from core.session import load_index, save_session
+from core.tapping import baseline
 from core.tapping.audio import AudioWorker, build_tone
 from core.tapping.detector import Calibrator, TapDetector, thumb_index_distance
-from core.tapping.metrics import compute_metrics
+from core.tapping.gaps import label_gaps, restore_missed_tap
+from core.tapping.metrics import compute_metrics, scored_taps
 from core.tapping.modes import MODES, DEFAULT_MODE, TapMode
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, lerp
@@ -493,6 +497,8 @@ class App:
         self.audio.play(self.done_wav)
         hand = max(self.hand_labels, key=self.hand_labels.get) \
             if self.hand_labels else None
+        camera_name = preset_camera_name()
+        self._compare_with_usual(hand, camera_name)
         t0 = self.recording_start
         raw = {
             "tap_times_s": [round(t - t0, 3) for t in self.detector.tap_times],
@@ -512,12 +518,23 @@ class App:
             "blackouts_s": [[round(a - t0, 3), round(b - t0, 3)]
                             for a, b in self.blackouts],
         }
+        # Every long gap with its cause (core/tapping/gaps.py), and the tap
+        # that was forgiven if there was one, so the report can mark both.
+        scored = scored_taps(self.mode, self.detector.tap_times)
+        raw["gap_labels"] = [[round(a - t0, 3), round(b - t0, 3), kind]
+                             for a, b, kind in label_gaps(scored, self.detector.series,
+                                                          self.blackouts)]
+        if self.results.get("missed_tap_forgiven"):
+            tr = restore_missed_tap(scored, self.detector.series, self.blackouts)
+            if tr is not None:
+                raw["restored_tap_s"] = round(tr - t0, 3)
         try:
             self.saved_path = save_session(
                 test="finger_tapping", mode=self.mode.key, hand=hand,
                 duration_s=self.mode.duration_s,
                 device={"camera_fps": round(self.fps, 1),
-                        "resolution": "640x480", "app_version": APP_VERSION},
+                        "resolution": "640x480", "app_version": APP_VERSION,
+                        **capture_info(self.cap), "camera_name": camera_name},
                 metrics=self.results, raw=raw)
         except OSError as e:
             self.saved_path = None
@@ -526,6 +543,39 @@ class App:
             self.countup = CountUp(self.results["cv_pct"], time.time(),
                                    theme.DUR_SLOW)
         self.goto(COMPLETE, now)
+
+    def _compare_with_usual(self, hand: str | None, camera_name: str) -> None:
+        """This run against the same person's own earlier runs
+        (core/tapping/baseline.py). A Typical run that is also far slower than
+        usual becomes Monitor; nothing is ever lowered."""
+        r = self.results
+        try:
+            pid = profiles.from_env().get("id")
+            prior = baseline.eligible(load_index("finger_tapping", self.mode.key),
+                                      pid, hand, self.mode.key)
+        except Exception as e:           # a history problem must not lose the run
+            print(f"[WARN] Could not read earlier runs: {e}")
+            return
+        r.update(baseline.compare(prior, r.get("frequency_hz"), r.get("confidence_pct"),
+                                  r.get("amplitude_mean"), camera_name))
+        if r.get("scoreable") and r.get("slower_than_usual") and r.get("status") == "success":
+            r["status"], r["label"] = "warning", baseline.SLOWER_LABEL
+
+    @staticmethod
+    def _gaps_line(r: dict) -> str:
+        """'1 missed tap forgiven · 2 interruptions', or '' when neither."""
+        parts = []
+        if r.get("missed_tap_forgiven"):
+            parts.append(i18n.t("1 missed tap forgiven"))
+        if r.get("rate_vs_usual") is not None:
+            parts.append(i18n.t("Speed {pct}% of your usual",
+                                pct=f"{r['rate_vs_usual'] * 100:.0f}"))
+        n = r.get("interruptions") or 0
+        if n == 1:
+            parts.append(i18n.t("1 interruption"))
+        elif n > 1:
+            parts.append(i18n.t("{n} interruptions", n=str(n)))
+        return " · ".join(parts)
 
     def screen_complete(self, c: Canvas, now: float):
         w, h = c.w, c.h
@@ -558,7 +608,9 @@ class App:
             # crowds the last row's values
             note_off = metrics_off + nlines * 22 + 12
             edge_off = note_off + (18 if r.get("band_edge") else 0)
-            btn_off = edge_off + 16
+            gaps_line = self._gaps_line(r)
+            gaps_off = edge_off + (18 if gaps_line else 0)
+            btn_off = gaps_off + 16
         else:
             reason = r["reason"] or "Something went wrong - please try again."
             # i18n.wrap, not split(): Chinese has no spaces, so splitting on
@@ -639,6 +691,9 @@ class App:
                 c.text(w // 2, py + note_off + 18,
                        i18n.t("Close to a band edge - repeat for a firmer reading."),
                        role="small", color="text-muted", anchor="mm")
+            if gaps_line:
+                c.text(w // 2, py + edge_off + 18, gaps_line,
+                       role="small", color="text-muted", anchor="mm")
         else:
             c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
                     "warning")
@@ -664,7 +719,8 @@ class App:
 
     # ── main loop ─────────────────────────────────────────────────────────
     def run(self):
-        win = "Finger Tapping Test  |  Q or window ✕ to quit"
+        screen_rec = ScreenRecorder("finger_tapping")
+        win = "Finger Tapping Test  |  Q or close the window to quit"
         window_ready = False
         while self.cap.isOpened():
             ok, frame = self.cap.read()
@@ -721,27 +777,30 @@ class App:
                 draw_framing(c, self.framing, self._raw_pts, self.coach)
             self.coach.render(c, now)
 
-            cv2.imshow(win, c.compose())
+            cv2.imshow(win, screen_rec.frame(c.compose()))
             self.click = None
-            if cv2.waitKey(5) & 0xFF == ord("q"):
+            key = cv2.waitKey(5) & 0xFF
+            screen_rec.key(key)
+            if key == ord("q"):
                 break
             if window_closed(win):
                 break
 
         self.cap.release()
+        screen_rec.close()
         cv2.destroyAllWindows()
         self.landmarker.close()
         self.audio.close()
-        print("\n[INFO] Finger tapping test closed.")
+        print("\n[INFO] " + i18n.ct("Finger tapping test closed."))
 
 
 def main():
     # banner already printed by the splash, above the heavy imports
     source = select_camera_source()
-    print("[INFO] Opening camera and loading the hand model - a few seconds...")
-    cap = open_capture(source)
+    print("[INFO] " + i18n.ct("Opening camera and loading the hand model - a few seconds..."))
+    cap = open_capture(source, fps=60)
     if cap is None:
-        print("[ERROR] Could not open camera.")
+        print("[ERROR] " + i18n.ct("Could not open camera."))
         pause_before_exit()
         sys.exit(1)
     ensure_orientation(cap)   # once per camera: undo its own mirroring

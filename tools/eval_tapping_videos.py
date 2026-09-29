@@ -299,6 +299,8 @@ def score_one(item: dict, trace: dict, mode: TapMode, tol_s: float,
         row[f"cv_pct_{tag}"] = m["cv_pct"]
         row[f"status_{tag}"] = m["status"]
     row["reason_ours"] = m_ours["reason"]
+    row["missed_tap_forgiven"] = m_ours["missed_tap_forgiven"]
+    row["interruptions"] = m_ours["interruptions"]
     return row
 
 

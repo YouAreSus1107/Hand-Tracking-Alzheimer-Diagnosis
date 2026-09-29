@@ -275,11 +275,123 @@ function confidence(n, cv, mean, width, fps, visible, rejected) {
   return 100*precision*timing*tracking*continuity;
 }
 
-/** Port of compute_metrics(). Same keys, same order of decisions, same
- *  early-return reasons — those strings are shown to the participant. */
+/* ── gaps: port of core/tapping/gaps.py ─────────────────────────────────
+ * One missed tap is forgiven -- only when it is the single long interval in
+ * the run and a full closure sits in its middle. Pauses and partial closures
+ * always count. See the Python module for the evidence behind the numbers. */
+export const GAP_LONG = 1.5;
+export const MISSED_LO = 1.7, MISSED_HI = 2.3;
+export const MID_LO = 0.25, MID_HI = 0.75;
+export const MIN_DIP = 0.25;
+export const FULL_CLOSE = 0.25;
+const NEIGHBOURS = 3;
+
+function localMedian(iti, k) {
+  const nb = iti.slice(Math.max(0, k - NEIGHBOURS), k).concat(iti.slice(k + 1, k + 1 + NEIGHBOURS));
+  return nb.length ? median(nb) : median(iti);
+}
+function bisectLeft(a, x) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; }
+function bisectRight(a, x) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] <= x) lo = m + 1; else hi = m; } return lo; }
+
+function makeTrace(series, taps) {
+  const tr = { ts: series.map(p => p[0]), ds: series.map(p => p[1]), ok: false };
+  tr.span = (a, b) => [bisectLeft(tr.ts, a), bisectRight(tr.ts, b)];
+  const floors = [], amps = [], lags = [];
+  for (let k = 0; k + 1 < taps.length; k++) {
+    const [i0, i1] = tr.span(taps[k], taps[k + 1]);
+    if (i1 - i0 < 3) continue;
+    const seg = tr.ds.slice(i0, i1);
+    amps.push(Math.max(...seg) - Math.min(...seg));
+    const half = i0 + Math.max(1, Math.floor((i1 - i0) / 2));
+    let m = i0;
+    for (let q = i0; q < half; q++) if (tr.ds[q] < tr.ds[m]) m = q;
+    floors.push(tr.ds[m]);
+    lags.push(tr.ts[m] - taps[k]);
+  }
+  tr.ok = amps.length >= 3;
+  if (tr.ok) { tr.amp = median(amps); tr.floor = median(floors); tr.lag = median(lags); }
+  tr.midDip = (a, b) => {
+    const [i0, i1] = tr.span(a, b);
+    if (i1 - i0 < 5) return null;
+    let best = null;
+    for (let q = i0 + 1; q < i1 - 1; q++) {
+      const frac = (tr.ts[q] - a) / (b - a);
+      if (frac < MID_LO || frac > MID_HI) continue;
+      if (tr.ds[q] <= tr.ds[q - 1] && tr.ds[q] < tr.ds[q + 1]) {
+        const prom = Math.min(Math.max(...tr.ds.slice(i0, q + 1)), Math.max(...tr.ds.slice(q, i1))) - tr.ds[q];
+        if (prom >= MIN_DIP * tr.amp && (best === null || tr.ds[q] < tr.ds[best])) best = q;
+      }
+    }
+    return best;
+  };
+  return tr;
+}
+
+export function labelGaps(taps, series) {
+  const pairs = [];
+  for (let k = 0; k + 1 < taps.length; k++) pairs.push([taps[k], taps[k + 1]]);
+  if (pairs.length < 4 || !series.length) return [];
+  const tr = makeTrace(series, taps);
+  if (!tr.ok) return [];
+  const iti = pairs.map(([a, b]) => b - a);
+  const out = [];
+  pairs.forEach(([a, b], k) => {
+    const ratio = iti[k] / localMedian(iti, k);
+    if (ratio <= GAP_LONG) return;
+    const q = tr.midDip(a, b);
+    let kind;
+    if (q === null) kind = "pause";
+    else if (tr.ds[q] > tr.floor + FULL_CLOSE * tr.amp) kind = "partial_closure";
+    else if (ratio >= MISSED_LO && ratio <= MISSED_HI) kind = "missed_tap";
+    else kind = "pause";
+    out.push([a, b, kind]);
+  });
+  return out;
+}
+
+export function restoreMissedTap(taps, series) {
+  const labels = labelGaps(taps, series);
+  if (labels.length !== 1 || labels[0][2] !== "missed_tap") return null;
+  const [a, b] = labels[0];
+  const tr = makeTrace(series, taps);
+  const t = tr.ts[tr.midDip(a, b)] - tr.lag;
+  return a < t && t < b ? t : null;
+}
+
+const BANDS = ["success", "warning", "danger"];
+
+function scoredTaps(mode, tapTimes) {
+  return tapTimes.length - mode.trim_taps >= mode.min_taps ? tapTimes.slice(mode.trim_taps) : tapTimes;
+}
+
+/** Port of compute_metrics(): score as recorded, then forgive one missed tap
+ *  if the verdict moves one band at most. */
 export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
                                beatTimes = null, handVisibleRatio = 1.0,
                                cameraFps = null, nearMiss = 0) {
+  const args = [beatTimes, handVisibleRatio, cameraFps, nearMiss];
+  const out = scoreRun(mode, tapTimes, series, tStart, tEnd, ...args);
+  const scored = scoredTaps(mode, tapTimes);
+  const labels = out.scoreable ? labelGaps(scored, series) : [];
+  out.missed_tap_forgiven = 0;
+  out.cv_pct_unrepaired = out.cv_pct;
+  out.interruptions = out.scoreable ? labels.filter(l => l[2] !== "missed_tap").length : null;
+  if (!out.scoreable) return out;
+  const tNew = restoreMissedTap(scored, series);
+  if (tNew === null) return out;
+  const fixed = scoreRun(mode, [...tapTimes, tNew].sort((x, y) => x - y), series, tStart, tEnd, ...args);
+  if (!fixed.scoreable || BANDS.indexOf(out.status) - BANDS.indexOf(fixed.status) > 1) return out;
+  fixed.missed_tap_forgiven = 1;
+  fixed.cv_pct_unrepaired = out.cv_pct;
+  fixed.interruptions = out.interruptions;
+  return fixed;
+}
+
+/** Port of compute_metrics(). Same keys, same order of decisions, same
+ *  early-return reasons — those strings are shown to the participant. */
+function scoreRun(mode, tapTimes, series, tStart, tEnd,
+                  beatTimes = null, handVisibleRatio = 1.0,
+                  cameraFps = null, nearMiss = 0) {
   const out = {
     scoreable: false,
     reason: null,
@@ -293,6 +405,7 @@ export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
     n_intervals: null, cv_ci_low_pct: null, cv_ci_high_pct: null,
     confidence_pct: null, band_edge: null, taps_w10: null,
     frequency_hz_w10: null, cv_pct_w10: null, near_miss_taps: nearMiss,
+    opening_shrink_ratio: null,
   };
 
   if (tapTimes.length < mode.min_taps) {
@@ -363,6 +476,12 @@ export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
     if (aSd !== null && out.amplitude_mean > 0) {
       out.amplitude_cv_pct = (aSd / out.amplitude_mean) * 100.0;
     }
+  }
+  // Shrinking openings: last quarter over first. Information only.
+  if (amps.length >= 8) {
+    const k = Math.max(3, Math.floor(amps.length / 4));
+    const first = amps.slice(0, k).reduce((a, b) => a + b, 0) / k;
+    if (first > 0) out.opening_shrink_ratio = (amps.slice(-k).reduce((a, b) => a + b, 0) / k) / first;
   }
 
   if (mode.paced && beatTimes && beatTimes.length) {

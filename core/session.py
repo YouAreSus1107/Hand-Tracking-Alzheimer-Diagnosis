@@ -24,6 +24,9 @@ _INDEX_FIELDS = [
     "n_intervals", "cv_ci_low_pct", "cv_ci_high_pct", "confidence_pct",
     "band_edge", "taps_w10", "frequency_hz_w10", "cv_pct_w10",
     "near_miss_taps",
+    # own-baseline comparison (core/tapping/baseline.py): opening size is only
+    # comparable on the same camera, so the camera's name rides along
+    "amplitude_mean", "camera_name",
     # oculomotor (pro/anti-saccade) columns
     "error_rate_pct", "antisaccade_latency_ms", "prosaccade_latency_ms",
     "anti_minus_pro_ms", "valid_trials",
@@ -46,6 +49,9 @@ _INDEX_FIELDS = [
     "rest_amp_right_pct", "rest_peak_hz", "count_amp_pct", "postural_amp_pct",
     "postural_peak_hz", "asymmetry_ratio", "emergence_ratio",
     "glove_rest_peak_hz", "cam_glove_hz_diff",
+    # the lap holds (2026-09-27). count_amp_pct / emergence_ratio above belong
+    # to the retired counting hold and stay only so older rows keep them.
+    "palm_up_amp_pct", "palm_down_amp_pct",
     # provenance — "local" for a test run on this machine, "remote" for one
     # that arrived from a participant's phone (REMOTE_SESSION_PLAN.md §3.4).
     "source", "participant",
@@ -139,12 +145,28 @@ def save_session(*, test: str, mode: str, hand: str | None, duration_s: float,
         row = {"session_id": record["session_id"], "timestamp": record["timestamp"],
                "test": test, "mode": mode, "hand": hand,
                "duration_s": record["duration_s"],
-               "source": source, "participant": participant}
+               "source": source, "participant": participant,
+               "camera_name": (device or {}).get("camera_name", "")}
         row.update(_profile_row(profile))
         row.update({k: _round(metrics.get(k)) for k in _INDEX_FIELDS
                     if k in metrics})
         w.writerow(row)
     return path
+
+
+def load_index(test: str, mode: str | None = None) -> list[dict]:
+    """index.csv rows for one test (and mode), oldest first. Read-only: rows
+    written before a column existed simply have it empty."""
+    index = RESULTS_DIR / "index.csv"
+    if not index.exists():
+        return []
+    try:
+        with open(index, newline="", encoding="utf-8") as fh:
+            rows = [r for r in csv.DictReader(fh)
+                    if r.get("test") == test and (mode is None or r.get("mode") == mode)]
+    except (OSError, csv.Error):
+        return []
+    return sorted(rows, key=lambda r: r.get("timestamp") or "")
 
 
 def _profile_row(profile: dict | None) -> dict:

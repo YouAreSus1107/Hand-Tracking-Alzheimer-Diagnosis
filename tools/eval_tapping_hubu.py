@@ -95,6 +95,9 @@ def score(item: dict, trace: dict) -> dict:
             "cv_pct_w10": m["cv_pct_w10"], "amp_cv_pct": m["amplitude_cv_pct"],
             "decrement_pct_per_s": m["decrement_pct_per_s"],
             "confidence_pct": m["confidence_pct"], "status": m["status"],
+            "cv_pct_unrepaired": m["cv_pct_unrepaired"],
+            "missed_tap_forgiven": m["missed_tap_forgiven"],
+            "interruptions": m["interruptions"],
             "scoreable": m["scoreable"], "reason": m["reason"]}
 
 
