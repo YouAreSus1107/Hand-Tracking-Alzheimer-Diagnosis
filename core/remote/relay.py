@@ -254,6 +254,8 @@ def encode_fields(record: dict) -> dict:
 # ── The one function that talks to the network ─────────────────────────────
 
 def _url(cfg: dict, path: str, params: dict | None = None) -> str:
+    if "?" in path:
+        raise ValueError("query parameters belong in `params`, not the path")
     query = dict(params or {})
     query["key"] = str(cfg.get("api_key", "")).strip()
     return (f"{API_ROOT}/projects/{cfg['project_id']}/databases/(default)/"
@@ -327,8 +329,11 @@ def publish_invite(invite: dict) -> tuple[bool, str]:
         elif not stamp.endswith("Z"):
             stamp += "Z"
         fields["fields"]["expires_at"] = {"timestampValue": stamp}
-    ok, message, _ = fetch(f"{INVITES}?documentId={invite['token']}",
-                           method="POST", body=fields)
+    # documentId goes through `params`, never into the path: _url() appends
+    # its own "?key=…", and a second "?" made Firestore read the id as
+    # "<token>?key=<api key>", so the page could never find the invite.
+    ok, message, _ = fetch(INVITES, method="POST", body=fields,
+                           params={"documentId": invite["token"]})
     return ok, message or "Link published."
 
 

@@ -332,6 +332,40 @@ def test_encode_round_trips():
     assert decoded == record
 
 
+def test_published_invite_id_is_the_bare_token():
+    # Regression: documentId used to ride in the path, _url() added its own
+    # "?key=", and Firestore stored the invite as "<token>?key=<api key>".
+    import urllib.parse
+    import urllib.request
+
+    seen = []
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"{}"
+
+    saved = (relay.config, relay._id_token, relay.helper_uid,
+             urllib.request.urlopen)
+    relay.config = lambda: {"project_id": "p", "api_key": "KEY"}
+    relay._id_token = lambda: ("tok", "")
+    relay.helper_uid = lambda: "uid"
+    urllib.request.urlopen = lambda req, timeout=None: (seen.append(req.full_url), _Resp())[1]
+    try:
+        ok, _ = relay.publish_invite(_invite())
+    finally:
+        (relay.config, relay._id_token, relay.helper_uid,
+         urllib.request.urlopen) = saved
+
+    assert ok and len(seen) == 1
+    url = urllib.parse.urlsplit(seen[0])
+    assert url.path.endswith("/documents/invites"), url.path
+    query = urllib.parse.parse_qs(url.query)
+    token = query["documentId"][0]
+    assert "?" not in token and "KEY" not in token, token
+    assert query["key"] == ["KEY"]
+
+
 def test_relay_reports_what_is_missing_and_never_echoes_secrets():
     st = relay.status()
     assert set(st["missing"]) <= {"project_id", "api_key", "id_token"}
