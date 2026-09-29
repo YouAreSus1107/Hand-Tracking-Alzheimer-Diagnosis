@@ -465,8 +465,12 @@
     paint();
     // Everything the page cached while it had no hub — the canned status
     // payload, the empty session list — has to be thrown away, or the pills
-    // and the readings strip keep reporting the preview after pairing.
-    if (state === "connected" && was !== "connected") {
+    // and the readings strip keep reporting the preview after pairing. The
+    // same holds the other way: a hub that stops (or rejects the token) must
+    // take its sessions, roster and camera list with it, or the Analysis page
+    // keeps drawing them under a "Not connected" panel and a click on a dot
+    // opens a report the canned /api/session cannot answer.
+    if ((state === "connected") !== (was === "connected")) {
       if (typeof window.rehydrate === "function") window.rehydrate();
       else if (typeof window.refresh === "function") window.refresh();
     }

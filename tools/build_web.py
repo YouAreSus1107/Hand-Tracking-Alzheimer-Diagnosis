@@ -27,6 +27,7 @@ Stdlib only, matching launcher.py and install.py.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -101,6 +102,21 @@ def replace_once(text: str, old: str, new: str, what: str) -> str:
     return text.replace(old, new)
 
 
+# A picture slot with no art yet is a note to whoever draws it: the target
+# file path is printed inside it and the art brief rides in its hover title.
+# Locally that is the point; on the public site a visitor would read file
+# paths and "the character holds a finger to their lips". Only placeholders
+# match -- a finished slot is class="art-slot is-art" and carries no title.
+SLOT_FILE_RE = re.compile(r'<code class="slot-file">[^<]*</code>')
+SLOT_TITLE_RE = re.compile(r'(<figure) title="[^"]*"( class="art-slot")')
+
+
+def strip_slot_notes(html: str) -> tuple[str, int]:
+    html, n = SLOT_TITLE_RE.subn(r"\1\2", html)
+    html = SLOT_FILE_RE.sub("", html)
+    return html, n
+
+
 def write_firebase_config(dest: Path) -> None:
     """Emit web-build/s/firebase-config.js, or say why the page will be inert."""
     cfg = {}
@@ -138,7 +154,10 @@ def main() -> None:
             fail(f"missing {p.relative_to(REPO)}")
 
     clean(OUT)
-    shutil.copytree(WEB_SRC, OUT, dirs_exist_ok=True)
+    # img/<test>/README.md are the art briefs for the pictures still to be
+    # drawn -- working notes, not pages -- so they stay off the public host.
+    shutil.copytree(WEB_SRC, OUT, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("*.md"))
     # assets/fonts/ is the bundled CJK subset for the OpenCV overlays and
     # assets/screenshots/ is source material for the WebP copies the pages
     # actually use (launcher_web/img/); the site draws with neither, so both
@@ -160,7 +179,9 @@ def main() -> None:
     html = index.read_text(encoding="utf-8")
     html = replace_once(html, SHIM_ANCHOR, SHIM_TAG + SHIM_ANCHOR, "i18n.zh.js script tag")
     html = replace_once(html, FOOTER_OLD, FOOTER_NEW, "local-hub footer")
+    html, slots = strip_slot_notes(html)
     index.write_text(html, encoding="utf-8")
+    print(f"build_web: {slots} unfinished picture slot(s) published as plain placeholders")
 
     build_release.main()   # after clean(), which would have removed download/
 
