@@ -167,7 +167,9 @@
     "uniform sampler2D uState;",
     "uniform vec2 uTexel;",
     PACK,
-    "float hgt(vec2 uv){ return smoothstep(0.06, 0.30, st(uState, uv).y); }",
+    "/* Wide ramp: the whole strand cross-section is a slope, so strands light",
+    "   as rounded tubes rather than flat plateaus with a bevelled lip */",
+    "float hgt(vec2 uv){ return smoothstep(0.0, 0.40, st(uState, uv).y); }",
     "void main(){",
     "  float v = st(uState, vUv).y;",
     "  float h  = hgt(vUv);",
@@ -182,22 +184,40 @@
     "}"
   ].join("\n");
 
-  /* Display, at window size: interpolated V, thresholded after filtering */
+  /* Display, at window size. The strands are treated as a height field
+     (prep G/B hold its gradient) and lit from the upper right, the same
+     direction as hand3d.js's key light, so the hand and the surface share one
+     sun: wrapped diffuse, a narrow highlight along the crests, a teal rim on
+     the slopes facing away, and darkening in the tight valleys (curvature). */
   const dispFS = [
     PRECISION,
     "varying vec2 vUv;",
     "uniform sampler2D uPrep;",
+    "uniform vec3 uLight;",
+    "const float RELIEF = 4.5;",
     "void main(){",
-    "  float v = texture2D(uPrep, vUv).r*0.4;",
+    "  vec4 p = texture2D(uPrep, vUv);",
+    "  float v = p.r*0.4;",
+    "  vec2 g = (p.gb - 0.5)*2.0;",
+    "  float curv = (p.a - 0.5)*4.0;",
     "  float cx = abs(vUv.x - 0.5)*2.0;",
     "  float mask = smoothstep(0.1, 0.5, cx);",
     "  float edgeBoost = smoothstep(0.5, 0.95, cx)*0.15;",
     "  /* A narrower ramp than the prep height: crisp outline, same strand width */",
     "  float sig = smoothstep(0.12, 0.20, v);",
+    "  vec3 n = normalize(vec3(-g*RELIEF, 1.0));",
+    "  float dif = dot(n, uLight)*0.5 + 0.5;",
+    "  vec3 hv = normalize(uLight + vec3(0.0, 0.0, 1.0));",
+    "  float spec = pow(max(dot(n, hv), 0.0), 48.0);",
+    "  float slope = length(n.xy);",
+    "  float away = max(0.0, -dot(n.xy/(slope + 1e-4), normalize(uLight.xy)));",
+    "  float rim = smoothstep(0.15, 0.7, slope)*away;",
+    "  float cav = clamp(curv, 0.0, 1.0);",
     "  vec3 teal = vec3(0.071, 0.647, 0.580);",
     "  vec3 bright = vec3(0.10, 0.75, 0.70);",
-    "  vec3 col = mix(teal, bright, sig*0.5);",
-    "  gl_FragColor = vec4(col, sig * mask * (0.35 + edgeBoost));",
+    "  vec3 col = teal*(0.35 + 0.8*dif) + bright*spec*0.45 + teal*rim*0.35;",
+    "  col *= 1.0 - 0.4*cav;",
+    "  gl_FragColor = vec4(col, sig * mask * (0.42 + edgeBoost));",
     "}"
   ].join("\n");
 
@@ -238,6 +258,9 @@
   const uState_prep = gl.getUniformLocation(prepProg, "uState");
   const uTexel_prep = gl.getUniformLocation(prepProg, "uTexel");
   const uPrep_disp = gl.getUniformLocation(dispProg, "uPrep");
+  const uLight_disp = gl.getUniformLocation(dispProg, "uLight");
+  /* hand3d.js's key light sits at (2, 3, 2): upper right, toward the viewer */
+  const LIGHT = (function(){ const l = Math.hypot(2,3,2); return [2/l, 3/l, 2/l]; })();
   const uSeedLoc = gl.getUniformLocation(seedProg, "uSeed");
   const uResLoc = gl.getUniformLocation(seedProg, "uRes");
 
@@ -379,6 +402,7 @@
     gl.viewport(0,0,dispW,dispH);
     gl.bindTexture(gl.TEXTURE_2D, texP);
     gl.uniform1i(uPrep_disp, 0);
+    gl.uniform3f(uLight_disp, LIGHT[0], LIGHT[1], LIGHT[2]);
     bindQuad(dispProg);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
