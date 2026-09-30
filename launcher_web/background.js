@@ -194,6 +194,11 @@
     "varying vec2 vUv;",
     "uniform sampler2D uPrep;",
     "uniform vec3 uLight;",
+    "uniform vec2 uPrepTexel;",
+    "uniform vec4 uFade;       /* centre xy, radii xy of the clear ellipse, in UV */",
+    "const float SHADOW = 0.45, SHADOW_OFF = 2.5, FADE_FLOOR = 0.08;",
+    "const vec3 C_SHADOW = vec3(0.012, 0.024, 0.055);",
+    "float strand(vec2 uv){ return smoothstep(0.08, 0.25, texture2D(uPrep, uv).r*0.4); }",
     "const float RELIEF = 4.5;",
     "/* Palette by height, from the design tokens (styles.css): a blue-ink",
     "   valley (--bg pushed toward --interactive), a deep teal, --brand, and a",
@@ -213,11 +218,15 @@
     "  vec2 g = (p.gb - 0.5)*2.0;",
     "  float curv = (p.a - 0.5)*4.0;",
     "  float cx = abs(vUv.x - 0.5)*2.0;",
-    "  float mask = smoothstep(0.1, 0.5, cx);",
+    "  /* Atmospheric fade instead of a hard cut-out: toward the middle the",
+    "     maze loses relief and contrast and sinks into the page, so it wraps",
+    "     around whatever sits there instead of stopping in two strips */",
+    "  float far = smoothstep(0.40, 0.90, length((vUv - uFade.xy)/uFade.zw));",
+    "  float mask = mix(FADE_FLOOR, 1.0, far);",
     "  float edgeBoost = smoothstep(0.5, 0.95, cx)*0.15;",
     "  /* A narrower ramp than the prep height: crisp outline, same strand width */",
     "  float sig = smoothstep(0.12, 0.20, v);",
-    "  vec3 n = normalize(vec3(-g*RELIEF, 1.0));",
+    "  vec3 n = normalize(vec3(-g*RELIEF*mix(0.3, 1.0, far), 1.0));",
     "  float dif = dot(n, uLight)*0.5 + 0.5;",
     "  vec3 hv = normalize(uLight + vec3(0.0, 0.0, 1.0));",
     "  float spec = pow(max(dot(n, hv), 0.0), 48.0);",
@@ -231,7 +240,18 @@
     "  vec3 base = ramp(clamp((hs - 0.2)/0.8, 0.0, 1.0));",
     "  vec3 col = base*(0.35 + 0.8*dif) + C_CREST*spec*0.35 + C_BRAND*rim*0.35;",
     "  col *= 1.0 - 0.4*cav;",
-    "  gl_FragColor = vec4(col, sig * mask * (0.55 + edgeBoost));",
+    "  col = mix(C_INK*1.4, col, 0.45 + 0.55*far);",
+    "  /* Cast shadow: the strands up-light of this pixel, blurred, drawn as a",
+    "     soft dark layer under the maze so it floats above the page */",
+    "  vec2 off = normalize(uLight.xy)*SHADOW_OFF*uPrepTexel;",
+    "  vec2 bl = uPrepTexel*1.2;",
+    "  float sh = 0.25*(strand(vUv + off + vec2(bl.x, bl.y)) + strand(vUv + off + vec2(-bl.x, bl.y))",
+    "                 + strand(vUv + off + vec2(bl.x, -bl.y)) + strand(vUv + off - bl));",
+    "  float aS = sig*mask*(0.55 + edgeBoost);",
+    "  float aSh = sh*SHADOW*mask*(1.0 - sig);",
+    "  float a = aS + aSh*(1.0 - aS);",
+    "  vec3 c = (col*aS + C_SHADOW*aSh*(1.0 - aS))/max(a, 1e-4);",
+    "  gl_FragColor = vec4(c, a);",
     "}"
   ].join("\n");
 
@@ -273,6 +293,11 @@
   const uTexel_prep = gl.getUniformLocation(prepProg, "uTexel");
   const uPrep_disp = gl.getUniformLocation(dispProg, "uPrep");
   const uLight_disp = gl.getUniformLocation(dispProg, "uLight");
+  const uPrepTexel_disp = gl.getUniformLocation(dispProg, "uPrepTexel");
+  const uFade_disp = gl.getUniformLocation(dispProg, "uFade");
+  /* The clear ellipse the maze fades out toward: centre x, y, radius x, y
+     (UV, 0..1). Sized for the centred page column; a layout can resize it. */
+  const FADE = [0.5, 0.5, 0.30, 1.1];
   /* hand3d.js's key light sits at (2, 3, 2): upper right, toward the viewer */
   const LIGHT = (function(){ const l = Math.hypot(2,3,2); return [2/l, 3/l, 2/l]; })();
   const uSeedLoc = gl.getUniformLocation(seedProg, "uSeed");
@@ -417,6 +442,8 @@
     gl.bindTexture(gl.TEXTURE_2D, texP);
     gl.uniform1i(uPrep_disp, 0);
     gl.uniform3f(uLight_disp, LIGHT[0], LIGHT[1], LIGHT[2]);
+    gl.uniform2f(uPrepTexel_disp, 1.0/simW, 1.0/simH);
+    gl.uniform4f(uFade_disp, FADE[0], FADE[1], FADE[2], FADE[3]);
     bindQuad(dispProg);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
