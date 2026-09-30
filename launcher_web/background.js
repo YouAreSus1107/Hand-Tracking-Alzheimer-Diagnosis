@@ -21,15 +21,25 @@
   if(!gl){ cssFallback(); return; }
   let dead = false;
 
+  /* The maze is simulated at a third of the window's size, but drawn at the
+     window's own resolution: the display pass interpolates the field and only
+     then thresholds it, so strand edges stay crisp instead of being a
+     stretched third-size bitmap. */
   const SCALE = 0.333;
-  let W, H, simW, simH;
+  const RES_CAP = 1.5;         /* max device pixels per CSS pixel for the display */
+  let W, H, simW, simH, dispW, dispH;
+  function sizeCanvas(){
+    const d = Math.min(window.devicePixelRatio || 1, RES_CAP);
+    dispW = Math.max(1, Math.floor(W*d));
+    dispH = Math.max(1, Math.floor(H*d));
+    canvas.width = dispW; canvas.height = dispH;
+  }
   function resize(){
     W = innerWidth; H = innerHeight;
     canvas.style.width = W+"px"; canvas.style.height = H+"px";
     simW = Math.max(1, Math.floor(W*SCALE));
     simH = Math.max(1, Math.floor(H*SCALE));
-    canvas.width = simW; canvas.height = simH;
-    gl.viewport(0,0,simW,simH);
+    sizeCanvas();
     initTextures();
     seedPattern();
   }
@@ -146,18 +156,44 @@
     "}"
   ].join("\n");
 
-  /* Display: decode V, sharpen worms, brand teal, center mask */
-  const dispFS = [
+  /* Prep, at simulation size: turns the packed state into a plain RGBA8
+     surface the display can sample with LINEAR filtering (the packed state
+     cannot be filtered: blending the high and low bytes separately is
+     meaningless). R = V scaled into 0..1 (V stays under ~0.4 in this regime),
+     G/B = gradient of the strand height, A = its Laplacian (curvature). */
+  const prepFS = [
     PRECISION,
     "varying vec2 vUv;",
     "uniform sampler2D uState;",
+    "uniform vec2 uTexel;",
     PACK,
+    "float hgt(vec2 uv){ return smoothstep(0.06, 0.30, st(uState, uv).y); }",
     "void main(){",
     "  float v = st(uState, vUv).y;",
+    "  float h  = hgt(vUv);",
+    "  float hE = hgt(vUv + vec2(uTexel.x, 0.0));",
+    "  float hW = hgt(vUv - vec2(uTexel.x, 0.0));",
+    "  float hN = hgt(vUv + vec2(0.0, uTexel.y));",
+    "  float hS = hgt(vUv - vec2(0.0, uTexel.y));",
+    "  vec2 g = vec2(hE - hW, hN - hS)*0.5;",
+    "  float lap = hE + hW + hN + hS - 4.0*h;",
+    "  gl_FragColor = vec4(clamp(v/0.4, 0.0, 1.0), g*0.5 + 0.5,",
+    "                      clamp(lap*0.25 + 0.5, 0.0, 1.0));",
+    "}"
+  ].join("\n");
+
+  /* Display, at window size: interpolated V, thresholded after filtering */
+  const dispFS = [
+    PRECISION,
+    "varying vec2 vUv;",
+    "uniform sampler2D uPrep;",
+    "void main(){",
+    "  float v = texture2D(uPrep, vUv).r*0.4;",
     "  float cx = abs(vUv.x - 0.5)*2.0;",
     "  float mask = smoothstep(0.1, 0.5, cx);",
     "  float edgeBoost = smoothstep(0.5, 0.95, cx)*0.15;",
-    "  float sig = smoothstep(0.06, 0.30, v);",
+    "  /* A narrower ramp than the prep height: crisp outline, same strand width */",
+    "  float sig = smoothstep(0.12, 0.20, v);",
     "  vec3 teal = vec3(0.071, 0.647, 0.580);",
     "  vec3 bright = vec3(0.10, 0.75, 0.70);",
     "  vec3 col = mix(teal, bright, sig*0.5);",
@@ -189,6 +225,7 @@
   ].join("\n");
 
   const simProg = makeProg(simVS, simFS);
+  const prepProg = makeProg(simVS, prepFS);
   const dispProg = makeProg(simVS, dispFS);
   const seedProg = makeProg(simVS, seedFS);
 
@@ -198,18 +235,23 @@
   const uMouseR = gl.getUniformLocation(simProg, "uMouseR");
   const uAspect = gl.getUniformLocation(simProg, "uAspect");
   const uTime = gl.getUniformLocation(simProg, "uTime");
-  const uState_disp = gl.getUniformLocation(dispProg, "uState");
+  const uState_prep = gl.getUniformLocation(prepProg, "uState");
+  const uTexel_prep = gl.getUniformLocation(prepProg, "uTexel");
+  const uPrep_disp = gl.getUniformLocation(dispProg, "uPrep");
   const uSeedLoc = gl.getUniformLocation(seedProg, "uSeed");
   const uResLoc = gl.getUniformLocation(seedProg, "uRes");
 
-  let texA, texB, fboA, fboB;
-  /* Plain RGBA8: universally renderable + NPOT-safe with CLAMP/NEAREST */
-  function makeTex(w,h){
+  let texA, texB, fboA, fboB, texP, fboP;
+  /* Plain RGBA8: universally renderable + NPOT-safe with CLAMP and no mipmaps.
+     The simulation state is NEAREST (it is packed); the prep surface is
+     LINEAR, which WebGL1 allows on NPOT textures without mipmaps. */
+  function makeTex(w,h,filter){
+    const f = filter || gl.NEAREST;
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
@@ -230,10 +272,14 @@
     if(texB) gl.deleteTexture(texB);
     if(fboA) gl.deleteFramebuffer(fboA);
     if(fboB) gl.deleteFramebuffer(fboB);
-    texA = makeTex(simW, simH, null);
-    texB = makeTex(simW, simH, null);
+    if(texP) gl.deleteTexture(texP);
+    if(fboP) gl.deleteFramebuffer(fboP);
+    texA = makeTex(simW, simH);
+    texB = makeTex(simW, simH);
+    texP = makeTex(simW, simH, gl.LINEAR);
     fboA = makeFBO(texA);
     fboB = makeFBO(texB);
+    fboP = makeFBO(texP);
   }
 
   function seedPattern(){
@@ -241,6 +287,7 @@
     if(dead) return;
     gl.useProgram(seedProg);
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboA);
+    gl.viewport(0,0,simW,simH);
     gl.uniform1f(uSeedLoc, Math.random()*100.0);
     gl.uniform2f(uResLoc, simW, simH);
     bindQuad(seedProg);
@@ -316,11 +363,22 @@
   }
 
   function display(src){
-    gl.useProgram(dispProg);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    /* 1. Prep surface, at simulation size */
+    gl.useProgram(prepProg);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboP);
+    gl.viewport(0,0,simW,simH);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, src);
-    gl.uniform1i(uState_disp, 0);
+    gl.uniform1i(uState_prep, 0);
+    gl.uniform2f(uTexel_prep, 1.0/simW, 1.0/simH);
+    bindQuad(prepProg);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    /* 2. Screen, at window size */
+    gl.useProgram(dispProg);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0,0,dispW,dispH);
+    gl.bindTexture(gl.TEXTURE_2D, texP);
+    gl.uniform1i(uPrep_disp, 0);
     bindQuad(dispProg);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
@@ -341,6 +399,7 @@
   function loop(){
     if(dead){ running = false; return; }
     const steps = warmupLeft > 0 ? 50 : STEPS_PER_FRAME;
+    gl.viewport(0,0,simW,simH);
     for(let i=0; i<steps; i++){
       simStep(texA, texB, fboB, tick++);
       let tmp;
