@@ -1,152 +1,172 @@
 # Hand-Detection-3D
 
-Webcam motor and eye-movement tests, built to measure the kinds of fine-motor
-changes that show up in the early-cognitive-decline literature. Runs on
-OpenCV + MediaPipe with no hardware beyond a camera.
+Six short motor tests that run on an ordinary webcam and microphone, aimed at
+the fine-motor, eye-movement and speech changes that research links to early
+cognitive decline and Parkinson's disease. A local web hub launches the tests,
+keeps each person's results, and charts them over time.
 
-The tracking core started as a real-time hand-tracking pipeline driving a rigged
-3D hand in Unity. It was rewritten around the MediaPipe Tasks API and pointed at
-motor measurement instead.
+<!-- Hero screenshot goes here: assets/screenshots/<file> -->
 
 ## Status
 
-This is a research prototype, not a screening tool. Nobody has run it on a
-clinical population, and it has not been validated against any reference
-instrument. Specifically:
+This is a research prototype, not a diagnostic or screening device.
 
-- Scoring thresholds are taken from the papers cited below, not fitted to data
-  collected with this pipeline. Treat the status bands as provisional.
-- It has mostly been run on one laptop and one camera. Some scaling is tied to
-  the capture resolution and will need work on other setups.
-- The hand and face landmark models are Google's pretrained MediaPipe bundles.
-  What is here is the measurement layer on top of them.
+- Only the finger tapping test has been checked against outside data (see
+  [Validation](#validation)). The other tests' result bands come from the
+  papers they are based on and are provisional.
+- The tremor test's offline analysis, the walking test and the speech test's
+  vowel part are built and unit-tested but have not yet been run live.
+- Most runs so far come from a small number of people on a few cameras.
 
-## Tests
+## The tests
 
-| Test | Task | Primary metric |
+| Test | What the person does | Headline measure |
 |---|---|---|
-| Finger tapping (`screening_tests/finger_tapping.py`) | Tap thumb and index together, either at maximum speed or on a metronome | CV% of inter-tap intervals, plus beat-sync consistency in paced mode |
-| Spiral tracing (`screening_tests/spiral_test.py`) | Trace an Archimedes spiral in the air with the index fingertip | SPARC movement-smoothness index, with normalized jerk and velocity CV% |
-| Eye movement (`screening_tests/oculomotor_test.py`) | Look toward a flashing dot, then away from it, then hold fixation | Anti-saccade error rate, Anti − Pro latency, fixation stability (RMS jitter, BCEA) |
+| Finger tapping | Tap thumb and index finger together, as big and fast as possible or in time with a metronome | Rhythm variability (CV% of the intervals between taps) |
+| Spiral | Trace a spiral in the air with the index fingertip | Movement smoothness (SPARC, 0–100) |
+| Eye movement | Look toward a dot, then away from it, then hold still | Anti-saccade error rate, with latency and fixation stability |
+| Speech | Say "pa-ta-ka" repeatedly, then hold an "ahh" | Syllable rhythm variability; voice jitter (Praat) |
+| Tremor | Rest both hands in the lap, palms up and then down, then hold the arms out | Tremor frequency and size for each hand |
+| Walking (seated part) | Stamp each leg in turn, then stand up from a chair five times | Five sit-to-stand time |
 
-Each test writes one JSON file per session to `results/` plus a row in
-`results/index.csv`. The launcher charts those over time on its Analysis page.
+Tremor is a supporting check. It flags a tremor that would otherwise inflate
+the tapping and spiral scores, and it is how the camera is checked against the
+glove. It is not a cognitive marker on its own.
 
-Sources for the metrics and thresholds: Namkoong & Roh (2024), *Technology and
-Health Care* 32(S1):253–264; Suzumura et al.; Roalf et al. (2018); Kachouri et
-al. (2021); Schroter et al. (2003); Balasubramanian et al. (2015) for SPARC.
-For the oculomotor test: Opwonya et al. (2022), Crawford et al. (2005), and the
-Antoniades et al. (2013) protocol. The full reading notes behind those choices
-are kept locally and are not published here.
+Each run is saved as one JSON file in `results/` plus a row in
+`results/index.csv`, tagged with the person it belongs to. Nothing leaves the
+machine. Audio and video are never saved, only the measurements and the traces
+derived from them.
+
+## Validation
+
+The tapping test has been run, unchanged, on two public datasets.
+
+**Accuracy: [EHWGesture](https://github.com/smilies-polito/EHWGesture).**
+These are tapping videos filmed next to a 120 fps motion-capture system, so
+the true time of every tap is known. On the held-out volunteers, the test
+found 99.7% of taps. Its CV% had a median error of 0.7 points, and 45 of 47
+recordings landed in the same result band as the motion-capture reference.
+
+**Clinical: [HUBU-FIS](https://zenodo.org/records/17738775).** This dataset
+has 234 phone videos from 75 people with Parkinson's disease and 43 controls,
+each hand rated by a neurologist on the UPDRS finger-tapping item. The
+analysis plan was written before any result was seen.
+
+| Measure | Result |
+|---|---|
+| Spearman correlation between CV% and UPDRS grade | 0.47 (95% CI 0.33–0.59) |
+| AUC, UPDRS 2–3 vs. 0 | 0.86 (95% CI 0.77–0.94) |
+| UPDRS 0 hands graded Typical | 93% |
+| UPDRS 2–3 hands flagged | 73% |
+| Videos scored | 229 of 234 |
+
+These numbers describe detecting a motor impairment in Parkinson's disease.
+They say nothing yet about cognitive decline.
 
 ## Setup
 
+Windows, Python 3.9–3.12.
+
 ```bash
-python install.py     # creates .venv, installs deps, downloads model bundles
-python launcher.py    # control hub at http://127.0.0.1:8770
+python install.py                  # creates .venv, installs deps, downloads the models
+.venv/Scripts/python launcher.py   # hub at http://127.0.0.1:8770
 ```
 
 On Windows, `setup.bat` and `run_hub.bat` do the same by double-click.
-`install.py` uses only the standard library and downloads
-`model/face_landmarker.task`, which is too large to keep in the repo. If you
-manage your own environment, `pip install -r requirements.txt` also works.
+`python install.py --speech-ml` adds an optional phoneme model for the speech
+test (about 1.4 GB).
 
-To run a test without the launcher, use the venv interpreter:
+The camera, the language (English or 繁體中文) and the person being tested are
+chosen in the hub, and each test picks them up when it starts. A test can also
+be run directly, for example `.venv/Scripts/python screening_tests/finger_tapping.py`,
+and it then asks for a camera in the console. In any test, `q` quits and `s`
+skips a practice phase.
 
-```bash
-.venv/Scripts/python screening_tests/finger_tapping.py
-```
+## Tests for the code
 
-Each tool asks for a camera source at startup: `1` for a local webcam, `2` for
-an IP stream URL such as the Android IP Webcam app. Press `q` to quit. Audio
-cues use `winsound` on Windows and `sounddevice` elsewhere.
-
-Unit tests cover the pure engine code and need no camera or hardware:
+The engines are pure Python and their tests need no camera:
 
 ```bash
-python screening_tests/tests/test_gaze.py
-python screening_tests/tests/test_spiral.py
-python screening_tests/tests/test_glove.py
+python screening_tests/tests/test_tapping.py
+python screening_tests/tests/test_run_loops.py    # every camera test's run loop, headless (~3 min)
 ```
 
+`screening_tests/tests/` has one file per engine (tapping, spiral, gaze,
+speech, tremor, gait, glove) and a few for shared parts (framing, camera,
+translations, profiles, remote sessions).
 
 ## The published dashboard
 
-The same dashboard is published as a static site. It cannot run the tests —
-they are Python and need the camera — so it drives the hub on your own
+The same dashboard is published as a static site. It cannot run the tests
+(they are Python and need the camera), so it connects to the hub on your own
 machine instead: start `run_hub.bat`, open the site, and press **Connect**.
-The hub hands the page a pairing token through a redirect, after which every
-button on the site works against your local install. Recordings never leave
-your machine; the browser talks to `127.0.0.1`, not to the host.
-
-Chrome or Edge only — Safari blocks a local connection from an https page.
-
-Publishing it:
+The hub pairs with the page through a redirect, and from then on every button
+on the site works against your local install. The browser talks to
+`127.0.0.1`, so recordings never reach the host. Chrome or Edge only; Safari
+blocks a local connection from an https page.
 
 ```bash
-python tools/build_web.py          # web-build/ + the setup bundle it hands out
+python tools/build_web.py          # web-build/ plus the setup bundle it offers
 firebase deploy --only hosting
 ```
 
-`tools/build_release.py` packages `git archive` of the current commit, so
-commit before building or the download will ship the previous version.
+The download bundle is built from the current commit, so commit first.
 
 ## Layout
 
 ```
-launcher.py            Control hub, standard library only
-launcher_web/          Hub frontend (index.html, styles.css, app.js, dev.js,
-                       background.js, hand3d.js)
+launcher.py            The hub: local web server, standard library only
+launcher_web/          Hub frontend (plain JS, no build step)
+screening_tests/       One entry script per test, and tests/ for the unit tests
 core/
-  hand_tracking.py     21-landmark tracker + UDP broadcast on port 5052
-  hand_utils.py        One-Euro filtering, CLAHE preprocessing, connectivity
-  camera.py            Camera-source prompt/open helper
+  tapping/ spiral/ gaze/ speech/ tremor/ gait/
+                       One pure engine per test: detection, metrics, confidence
+  camera.py            Camera choice by name, frame-rate measurement, mirroring
+  framing.py           Is the whole hand in the picture?
   session.py           Results schema: results/*.json + index.csv
-  tapping/             Tapping engine (modes, detector, metrics, audio)
-  spiral/              Spiral engine (geometry, metrics)
-  gaze/                Gaze engine (tracker, calibrate, detector, metrics,
-                       tasks, fixation)
-  glove/               Sensor-glove host stack (protocol, force, serial_io)
-  ui/                  PIL-overlay UI toolkit (theme, components, anim)
-screening_tests/       The three tests, plus tests/ for the engine unit tests
+  profiles.py          The roster of people being tested
+  i18n.py              English/Chinese for the test screens
+  ui/                  Drawing toolkit for the test screens
+  glove/               Sensor-glove host code (serial protocol, force, bend, IMU)
+  remote/              Remote sessions on the participant's phone (paused prototype)
+participant/           The browser page for remote sessions
 firmware/glove/        Arduino sketch for the sensor glove
-tools/                 build_web.py + build_release.py, and the connector
-                       that bridges the published site to a local hub
+tools/                 Site build, release bundle, dataset evaluations
 model/                 MediaPipe model bundles
+assets/                3D hand model, fonts, screenshots
 results/               Session output (git-ignored)
 ```
 
-## How the tracking works
+## How the measurement works
 
-- MediaPipe Tasks API (`HandLandmarker`, VIDEO mode), not the deprecated
-  `solutions` API, so it runs on Python 3.12+.
-- One-Euro filtering on landmark x/y for display. z is left raw, since
-  monocular depth is too noisy to smooth usefully. The spiral test measures
-  jitter on the raw fingertip, because the filter would erase the signal it is
-  looking for.
-- CLAHE on the luminance channel plus light sharpening before detection, which
-  helps in poor lighting. The displayed frame is untouched.
-- `core/hand_tracking.py` broadcasts each hand as
-  `L:[x1,y1,z1,...,x21,y21,z21]` over UDP to `127.0.0.1:5052` for any
-  downstream consumer.
-- The oculomotor test uses the Face Landmarker (478 landmarks including iris).
-  Its horizontal gaze proxy is iris-center x relative to the eye corners, which
-  is invariant to head translation, smoothed and mapped to screen zones by a
-  3-point per-user calibration.
+- MediaPipe Tasks API in VIDEO mode: the hand (21 points), face and iris
+  (478 points) and body pose models. The models are Google's; this project is
+  the measurement layer on top.
+- Anything that measures jitter or tremor reads the raw landmarks. The
+  smoothing filter is only for what is drawn on screen, because it would erase
+  the signal.
+- A hand partly out of frame is not trusted, since MediaPipe keeps guessing the
+  hidden points. Tapping pauses and the spiral skips those frames.
+- Each result carries a confidence score (sample size, tracking quality,
+  timing), shown beside the verdict.
+- The sensor glove (Arduino Nano 33 BLE, 100 Hz) streams fingertip force, finger
+  bend and IMU data. The tremor test compares the glove's gyroscope with the
+  camera.
 
-## Sensor glove (in progress)
+## Sources
 
-`firmware/glove/glove.ino` streams 12-bit samples from an Arduino Nano 33 BLE at
-100 Hz; `core/glove/` parses the frames, records them, and converts resistance
-to approximate force using the published Interlink FSR402 curve. Per-user
-calibration is not done yet, so forces are approximate and readings outside the
-sensor's rated 0.2–20 N band are flagged rather than reported. Build order and
-verification gates are tracked in a local plan document.
+Tapping: Namkoong & Roh (2024), *Technology and Health Care* 32(S1):253–264;
+Suzumura et al.; Roalf et al. (2018). Spiral: Kachouri et al. (2021),
+Schroter et al. (2003), Balasubramanian et al. (2015) for SPARC. Eye movement:
+Opwonya et al. (2022), Crawford et al. (2005), and the Antoniades et al. (2013)
+protocol. Voice: Praat's standard perturbation measures via
+praat-parselmouth.
 
 ## Origins
 
 The tracking pipeline began from
 [imadeddinedjekoune/Hand-Detection-3D](https://github.com/imadeddinedjekoune/Hand-Detection-3D),
-which mirrored a hand onto a rigged model in Unity. This project modernized the
-tracker and redirected it toward motor measurement. The Unity side is retired
-and kept only in a local archive.
+which mirrored a hand onto a rigged model in Unity. This project rewrote the
+tracker around the MediaPipe Tasks API and turned it toward motor measurement.
+The Unity side is retired.
