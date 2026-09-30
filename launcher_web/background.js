@@ -28,8 +28,13 @@
   const SCALE = 0.333;
   const RES_CAP = 1.5;         /* max device pixels per CSS pixel for the display */
   let W, H, simW, simH, dispW, dispH;
+  /* Display resolution steps the frame-time guard can fall back through:
+     full (capped), one device pixel per CSS pixel, then the simulation's own
+     size (the cost of the original background). */
+  let quality = 0;
   function sizeCanvas(){
-    const d = Math.min(window.devicePixelRatio || 1, RES_CAP);
+    const full = Math.min(window.devicePixelRatio || 1, RES_CAP);
+    const d = [full, Math.min(full, 1.0), SCALE][quality];
     dispW = Math.max(1, Math.floor(W*d));
     dispH = Math.max(1, Math.floor(H*d));
     canvas.width = dispW; canvas.height = dispH;
@@ -184,11 +189,38 @@
     "}"
   ].join("\n");
 
+  /* ── Look: every tuning knob for the drawn surface, in one place ──
+     Colours are the design tokens (styles.css): a blue-ink valley (--bg
+     pushed toward --interactive), a deep teal, --brand, and a pale cyan crest.
+     None of this touches the simulation. */
+  const LOOK = {
+    relief:     4.5,    /* how raised the strands look (normal strength) */
+    diffuse:    0.8,    /* lit share of the colour; the rest is ambient 0.35 */
+    spec:       0.35,   /* crest highlight strength */
+    shininess:  48.0,   /* crest highlight tightness */
+    rim:        0.35,   /* teal rim on slopes facing away from the light */
+    cavity:     0.4,    /* darkening of tight valleys */
+    opacity:    0.55,   /* strand opacity at full visibility */
+    shadow:     0.45,   /* cast shadow opacity */
+    shadowOff:  2.5,    /* cast shadow offset, in simulation texels */
+    fadeFloor:  0.08,   /* strand visibility at the centre of the fade */
+    lean:       0.35,   /* how far the light tilts toward the cursor */
+    ink:   "#0B1830", deep: "#0E6F78", brand: "#12A594", crest: "#9FEDE3",
+    shadowColor: "#03060E"
+  };
+  function glf(x){ return Number(x).toFixed(4); }
+  function glc(hex){
+    const n = parseInt(hex.slice(1), 16);
+    return "vec3(" + [n>>16 & 255, n>>8 & 255, n & 255].map(c => glf(c/255)).join(", ") + ")";
+  }
+
   /* Display, at window size. The strands are treated as a height field
      (prep G/B hold its gradient) and lit from the upper right, the same
      direction as hand3d.js's key light, so the hand and the surface share one
      sun: wrapped diffuse, a narrow highlight along the crests, a teal rim on
-     the slopes facing away, and darkening in the tight valleys (curvature). */
+     the slopes facing away, and darkening in the tight valleys (curvature).
+     uMode selects a review view (?bg=): 0 full, 1 height, 2 normals,
+     3 lighting only, 4 flat (the pre-2026-09-30 look). */
   const dispFS = [
     PRECISION,
     "varying vec2 vUv;",
@@ -196,17 +228,18 @@
     "uniform vec3 uLight;",
     "uniform vec2 uPrepTexel;",
     "uniform vec4 uFade;       /* centre xy, radii xy of the clear ellipse, in UV */",
-    "const float SHADOW = 0.45, SHADOW_OFF = 2.5, FADE_FLOOR = 0.08;",
-    "const vec3 C_SHADOW = vec3(0.012, 0.024, 0.055);",
+    "uniform float uMode;",
+    "const float RELIEF = " + glf(LOOK.relief) + ", DIFFUSE = " + glf(LOOK.diffuse) + ";",
+    "const float SPEC = " + glf(LOOK.spec) + ", SHININESS = " + glf(LOOK.shininess) + ";",
+    "const float RIM = " + glf(LOOK.rim) + ", CAVITY = " + glf(LOOK.cavity) + ", OPACITY = " + glf(LOOK.opacity) + ";",
+    "const float SHADOW = " + glf(LOOK.shadow) + ", SHADOW_OFF = " + glf(LOOK.shadowOff) + ", FADE_FLOOR = " + glf(LOOK.fadeFloor) + ";",
+    "const vec3 C_INK   = " + glc(LOOK.ink) + ";",
+    "const vec3 C_DEEP  = " + glc(LOOK.deep) + ";",
+    "const vec3 C_BRAND = " + glc(LOOK.brand) + ";",
+    "const vec3 C_CREST = " + glc(LOOK.crest) + ";",
+    "const vec3 C_SHADOW = " + glc(LOOK.shadowColor) + ";",
     "float strand(vec2 uv){ return smoothstep(0.08, 0.25, texture2D(uPrep, uv).r*0.4); }",
-    "const float RELIEF = 4.5;",
-    "/* Palette by height, from the design tokens (styles.css): a blue-ink",
-    "   valley (--bg pushed toward --interactive), a deep teal, --brand, and a",
-    "   pale cyan crest. The highlight uses the crest colour, never white. */",
-    "const vec3 C_INK   = vec3(0.043, 0.094, 0.188);",
-    "const vec3 C_DEEP  = vec3(0.055, 0.435, 0.471);",
-    "const vec3 C_BRAND = vec3(0.071, 0.647, 0.580);",
-    "const vec3 C_CREST = vec3(0.624, 0.929, 0.890);",
+    "/* Palette by height. The highlight uses the crest colour, never white. */",
     "vec3 ramp(float t){",
     "  if(t < 0.40) return mix(C_INK, C_DEEP, t/0.40);",
     "  if(t < 0.85) return mix(C_DEEP, C_BRAND, (t - 0.40)/0.45);",
@@ -218,18 +251,25 @@
     "  vec2 g = (p.gb - 0.5)*2.0;",
     "  float curv = (p.a - 0.5)*4.0;",
     "  float cx = abs(vUv.x - 0.5)*2.0;",
+    "  float edgeBoost = smoothstep(0.5, 0.95, cx)*0.15;",
+    "  if(uMode > 3.5){",
+    "    /* Flat: the original look (two teals, hard centre cut-out) */",
+    "    float s0 = smoothstep(0.06, 0.30, v);",
+    "    vec3 c0 = mix(vec3(0.071, 0.647, 0.580), vec3(0.10, 0.75, 0.70), s0*0.5);",
+    "    gl_FragColor = vec4(c0, s0*smoothstep(0.1, 0.5, cx)*(0.35 + edgeBoost));",
+    "    return;",
+    "  }",
     "  /* Atmospheric fade instead of a hard cut-out: toward the middle the",
     "     maze loses relief and contrast and sinks into the page, so it wraps",
     "     around whatever sits there instead of stopping in two strips */",
     "  float far = smoothstep(0.40, 0.90, length((vUv - uFade.xy)/uFade.zw));",
     "  float mask = mix(FADE_FLOOR, 1.0, far);",
-    "  float edgeBoost = smoothstep(0.5, 0.95, cx)*0.15;",
     "  /* A narrower ramp than the prep height: crisp outline, same strand width */",
     "  float sig = smoothstep(0.12, 0.20, v);",
     "  vec3 n = normalize(vec3(-g*RELIEF*mix(0.3, 1.0, far), 1.0));",
     "  float dif = dot(n, uLight)*0.5 + 0.5;",
     "  vec3 hv = normalize(uLight + vec3(0.0, 0.0, 1.0));",
-    "  float spec = pow(max(dot(n, hv), 0.0), 48.0);",
+    "  float spec = pow(max(dot(n, hv), 0.0), SHININESS);",
     "  float slope = length(n.xy);",
     "  float away = max(0.0, -dot(n.xy/(slope + 1e-4), normalize(uLight.xy)));",
     "  float rim = smoothstep(0.15, 0.7, slope)*away;",
@@ -238,16 +278,20 @@
     "     palette spans 0.2..1 of the same height the lighting uses */",
     "  float hs = smoothstep(0.0, 0.40, v);",
     "  vec3 base = ramp(clamp((hs - 0.2)/0.8, 0.0, 1.0));",
-    "  vec3 col = base*(0.35 + 0.8*dif) + C_CREST*spec*0.35 + C_BRAND*rim*0.35;",
-    "  col *= 1.0 - 0.4*cav;",
+    "  if(uMode > 2.5) base = vec3(0.55);",
+    "  vec3 col = base*(0.35 + DIFFUSE*dif) + C_CREST*spec*SPEC + C_BRAND*rim*RIM;",
+    "  col *= 1.0 - CAVITY*cav;",
     "  col = mix(C_INK*1.4, col, 0.45 + 0.55*far);",
+    "  if(uMode > 1.5 && uMode < 2.5) col = n*0.5 + 0.5;",
+    "  if(uMode > 0.5 && uMode < 1.5) col = vec3(hs);",
     "  /* Cast shadow: the strands up-light of this pixel, blurred, drawn as a",
     "     soft dark layer under the maze so it floats above the page */",
     "  vec2 off = normalize(uLight.xy)*SHADOW_OFF*uPrepTexel;",
     "  vec2 bl = uPrepTexel*1.2;",
     "  float sh = 0.25*(strand(vUv + off + vec2(bl.x, bl.y)) + strand(vUv + off + vec2(-bl.x, bl.y))",
     "                 + strand(vUv + off + vec2(bl.x, -bl.y)) + strand(vUv + off - bl));",
-    "  float aS = sig*mask*(0.55 + edgeBoost);",
+    "  if(uMode > 0.5) sh = 0.0;",
+    "  float aS = sig*mask*(OPACITY + edgeBoost);",
     "  float aSh = sh*SHADOW*mask*(1.0 - sig);",
     "  float a = aS + aSh*(1.0 - aS);",
     "  vec3 c = (col*aS + C_SHADOW*aSh*(1.0 - aS))/max(a, 1e-4);",
@@ -298,8 +342,32 @@
   /* The clear ellipse the maze fades out toward: centre x, y, radius x, y
      (UV, 0..1). Sized for the centred page column; a layout can resize it. */
   const FADE = [0.5, 0.5, 0.30, 1.1];
+  const uMode_disp = gl.getUniformLocation(dispProg, "uMode");
   /* hand3d.js's key light sits at (2, 3, 2): upper right, toward the viewer */
-  const LIGHT = (function(){ const l = Math.hypot(2,3,2); return [2/l, 3/l, 2/l]; })();
+  const LIGHT = [2, 3, 2];
+  const light = [0, 0, 0];
+  let leanX = 0, leanY = 0;
+  function updateLight(){
+    /* The light tilts a little toward the cursor, eased, so the highlights
+       shift as the mouse moves: parallax without moving any geometry */
+    const still = typeof reducedMotion !== "undefined" && reducedMotion;
+    const tx = (!still && mx > -0.5) ? (mx - 0.5)*2.0 : 0.0;
+    const ty = (!still && my > -0.5) ? (my - 0.5)*2.0 : 0.0;
+    leanX += (tx - leanX)*0.04; leanY += (ty - leanY)*0.04;
+    const x = LIGHT[0]/4 + leanX*LOOK.lean, y = LIGHT[1]/4 + leanY*LOOK.lean, z = LIGHT[2]/4;
+    const l = Math.hypot(x, y, z);
+    light[0] = x/l; light[1] = y/l; light[2] = z/l;
+  }
+  /* ?bg= review switch, local only (the hub on loopback, or a file):
+     full | height | normal | light | flat */
+  const MODES = {full: 0, height: 1, normal: 2, light: 3, flat: 4};
+  let mode = 0;
+  try {
+    const local = location.protocol === "file:" ||
+      ["127.0.0.1", "localhost", "[::1]"].indexOf(location.hostname) >= 0;
+    const q = new URLSearchParams(location.search).get("bg");
+    if(local && q && q in MODES) mode = MODES[q];
+  } catch(e){}
   const uSeedLoc = gl.getUniformLocation(seedProg, "uSeed");
   const uResLoc = gl.getUniformLocation(seedProg, "uRes");
 
@@ -441,7 +509,9 @@
     gl.viewport(0,0,dispW,dispH);
     gl.bindTexture(gl.TEXTURE_2D, texP);
     gl.uniform1i(uPrep_disp, 0);
-    gl.uniform3f(uLight_disp, LIGHT[0], LIGHT[1], LIGHT[2]);
+    updateLight();
+    gl.uniform3f(uLight_disp, light[0], light[1], light[2]);
+    gl.uniform1f(uMode_disp, mode);
     gl.uniform2f(uPrepTexel_disp, 1.0/simW, 1.0/simH);
     gl.uniform4f(uFade_disp, FADE[0], FADE[1], FADE[2], FADE[3]);
     bindQuad(dispProg);
@@ -473,10 +543,33 @@
     }
     if(warmupLeft > 0) warmupLeft -= steps;
     display(texA);
+    if(warmupLeft <= 0) watchFrameTime();
     /* Reduced motion: show the fully-developed static pattern, then stop */
     if(warmupLeft <= 0 && reducedMotion){ running = false; return; }
     requestAnimationFrame(loop);
   }
   function start(){ running = true; requestAnimationFrame(loop); }
+
+  /* Frame-time guard: drawing at full resolution with lighting costs about
+     16 texture reads a pixel instead of 1. If the median frame over 2 s runs
+     slower than ~38 fps, step the display resolution down (never back up). A
+     hidden tab or a long pause is skipped rather than counted. */
+  let lastFrameT = 0, frameDts = [], windowStart = 0;
+  function watchFrameTime(){
+    const now = performance.now();
+    const dt = now - lastFrameT;
+    lastFrameT = now;
+    if(document.hidden || dt > 250 || dt <= 0){ frameDts = []; windowStart = now; return; }
+    frameDts.push(dt);
+    if(now - windowStart < 2000) return;
+    frameDts.sort((a, b) => a - b);
+    const median = frameDts[frameDts.length >> 1];
+    frameDts = []; windowStart = now;
+    if(median > 26 && quality < 2){
+      quality++;
+      sizeCanvas();
+      console.info("background: slow frames (" + median.toFixed(1) + " ms), display scale step " + quality);
+    }
+  }
   if(!dead) start();
 })();
