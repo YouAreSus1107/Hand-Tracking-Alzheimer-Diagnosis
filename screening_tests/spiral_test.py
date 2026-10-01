@@ -61,21 +61,23 @@ from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe,
                              true_hand)
 from core.camera import (capture_info, select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.mirror_check import ensure_orientation
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, lerp
-from core.ui.components import Canvas, draw_hand_skeleton, get_font
+from core.ui.components import Canvas, draw_hand_skeleton, get_font, bare_view
 from core.spiral.geometry import (scale_spiral_to_frame, practice_coefficient,
                                  SPIRAL_TURNS, SPIRAL_NUM_POINTS,
                                  PRACTICE_TURNS)
 from core.spiral.progress import SpiralProgress
 from core import framing
 from core.ui.framing_ui import framing_chips, draw_framing
-from core.ui.coach import (Coach, PROMPT_Y, PRI_HAND, PRI_LINE, PRI_SETUP,
+from core.ui.keys import SKIP_HINT, SKIP_PRACTICE, OVERLAY_HIDDEN_HINT, TOGGLE_OVERLAY
+from core.ui.coach import (Coach, PRI_GUIDE, PRI_HAND, PRI_LINE, PRI_SETUP,
                            PRI_PACE)
 from core.spiral.metrics import compute_metrics, live_smoothness_status
 from core.spiral.practice import (arc_length, target_speed_px_s,
@@ -117,6 +119,17 @@ FINGERTIP_IDX      = 8        # MediaPipe landmark: index fingertip
 
 # Resume marker shown while the fingertip is off its own arm (progress frozen).
 RESUME_RING_RADIUS = 14
+
+# Live layout. The spiral fills the middle of the picture (its outer arm
+# reaches ~82 % of the height), so everything said during tracing lives
+# above it in the status bar (phase chip) or in the strip below it: the
+# prompt pill, then the progress bar. A panel on top of the spiral covered
+# the very line being traced.
+PROMPT_Y_SPIRAL    = 80       # prompt pill top, up from the bottom edge
+BAR_Y_SPIRAL       = 22       # progress bar top, up from the bottom edge
+PHASE_CHIP = {"practice": ("Practice - not scored", "warning"),
+              "prepare": ("Get ready to start", "info"),
+              "recording": ("Scored test", "info")}
 
 # Live-smoothness coaching: recompute the fingertip colour band from a rolling
 # window this often (s) over this many recent seconds of the raw fingertip path.
@@ -163,13 +176,15 @@ class App:
         self.done_wav = build_tone(523, 180)
 
         self.state = IDLE
-        self.coach = Coach()           # the one place prompts appear
+        # the one place prompts appear, in the strip under the spiral
+        self.coach = Coach(prompt_y=PROMPT_Y_SPIRAL, compact=True)
         self.framing = framing.FramingMonitor()
         self._raw_pts = None
         self.lm_filters_x, self.lm_filters_y = make_landmark_filters()
 
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
+        self.overlay_hidden = False
         self.fps = 30.0
         self._last_frame_t: float | None = None
 
@@ -177,6 +192,7 @@ class App:
 
     # ── run-scoped state ──────────────────────────────────────────────────
     def reset_run(self):
+        self.practice_skipped = False
         self.spiral_ready = False
         self.spiral_points: list = []
         self.spiral_np = None
@@ -198,7 +214,8 @@ class App:
         self.recording_start = None
         self.results = None
         self.saved_path = None
-        self.countup: CountUp | None = None
+        self.countup: CountUp | None = None      # line accuracy
+        self.countup_tr: CountUp | None = None   # tremor
         self.reset_practice()
 
     def reset_practice(self):
@@ -356,6 +373,13 @@ class App:
         self.reset_practice()
         self.goto(PRACTICE, now)
 
+    def skip_practice(self, now: float):
+        """S: from the countdown, practice or its summary straight to the
+        scored spiral's start dot. Nothing traced in practice is kept."""
+        if self.state in (COUNTDOWN, PRACTICE, PRACTICE_DONE):
+            self.practice_skipped = True
+            self._start_prepare(now)
+
     def _start_prepare(self, now: float):
         self._center_hold_start = None
         self.goto(PREPARE, now)
@@ -417,34 +441,37 @@ class App:
                if not theme.REDUCED_MOTION else 360)
         return True, False
 
-    def _hold_message(self, at_center: bool) -> str:
-        return i18n.t("Hold steady..." if at_center
-                      else "Move your fingertip onto the center dot to begin.")
+    def _say_hold(self, at_center: bool):
+        """The start step's instruction, through the prompt slot at the lowest
+        priority, so any real problem (no hand, edge, too close) replaces it."""
+        self.coach.say(i18n.t("Hold steady" if at_center
+                              else "Put your fingertip on the center dot"),
+                       PRI_GUIDE)
+
+    def _progress(self, c: Canvas, frac: float, color: str, label: str,
+                  left: str = ""):
+        """Progress bar along the bottom, under the prompt slot."""
+        h = c.h
+        bw = c.w - 2 * theme.SAFE_MARGIN
+        c.progress_bar(theme.SAFE_MARGIN, h - BAR_Y_SPIRAL, bw, frac,
+                       color=color, label=label)
+        if left:
+            c.text(theme.SAFE_MARGIN, h - BAR_Y_SPIRAL - 8, left,
+                   role="caption", color="text-muted", anchor="ls", mono=True)
 
     # ── practice (unscored) ───────────────────────────────────────────────
-    def _phase_panel(self, c: Canvas, lines):
-        """Bottom-centre panel of (text, colour) lines, stacked so its bottom
-        edge stays clear of the Coach's prompt slot -- the two never overlap."""
-        w, h = c.w, c.h
-        ph = 14 + 26 * len(lines)
-        pw = min(480, w - 2 * theme.SAFE_MARGIN)
-        px, py = (w - pw) // 2, h - PROMPT_Y - 8 - ph
-        c.panel(px, py, pw, ph)
-        for i, (text, color) in enumerate(lines):
-            c.text(w // 2, py + 20 + 26 * i, text, role="body", anchor="mm",
-                   color=color)
 
     def _pace_gauge(self, c: Canvas):
         """Top-left speed gauge: a slow / good / fast track scaled 0 to twice
         the recommended pace, with a marker at the current progress speed."""
-        x, y, gw, gh = theme.SAFE_MARGIN, 60, 240, 64
+        x, y, gw, gh = theme.SAFE_MARGIN, 60, 200, 60
         c.panel(x, y, gw, gh, alpha=0.75, radius=12, shadow=False)
         c.text(x + 14, y + 12, i18n.t("Pace"), role="body_sb")
         label, status = PACE_LABELS.get(self._p_pace, ("-", "text-muted"))
         c.text(x + gw - 14, y + 12, i18n.t(label), role="body_sb",
                color=status, anchor="ra")
 
-        bx, by, bw, bh = x + 14, y + 42, gw - 28, 10
+        bx, by, bw, bh = x + 14, y + 38, gw - 28, 10
         lo = (1.0 - PACE_TOLERANCE) / 2.0    # zone edges on a 0..2x scale
         hi = (1.0 + PACE_TOLERANCE) / 2.0
         c._dirty = True
@@ -477,9 +504,7 @@ class App:
                 self._p_coach_t = now
                 self.audio.play(self.tick_wav)
                 return
-            self._phase_panel(c, [
-                (i18n.t("Practice - not scored yet"), "warning"),
-                (self._hold_message(at_center), "text-muted")])
+            self._say_hold(at_center)
             return
 
         elapsed = now - self._p_start_t
@@ -530,11 +555,8 @@ class App:
         if status == "warning":
             self.coach.say(i18n.t(msg),
                            PRI_LINE if msg == MSG_OFF_LINE else PRI_PACE)
-        self._phase_panel(c, [(i18n.t("Practice - not scored yet"),
-                               "warning")])
-        c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
-                       self._p_max_idx / max(1, n - 1), color="warning",
-                       label=i18n.t("practice"))
+        self._progress(c, self._p_max_idx / max(1, n - 1), "warning",
+                       i18n.t("practice"), left=i18n.t(SKIP_HINT))
 
     def _update_practice_coach(self, now: float, on_line: bool):
         """Refresh pace, smoothness and the coach line (throttled, so the
@@ -613,8 +635,7 @@ class App:
             self._start_recording(now)
             return
 
-        self._phase_panel(c, [(i18n.t("Get ready to start"), "brand"),
-                              (self._hold_message(at_center), "text-muted")])
+        self._say_hold(at_center)
 
     def screen_recording(self, c: Canvas, now: float, landmarks, raw_tip):
         w, h = c.w, c.h
@@ -667,22 +688,11 @@ class App:
             self._finish(now)
             return
 
-        # live HUD (top-left, under status bar)
+        # Time and progress ride on the bar: the corner HUD panel it replaces
+        # sat on the spiral's upper-left arm.
         prog = self._max_reached_idx / max(1, SPIRAL_NUM_POINTS - 1)
-        c.panel(theme.SAFE_MARGIN, 60, 200, 76, alpha=0.75, radius=12,
-                shadow=False)
-        # translated label, mono value: the digits stay tabular as they tick
-        val_x = theme.SAFE_MARGIN + 186
-        c.text(theme.SAFE_MARGIN + 14, 76, i18n.t("Time"), role="body_sb")
-        c.text(val_x, 76, f"{elapsed:.0f} s", role="body_sb", anchor="ra",
-               mono=True)
-        c.text(theme.SAFE_MARGIN + 14, 104, i18n.t("Trace"), role="body_sb")
-        c.text(val_x, 104, f"{prog * 100:.0f} %", role="body_sb", anchor="ra",
-               mono=True)
-
-        c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
-                       prog, color="success",
-                       label=i18n.t("trace out to the edge"))
+        self._progress(c, prog, "success", i18n.t("trace out to the edge"),
+                       left=f"{elapsed:.0f} s · {prog * 100:.0f} %")
 
     def _update_live_status(self, now: float):
         """Recompute the rolling smoothness band from the recent raw fingertip
@@ -705,13 +715,16 @@ class App:
         xs = [fd['fx'] for fd in self.frame_data]
         ys = [fd['fy'] for fd in self.frame_data]
         dev = [fd['dev'] for fd in self.frame_data]
-        self.results = compute_metrics(ts, xs, ys, dev, self.spiral_np,
-                                       blackouts=self.framing.finish())
+        self.results = compute_metrics(
+            ts, xs, ys, dev, self.spiral_np, blackouts=self.framing.finish(),
+            radius_px=self.spiral_b * SPIRAL_TURNS * 2 * math.pi)
         if self.results["scoreable"]:
-            self.countup = CountUp(self.results["smoothness_index"] or 0.0,
+            self.countup_tr = CountUp(self.results["tremor_score"] or 0.0,
+                                      time.time(), theme.DUR_SLOW)
+            self.countup = CountUp(self.results["accuracy_score"] or 0.0,
                                    time.time(), theme.DUR_SLOW)
         else:
-            self.countup = None
+            self.countup = self.countup_tr = None
         self._save_session()
         self.goto(COMPLETE, now)
 
@@ -730,6 +743,7 @@ class App:
         t0 = self.recording_start or 0.0
         trace_s = (self.frame_data[-1]['t'] - t0) if self.frame_data else 0.0
         raw = {
+            "practice_skipped": self.practice_skipped,
             "samples": [[round(fd['t'] - t0, 3), round(fd['fx'], 1),
                          round(fd['fy'], 1), round(fd['dev'], 2)]
                         for fd in self.frame_data],
@@ -762,23 +776,22 @@ class App:
         # ── measure content first, then size the panel to fit (button never
         #    overlaps the metric rows / notes) ──
         if r["scoreable"]:
-            tf = r.get("tremor_power_frac")
             th = r.get("tremor_dominant_hz")
-            rows = [("SPARC", f"{r['sparc']:.2f}"
-                     if r['sparc'] is not None else "-"),
-                    ("Velocity CV", f"{r['vel_cv_pct']:.1f} %"
-                     if r['vel_cv_pct'] is not None else "-"),
-                    ("Norm. jerk", f"{r['norm_jerk']:.2e}"
-                     if r['norm_jerk'] is not None else "-"),
-                    ("Tremor power*", f"{tf * 100:.0f} %" if tf is not None else "-"),
+            tp = r.get("tremor_pct")
+            sal = r.get("sparc")
+            rows = [("Mean deviation", f"{r['mean_dev_pct']:.1f} %"
+                     if r.get('mean_dev_pct') is not None else "-"),
+                    ("Tremor amplitude", f"{tp:.2f} %" if tp is not None else "-"),
                     ("Tremor freq*", f"{th:.1f} Hz" if th else "-"),
+                    ("Smoothness index", f"{r['smoothness_index']:.0f}"
+                     if r.get('smoothness_index') is not None else "-"),
+                    ("SPARC", f"{sal:.2f}" if sal is not None else "-"),
                     ("Completion", f"{r['completion_pct']:.0f} %"),
                     ("Mean speed", f"{r['vel_mean_px_s']:.0f} px/s"
                      if r['vel_mean_px_s'] is not None else "-"),
                     ("Data frames", f"{len(self.frame_data)}")]
-            rows = rows[:8]
             nlines = (len(rows) + 1) // 2
-            note_off = 190 + nlines * 24 + 6
+            note_off = 200 + nlines * 24 + 6
             caveat_off = note_off + 18
             saved_off = caveat_off + 18
             btn_off = (saved_off if self.saved_path else caveat_off) + 24
@@ -796,26 +809,36 @@ class App:
 
         if r["scoreable"]:
             status = r["status"]
-            idx_val = self.countup.value(now) if self.countup \
-                else (r["smoothness_index"] or 0.0)
+            # Two scores side by side, each in its own band colour; the badge
+            # under them is the run's verdict, the worse of the two.
+            scores = [
+                (self.countup, r.get("accuracy_score"), r.get("accuracy_status"),
+                 "Line accuracy", "higher = closer to the line"),
+                (self.countup_tr, r.get("tremor_score"), r.get("tremor_status"),
+                 "Tremor", "higher = more tremor"),
+            ]
             c._dirty = True
-            c.draw.text((w // 2, py + 90), f"{idx_val:.0f}",
-                        font=get_font("mono", 56),
-                        fill=theme.rgba(status, 1.0), anchor="mm")
-            c.text(w // 2, py + 126,
-                   i18n.t("Smoothness index (0-100, higher = smoother)"),
-                   role="caption", color="text-muted", anchor="mm")
-            c.badge(w // 2, py + 140, i18n.t(r["label"]), status)
+            for k, (cu, val, st, name, hint) in enumerate(scores):
+                cx = px + pw * (1 + 2 * k) // 4
+                st = st or "info"
+                shown = "-" if val is None else \
+                    f"{(cu.value(now) if cu else val):.0f}"
+                c.draw.text((cx, py + 86), shown, font=get_font("mono", 52),
+                            fill=theme.rgba(st, 1.0), anchor="mm")
+                c.text(cx, py + 120, i18n.t(name), role="body_sb", anchor="mm")
+                c.text(cx, py + 140, i18n.t(hint), role="caption",
+                       color="text-muted", anchor="mm")
+            c.badge(w // 2, py + 154, i18n.t(r["label"]), status)
             col_w = (pw - 3 * theme.SPACE[4]) // 2
             for i, (label, val) in enumerate(rows):
                 rx = px + theme.SPACE[4] + (i % 2) * (col_w + theme.SPACE[4])
-                ry = py + 190 + (i // 2) * 24
+                ry = py + 200 + (i // 2) * 24
                 c.text(rx, ry, i18n.t(label), role="caption",
                        color="text-muted")
                 c.text(rx + col_w, ry, val, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
-                   i18n.t("Smoothness via SPARC. Provisional bands - "
-                          "screening, not diagnosis."),
+                   i18n.t("Two provisional scores - screening, not "
+                          "diagnosis."),
                    role="caption", color="text-muted", anchor="mm")
             c.text(w // 2, py + caveat_off,
                    i18n.t("* tremor metrics are coarse at this frame rate."),
@@ -853,7 +876,7 @@ class App:
             frame = cv2.flip(frame, 1)
             if not window_ready:
                 create_display_window(win, frame.shape[1], frame.shape[0])
-                cv2.setMouseCallback(win, self.on_mouse)
+                set_mouse_callback(win, self.on_mouse)
                 window_ready = True
             now = time.time()
             if self._last_frame_t is not None:
@@ -878,9 +901,18 @@ class App:
             if landmarks is not None:
                 draw_hand_skeleton(frame, landmarks, HAND_CONNECTIONS)
 
+            # V hides every overlay (core/ui/keys.py): keep an undrawn copy
+            bare = frame.copy() if self.overlay_hidden else None
+            if bare is not None:
+                self.click = None      # its buttons cannot be seen
             c = Canvas(frame)
-            c.status_bar(framing_chips(self.framing, landmarks, self.fps),
-                         i18n.t("Spiral Tracing"))
+            chips = framing_chips(self.framing, landmarks, self.fps)
+            phase = PHASE_CHIP.get(self.state)
+            if phase:
+                # the phase is named up here, off the spiral; the mode label
+                # gives way so the bar still fits a 640 px frame
+                chips = [(i18n.t(phase[0]), phase[1])] + chips
+            c.status_bar(chips, "" if phase else i18n.t("Spiral Tracing"))
 
             if self.state == IDLE:
                 self.screen_idle(c, now)
@@ -904,10 +936,16 @@ class App:
                              tracing=True)
             self.coach.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            out = (c.compose() if bare is None
+                   else bare_view(bare, i18n.t(OVERLAY_HIDDEN_HINT)))
+            show(win, screen_rec.frame(out))
             self.click = None
             key = cv2.waitKey(5) & 0xFF
             screen_rec.key(key)
+            if key in TOGGLE_OVERLAY:
+                self.overlay_hidden = not self.overlay_hidden
+            if key in SKIP_PRACTICE:
+                self.skip_practice(now)
             if key == ord("q"):
                 break
             if window_closed(win):

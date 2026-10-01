@@ -36,8 +36,14 @@ SPIRAL_NUM_POINTS = 1200
 # the median run. Until 2026-09 it was
 # centred with a radius of 0.40; raw.spiral records the frame and radius of
 # each session, so the layouts stay distinguishable and redraw correctly.
-SPIRAL_CENTER_Y_FRAC = 0.46
-SPIRAL_RADIUS_FRAC = 0.36
+#
+# 2026-09-29: back to radius 0.40 (it read as too small), kept high at 48 %.
+# At 640x480 the drawn spiral spans y 52-381 of 480: clear of the 48 px status
+# bar above and of the prompt slot below (its top at 400, see spiral_test.py
+# PROMPT_Y_SPIRAL). The lowest arm sits at 79 % of the height, still above the
+# old centred layout's ~85 %.
+SPIRAL_CENTER_Y_FRAC = 0.48
+SPIRAL_RADIUS_FRAC = 0.40
 
 # Practice spiral: the same shape, smaller and with fewer turns, so it rehearses
 # the real task in about half the time and is visibly not the scored run.

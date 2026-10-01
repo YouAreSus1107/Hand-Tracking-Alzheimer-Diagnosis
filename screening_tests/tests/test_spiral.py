@@ -22,7 +22,9 @@ from core.spiral.progress import SpiralProgress
 from core.spiral.metrics import (compute_metrics, sparc, smoothness_index,
                                  sparc_band, compute_normalized_jerk,
                                  compute_velocity_cv, compute_tremor,
-                                 compute_completion, SAL_TYPICAL, SAL_CONCERN)
+                                 compute_completion, SAL_TYPICAL, SAL_CONCERN,
+                                 TREMOR_MILD_PCT, TREMOR_MARKED_PCT,
+                                 accuracy_score, accuracy_band)
 
 FW, FH = 640, 480
 SP, PRACTICE_SP, CENTER, B = scale_spiral_to_frame(FW, FH)
@@ -83,6 +85,120 @@ def test_strong_tremor_reads_danger():
     m = compute_metrics(ts, xs, ys, [], SP_NP)
     assert m["sparc"] < SAL_CONCERN
     assert m["status"] == "danger"
+
+
+def test_tracker_jitter_does_not_collapse_sparc():
+    # A perfect trace with white jitter at the frame rates the suite really
+    # runs at. 1.5 px puts the speed spectrum's noise floor where recorded runs
+    # have it (1-3 % of DC; real tracker noise is heavier-tailed than a
+    # Gaussian of the same step size). The canonical 5 % cutoff let one noise
+    # bump stretch the arc across the whole floor: -6 to -9 (index 0) on most
+    # seeds at 13-20 fps, which is what clean recorded runs scored.
+    # (No tremor-peak check here: this constant-speed trace has almost no
+    # slow movement, so noise is a large share of its tremor fraction.)
+    for fps in (13.0, 20.0, 30.0):
+        for seed in range(6):
+            ts, xs, ys = make_trace(duration=35.0, fps=fps, noise=1.5,
+                                    seed=seed)
+            m = compute_metrics(ts, xs, ys, [], SP_NP)
+            # SPARC is a reading since engine 4; its own band is what this
+            # regression is about (1.5 px is also enough to register a little
+            # "tremor", which is the tremor score's business, not SPARC's)
+            assert m["smoothness_status"] == "success", (fps, seed, m["sparc"])
+
+
+def test_no_tremor_peak_without_tremor():
+    # Below the Mild tremor band the "peak" is noise and its Hz is random.
+    m = compute_metrics(*make_trace(), [], SP_NP)
+    assert m["tremor_pct"] is not None and m["tremor_pct"] < TREMOR_MILD_PCT
+    assert m["tremor_score"] == 0.0
+    assert m["tremor_status"] == "success"
+    assert m["tremor_dominant_hz"] is None
+
+
+def _irregular_tremor(n, fps, amp_px, lo=4.5, hi=7.5, seed=1):
+    """Band-limited random wobble: an irregular tremor with no single steady
+    line, which SPARC's noise-aware cutoff read as noise."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for _ in range(2):
+        F = np.fft.rfft(rng.normal(0, 1, n))
+        f = np.fft.rfftfreq(n, 1.0 / fps)
+        F[(f < lo) | (f > hi)] = 0
+        sig = np.fft.irfft(F, n)
+        out.append(sig / np.sqrt(np.mean(sig ** 2)) * amp_px / np.sqrt(2))
+    return out
+
+
+RADIUS = float(np.max(np.hypot(*(SP_NP - SP_NP[0]).T)))
+
+
+def test_irregular_tremor_sets_the_verdict():
+    # Engine 4: tremor is its own score and decides the verdict when it is the
+    # worse of the two, even though the line is followed perfectly.
+    fps = 25.0
+    ts, xs, ys = make_trace(duration=30.0, fps=fps, noise=0.5)
+    dev = [2.0] * len(ts)                      # right on the line
+    for pct, want in ((0.8, "warning"), (1.6, "danger")):
+        dx, dy = _irregular_tremor(len(ts), fps, pct / 100 * RADIUS)
+        m = compute_metrics(ts, list(np.array(xs) + dx),
+                            list(np.array(ys) + dy), dev, SP_NP)
+        assert m["tremor_status"] == want, (pct, m["tremor_pct"])
+        assert m["accuracy_status"] == "success"
+        assert m["status"] == want and m["verdict_from"] == "tremor"
+        assert abs(m["tremor_pct"] - pct) < 0.35 * pct
+        assert 4.0 <= m["tremor_dominant_hz"] <= 8.0
+    clean = compute_metrics(ts, xs, ys, dev, SP_NP)
+    assert clean["status"] == "success" and clean["verdict_from"] == "both"
+    assert clean["label"] == "Accurate tracing, no tremor"
+
+
+def test_slow_wobble_is_not_tremor():
+    # A 2-3 Hz wobble (what an imitated tremor usually is) is below the
+    # pathological tremor band, so it does not score as tremor.
+    fps = 25.0
+    ts, xs, ys = make_trace(duration=30.0, fps=fps, noise=0.5)
+    dx, dy = _irregular_tremor(len(ts), fps, 1.5 / 100 * RADIUS, lo=2.0, hi=3.0)
+    m = compute_metrics(ts, list(np.array(xs) + dx), list(np.array(ys) + dy),
+                        [], SP_NP)
+    assert m["tremor_pct"] < TREMOR_MILD_PCT, m["tremor_pct"]
+
+
+def test_tracking_jumps_do_not_read_as_tremor():
+    # One-frame teleports every couple of seconds: an RMS turned these into
+    # "tremor"; the robust amplitude does not.
+    fps = 25.0
+    ts, xs, ys = make_trace(duration=30.0, fps=fps, noise=0.5)
+    xs = list(xs)
+    for i in range(20, len(xs), 50):
+        xs[i] += 60.0
+    m = compute_metrics(ts, xs, ys, [], SP_NP)
+    assert m["tremor_pct"] < TREMOR_MILD_PCT, m["tremor_pct"]
+
+
+def test_line_accuracy_score_and_bands():
+    assert accuracy_score(2.0) == 100.0
+    assert accuracy_score(7.0) == 60.0
+    assert accuracy_score(10.0) == 30.0
+    assert accuracy_score(20.0) == 0.0
+    assert accuracy_band(60.0)[0] == "success"
+    assert accuracy_band(59.9)[0] == "warning"
+    assert accuracy_band(29.9)[0] == "danger"
+    # a clean trace that wandered off the line: accuracy decides
+    ts, xs, ys = make_trace()
+    m = compute_metrics(ts, xs, ys, [11.0] * len(ts), SP_NP)
+    assert m["accuracy_status"] == "danger" and m["tremor_status"] == "success"
+    assert m["status"] == "danger" and m["verdict_from"] == "accuracy"
+
+
+def test_tremor_through_jitter_still_reads_danger():
+    # The noise-aware cutoff must not hide a real tremor behind the jitter.
+    ts, xs, ys = make_trace(duration=35.0, fps=20.0, noise=1.5,
+                            tremor_amp=4.0, tremor_hz=5.0)
+    m = compute_metrics(ts, xs, ys, [], SP_NP)
+    assert m["status"] == "danger", m["sparc"]
+    assert m["tremor_dominant_hz"] is not None
+    assert abs(m["tremor_dominant_hz"] - 5.0) < 1.0
 
 
 def test_sparc_duration_invariance():
