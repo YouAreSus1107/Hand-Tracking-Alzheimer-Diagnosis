@@ -88,6 +88,85 @@ def _window(take):
     return take.t[0] + 1.0, take.t[-1]
 
 
+# ── engine 4: MediaPipe misses a hand (TREMOR_TEST_PLAN.md §3c) ───────────
+
+def _no_hands(_rgb, _ms):
+    return _Result([])
+
+
+def _right_half_detect(truth):
+    """A single-hand detector that only sees the right half (plus overlap)
+    of the picture, and answers in that crop's coordinates."""
+    keys = np.array(sorted(truth))
+    x0 = int(round(synth.W * (0.5 - off.HALF_OVERLAP)))
+    cw = synth.W - x0
+
+    def detect(rgb, ms):
+        assert rgb.shape[1] == cw, rgb.shape          # it really got the half
+        k = int(keys[np.argmin(np.abs(keys - ms))])
+        crop = [((x * synth.W - x0) / cw, y) for x, y in truth[k]]
+        return _Result([(crop, "Left")])
+    return detect
+
+
+def test_half_frame_finds_a_hand_the_whole_frame_missed():
+    take, truth = _take_from_video(hz=6.0, amp_px=0.6)
+    lost = off.analyse_take(take, _no_hands, _window(take), move_max=0.15)
+    assert not lost["cells"]["right"].get("scored")
+    res = off.analyse_take(take, _no_hands, _window(take), move_max=0.15,
+                           side_detect={"right": _right_half_detect(truth)})
+    c = res["cells"]["right"]
+    assert c["method"] == "offline_flow", c
+    assert abs(c["peak_hz"] - 6.0) <= 0.25, c
+    assert c["half_frame_pct"] > 90, c
+
+
+def test_half_frame_ignores_the_other_hand_found_twice():
+    lms = [_Lm(0.52, 0.8)] + [_Lm(0.5, 0.5)] * 20
+    other = [_Lm(0.53, 0.81)] + [_Lm(0.5, 0.5)] * 20
+
+    def one(rgb, _ms):
+        return _Result([([(0.9, 0.8)] + [(0.5, 0.5)] * 20, "Left")])  # wrist near 0.52
+    rgb = np.zeros((480, 640, 3), np.uint8)
+    assert off.detect_half(rgb, "left", one, 0, other=other) is None
+    assert off.detect_half(rgb, "left", one, 0, other=None) is not None
+    assert lms  # shape of a hand, for the reader
+
+
+def test_short_dropouts_are_bridged_and_long_ones_split():
+    take, truth = _take_from_video(dur=12.0, hz=6.0, amp_px=0.6)
+    full = _detect_for(truth)
+    rng = np.random.default_rng(3)
+    # MediaPipe loses the hand in runs of 3-20 frames, ~40 % of the time
+    lost = set()
+    i = 30
+    while i < len(take):
+        if rng.random() < 0.3:
+            n = int(rng.integers(3, 21))
+            lost.update(range(i, i + n))
+            i += n
+        i += 1
+    keys = sorted(truth)
+
+    def flaky(rgb, ms):
+        idx = int(np.searchsorted(keys, ms))
+        return _no_hands(rgb, ms) if idx in lost else full(rgb, ms)
+    res = off.analyse_take(take, flaky, _window(take), move_max=0.15)
+    c = res["cells"]["right"]
+    assert c["method"] == "offline_flow", c
+    assert abs(c["peak_hz"] - 6.0) <= 0.25, c
+    assert c["bridged_pct"] > 10, c
+    # a 2 s loss is not bridged: those frames are simply missing
+    gap = set(range(200, 200 + int(2.0 * FS)))
+
+    def long_loss(rgb, ms):
+        idx = int(np.searchsorted(keys, ms))
+        return _no_hands(rgb, ms) if idx in gap else full(rgb, ms)
+    res2 = off.analyse_take(take, long_loss, _window(take), move_max=0.15)
+    bridged = res2["cells"]["right"]["bridged_pct"]
+    assert bridged < 100.0 * (off.DROPOUT_MAX_S * FS + 2) / len(res2["flow"]["right"]["t"]), bridged
+
+
 # ── the engine's lost-frame fill ──────────────────────────────────────────
 
 def test_fill_drops_inserts_the_missing_frames():

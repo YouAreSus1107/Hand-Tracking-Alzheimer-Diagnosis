@@ -31,14 +31,19 @@ each hold; live, MediaPipe only gets the hands into position and drives the
 prompts. When a hold ends, core/tremor/offline.py measures every recorded
 frame -- MediaPipe, framing trust and OPTICAL FLOW seeded from that frame's
 own landmarks -- in the background while the next hold is explained, pausing
-whenever a hold is being captured, and an Analysing screen finishes whatever
-is left. So a 60 fps camera gives the full 3.5-12 Hz band whatever rate the
+whenever a hold is being captured. Whatever is left after the last hold is
+handed to a worker process (`--finish`, core/pending.py) and the test exits,
+so the camera and the hub are free while it measures; the worker saves the
+session and the hub shows it when it lands. If the hand-off fails, an
+Analysing screen finishes here instead (core/tremor/finish.py serves both).
+The hand-off is the one moment frames touch the disk: a job file in the
+system temp folder, deleted as soon as the worker has read it. So a 60 fps camera gives the full 3.5-12 Hz band whatever rate the
 laptop manages live. The flow is scored; the RAW landmarks take over for a
 hold the flow could not measure (the One-Euro smoothing used to draw the hand
 would erase a tremor); the live landmark cells are the last resort if the
 offline pass fails. Frames where a hand is at the edge of the picture are left
-out (core/framing.py). Frames live in memory only and are dropped after
-analysis; `--keep-frames` (developer use, never from the hub) writes them to
+out (core/framing.py). Frames are otherwise in memory only and are dropped
+after analysis; `--keep-frames` (developer use, never from the hub) writes them to
 recordings/ so a recording can be re-analysed.
 
 This file is the run loop + rendering only; the engine lives in core/tremor/.
@@ -49,8 +54,14 @@ Run:  python screening_tests/tremor_test.py     Quit: press 'q'
 
 from __future__ import annotations
 
+import os
+import pickle
+import subprocess
 import sys
+import threading
 import time
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -66,28 +77,33 @@ _splash = Splash("Hand Tremor Test",
                  IMPORT_STEPS, enabled=__name__ == "__main__")
 
 import cv2
+import numpy as np
 _splash.step()               # OpenCV in
 from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
 _splash.step()               # MediaPipe in
 
-from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
-                             smooth_landmarks, preprocess_for_mediapipe)
+from core.hand_utils import preprocess_for_mediapipe
 from core.camera import (capture_info, select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.mirror_check import ensure_orientation
+from core import pending, profiles
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.ui import theme
 from core.ui.anim import ease_out_cubic, lerp
 from core.ui.coach import Coach, PRI_HAND
-from core.ui.components import Canvas, draw_hand_skeleton, get_font
+from core.ui.components import Canvas, get_font, bare_view
+from core.ui.keys import OVERLAY_HIDDEN_HINT, TOGGLE_OVERLAY
 from core import framing
 from core.ui.framing_ui import draw_framing
 from core.capture import FrameRecorder
 from core.tremor import metrics as tm
-from core.tremor.offline import OfflineAnalyser, assign_hands
+from core.tremor.finish import finish_run
+from core.tremor.flow_view import LiveFlowView
+from core.tremor.offline import OfflineAnalyser, assign_hands, detect_half
 from core.tremor.phases import PHASES, PHASE_ORDER, HANDS
 
 _splash.done()   # imports are in; the camera prompt follows immediately
@@ -100,11 +116,17 @@ COUNTDOWN_FROM = 3
 POSITION_HOLD_S = 1.5        # both hands trusted this long before a hold starts
 GLOVE_BANNER_WAIT_S = 2.5    # how long to wait for the board to announce itself
 KEY_ADVANCE = (13, 32)       # Enter / Space press the screen's main button
+HANDED_SHOW_S = 6.0          # the "measuring in the background" card, then exit
 
 # ── States ────────────────────────────────────────────────────────────────
 (IDLE, INSTRUCTION, POSITION, COUNTDOWN, RECORDING, ANALYSING, COMPLETE) = (
     "idle", "instruction", "position", "countdown", "recording", "analysing",
     "complete")
+#: After the last hold: the unfinished holds are being written out for the
+#: background worker (SAVING), then the camera is released and a closing card
+#: says where the results will appear (HANDED). ANALYSING/COMPLETE are the
+#: in-process path, used when the hand-off cannot happen.
+SAVING, HANDED = "saving", "handed"
 #: The offline pass waits while these run, so it never competes with the
 #: capture of the hold it is about to measure.
 QUIET_STATES = (COUNTDOWN, RECORDING)
@@ -158,11 +180,11 @@ def open_glove():
     return reader
 
 
-def make_landmarker():
+def make_landmarker(num_hands: int = 2):
     options = mp.tasks.vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=mp.tasks.vision.RunningMode.VIDEO,
-        num_hands=2,
+        num_hands=num_hands,
         min_hand_detection_confidence=0.6,
         min_hand_presence_confidence=0.5,
         min_tracking_confidence=0.55,
@@ -171,18 +193,143 @@ def make_landmarker():
         return mp.tasks.vision.HandLandmarker.create_from_options(options)
 
 
+def detect_factory(make_lm=None):
+    """make_detect() for the offline pass: each call gives (detect, close[,
+    side_detect]) for one hold.
+
+    With the real model (make_lm None) it also brings one single-hand
+    landmarker per side, for a hand the whole frame misses
+    (offline.detect_half): with both hands in view MediaPipe can lock onto
+    one and never find the other (TREMOR_TEST_PLAN.md §3c). A scripted
+    landmarker (the run-loop harness) answers the same whatever it is shown,
+    so it gets no halves."""
+    real = make_lm is None
+    make_lm = make_lm or make_landmarker
+
+    def wrap(inst):
+        def detect(rgb, ts_ms):
+            img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            return inst.detect_for_video(img, ts_ms)
+        return detect
+
+    def make_detect():
+        lm = make_lm()
+        if not real:
+            return wrap(lm), lm.close
+        sides = {h: make_landmarker(num_hands=1) for h in HANDS}
+
+        def close():
+            for inst in (lm, *sides.values()):
+                inst.close()
+        return wrap(lm), close, {h: wrap(inst) for h, inst in sides.items()}
+    return make_detect
+
+
+# ── Background finish (core/pending.py) ───────────────────────────────────
+
+def spawn_worker(job_dir: Path) -> None:
+    """Start `tremor_test.py --finish <job_dir>`: no window, below-normal
+    priority (the next test's live loop comes first), its own process group
+    so closing this test's console does not take it down, and its console
+    written to the job's log."""
+    log = open(Path(job_dir) / pending.LOG, "ab")
+    kw = {}
+    if os.name == "nt":
+        kw["creationflags"] = (subprocess.CREATE_NO_WINDOW
+                               | subprocess.CREATE_NEW_PROCESS_GROUP
+                               | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+    else:
+        kw["start_new_session"] = True
+    env = dict(os.environ, PYTHONUNBUFFERED="1", NO_COLOR="1")
+    try:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--finish",
+             str(job_dir)],
+            cwd=str(_REPO_ROOT), env=env, stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT, close_fds=True, **kw)
+    finally:
+        log.close()
+
+
+def run_job(job_dir, make_detect=None, save=None) -> dict | None:
+    """The worker: measure the holds the test handed over, then score and
+    save exactly as the test would have (core/tremor/finish.py). Progress
+    and the outcome go to the job's status for the hub; the frames are
+    deleted whatever happens. Returns finish_run()'s result, or None."""
+    job_dir = Path(job_dir)
+    make_detect = make_detect or detect_factory()
+    save = save or save_session
+    beat = None
+    try:
+        with open(job_dir / pending.JOB, "rb") as f:
+            payload = pickle.load(f)
+        (job_dir / pending.JOB).unlink()        # the frames now live in memory only
+        job = payload["job"]
+        # --keep-frames reaches the holds measured here too
+        analyser = OfflineAnalyser(make_detect, hands=job["hands"],
+                                   keep_dir=payload.get("keep_dir"))
+        analyser.results.update(payload["results"])
+        analyser.errors.update(payload["errors"])
+        for key, take, window, move_max in payload.pop("todo"):
+            analyser.submit(key, take, window, move_max)
+        beat = pending.Heartbeat(job_dir, analyser.progress)
+        beat.start()
+        analyser.start()
+        while not analyser.idle():
+            time.sleep(0.1)
+        analyser.stop()
+        print("[INFO] Offline pass done: "
+              f"{sorted(analyser.results)} measured, errors {analyser.errors or 'none'}")
+        out = finish_run(job, analyser.results, analyser.errors, save=save)
+        beat.stop()
+        beat = None
+        if out["saved_path"] is None:
+            pending.fail(job_dir, "The results could not be saved.")
+        else:
+            pending.done(job_dir, session=Path(out["saved_path"]).name)
+            print(f"[INFO] Saved {out['saved_path']}")
+        return out
+    except Exception as e:  # noqa: BLE001 - the hub must hear about any failure
+        traceback.print_exc()
+        if beat is not None:
+            beat.stop()
+        try:
+            pending.fail(job_dir, f"{type(e).__name__}: {e}")
+        except OSError:
+            pass
+        return None
+
+
 class App:
     def __init__(self, cap, glove=None, landmarker_factory=None,
-                 keep_dir: Path | None = None):
+                 keep_dir: Path | None = None, background: bool | None = None,
+                 spawn=None):
         self.cap = cap
         self.glove = glove
         # The live instance and a fresh one per hold for the offline pass
         # come from one factory (the run-loop harness passes its own).
         self.make_landmarker = landmarker_factory or make_landmarker
         self.landmarker = self.make_landmarker()
+        # One single-hand landmarker per side for a hand the whole frame
+        # misses, live as offline (offline.detect_half); real model only.
+        self.side_landmarkers = ({h: make_landmarker(num_hands=1) for h in HANDS}
+                                 if self.make_landmarker is make_landmarker else {})
         self.recorder = FrameRecorder(cap)       # owns cap.read() from run()
+        self._make_detect = detect_factory(landmarker_factory)
+        self.keep_dir = keep_dir
         self.analyser = OfflineAnalyser(self._make_detect, hands=HANDS,
                                         keep_dir=keep_dir)
+        # Finish in a worker process after the last hold, so the camera and
+        # the hub's slot are free while it measures. Off by default for a
+        # scripted landmarker: a worker process could not use it. A harness
+        # that wants the hand-off passes background=True and its own spawn.
+        self.background = (landmarker_factory is None if background is None
+                           else background)
+        self.spawn = spawn or spawn_worker
+        self._handoff: tuple | None = None       # set by the hand-off thread
+        self._handoff_thread: threading.Thread | None = None
+        self._handed_at = 0.0
+        self.camera_closed = False
         self.audio = AudioWorker()
         self.start_wav = build_tone(880, 100)
         self.tick_wav = build_tone(660, 60)
@@ -190,12 +337,14 @@ class App:
 
         self.state = IDLE
         self.coach = Coach()           # the one place prompts appear
-        self.filters = {h: make_landmark_filters() for h in HANDS}
+        # what the test measures, drawn live instead of MediaPipe's skeleton
+        self.flow_view = LiveFlowView(HANDS)
         self.monitors = {h: framing.FramingMonitor() for h in HANDS}
         self.hands: dict[str, dict] = {}
 
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
+        self.overlay_hidden = False
         self.advance = False
         self.glove_hand: str | None = None   # which hand wears the glove
         self.fps = 30.0
@@ -210,16 +359,13 @@ class App:
         self.record_start = 0.0
         self._pos_since: float | None = None
         # {phase: {hand: {"t": [], "pts": [], "len": []}}}
-        # Live landmarks: the fallback. Replaced per hold by the offline
-        # pass's own when it succeeds, since those are what get scored.
+        # Live landmarks: the fallback. finish_run() replaces each hold's
+        # with the offline pass's own when it succeeds, since those are
+        # what get scored (core/tremor/finish.py).
         self.data = {p: {h: {"t": [], "pts": [], "len": []} for h in HANDS}
                      for p in PHASE_ORDER}
-        # optical-flow position, px, from the offline pass
-        self.flow_data = {p: {h: {"t": [], "xy": []} for h in HANDS}
-                          for p in PHASE_ORDER}
         self.cells: dict = {}            # the cells scored
         self.cells_live: dict = {}       # the live landmark cells, for comparison
-        self.capture_stats: dict = {}    # per hold: frames, dropped, luminance
         self.glove_cells: dict = {}
         if self.analyser.idle():
             self.analyser.reset()
@@ -261,29 +407,27 @@ class App:
 
     # ── per-frame pipeline ────────────────────────────────────────────────
     def detect_hands(self, frame, now: float) -> dict[str, dict]:
-        """{"left"|"right": {"raw": 21 (x, y) normalised, "smooth": ...}}.
+        """{"left"|"right": {"raw": 21 (x, y) normalised}}.
         Which hand is which: core/tremor/offline.assign_hands, the rule the
         offline pass uses too."""
         rgb = preprocess_for_mediapipe(frame, enable=self.fps >= 20)
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self.landmarker.detect_for_video(mp_img, int(now * 1000))
         out: dict[str, dict] = {}
-        for label, lms in assign_hands(result, HANDS).items():
-            fx, fy = self.filters[label]
-            out[label] = {
-                "raw": [(lm.x, lm.y) for lm in lms],
-                "smooth": smooth_landmarks(lms, fx, fy, now),
-            }
+        found = assign_hands(result, HANDS)
+        for h, inst in self.side_landmarkers.items():
+            if h not in found:
+                other = next((v for k, v in found.items() if k != h), None)
+
+                def one(crop, ms, inst=inst):
+                    return inst.detect_for_video(
+                        mp.Image(image_format=mp.ImageFormat.SRGB, data=crop), ms)
+                lms = detect_half(rgb, h, one, int(now * 1000), other)
+                if lms is not None:
+                    found[h] = lms
+        for label, lms in found.items():
+            out[label] = {"raw": [(lm.x, lm.y) for lm in lms]}
         return out
-
-    def _make_detect(self):
-        """(detect, close) for one hold of the offline pass."""
-        lm = self.make_landmarker()
-
-        def detect(rgb, ts_ms):
-            img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            return lm.detect_for_video(img, ts_ms)
-        return detect, lm.close
 
     def both_trusted(self) -> bool:
         return all(h in self.hands and not self.monitors[h].untrusted
@@ -498,7 +642,9 @@ class App:
         # and kept for comparison either way.
         self.cells_live[ph_.key] = {
             hnd: dict(tm.analyse_hand(d["t"], d["pts"], d["len"],
-                                      move_max=ph_.move_max),
+                                      move_max=ph_.move_max,
+                                      despike_spikes=True,
+                                      instrument="landmarks"),
                       method="live_landmarks")
             for hnd, d in self.data[ph_.key].items()}
         if take is not None and len(take):
@@ -513,8 +659,133 @@ class App:
         if self.phase_i + 1 < len(PHASE_ORDER):
             self.phase_i += 1
             self.goto(INSTRUCTION, now)
+        elif self.background:
+            self._handoff = None
+            self.goto(SAVING, now)
+            # built here: capture_info() asks the camera, and only this
+            # thread may do that beside the recorder
+            self._handoff_thread = threading.Thread(
+                target=self._hand_off, args=(self._job(),), daemon=True,
+                name="tremor-handoff")
+            self._handoff_thread.start()
         else:
             self.goto(ANALYSING, now)
+
+    # ── the hand-off to a background worker (core/pending.py) ─────────────
+    def _job(self) -> dict:
+        """Everything finish_run() needs, as plain data (core/tremor/finish.py)."""
+        glove_dev = None
+        if self.glove is not None:
+            glove_dev = {"port": self.glove.port, "imu": self.glove.imu_name(),
+                         "hand": self.glove_hand}
+        return {
+            "phase_order": list(PHASE_ORDER), "hands": list(HANDS),
+            "windows": dict(self.windows), "data": self.data,
+            "cells_live": self.cells_live,
+            "clip_frames": self.clip_frames, "all_frames": self.all_frames,
+            "glove_cells": self.glove_cells, "glove_on": self.glove is not None,
+            "glove_hand": self.glove_hand, "glove_dev": glove_dev,
+            "capture_fps": self.recorder.fps, "camera_fps": self.fps,
+            "frame_size": self.frame_size, "capture_info": capture_info(self.cap),
+            "app_version": APP_VERSION,
+            "duration_s": sum(PHASES[p].duration_s for p in PHASE_ORDER),
+            # a snapshot now, so the worker files it under whoever was tested
+            "profile": profiles.from_env(), "timestamp": datetime.now(),
+        }
+
+    def _hand_off(self, job: dict):
+        """Thread: take the unfinished holds back from the offline pass, write
+        them and the run's state (`job`) into a job folder, start the worker. Sets
+        self._handoff to ("ok", dir), or ("failed", why, holds) where holds
+        are the unfinished ones to measure here instead (None: the analyser
+        never let go and is still working through them)."""
+        left, job_dir = None, None
+        try:
+            left = self.analyser.hand_over()
+            if left is None:
+                raise RuntimeError("the offline pass did not stop")
+            job_dir = pending.new_job("tremor")
+            payload = {"job": job, "results": dict(self.analyser.results),
+                       "errors": dict(self.analyser.errors), "todo": left,
+                       "keep_dir": self.keep_dir}
+            with open(job_dir / pending.JOB, "wb") as f:
+                pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+            self.spawn(job_dir)
+            self._handoff = ("ok", job_dir)
+        except Exception as e:  # noqa: BLE001 - fall back to finishing here
+            print(f"[WARN] Could not hand the analysis over ({e}) - "
+                  "finishing it here.")
+            if job_dir is not None:
+                pending.remove(job_dir)
+            self._handoff = ("failed", str(e), left)
+
+    def screen_saving(self, c: Canvas, now: float):
+        w, h = c.w, c.h
+        pw = min(520, w - 2 * theme.SAFE_MARGIN)
+        px, py = (w - pw) // 2, h // 2 - 50
+        c.panel(px, py, pw, 100)
+        c.text(w // 2, py + 34, i18n.t("Saving the recording"), role="h2",
+               anchor="mm")
+        c.text(w // 2, py + 66, i18n.t("You can rest your hands."),
+               role="body", color="text-muted", anchor="mm")
+        c.disclaimer()
+        done = self._handoff
+        if done is None:
+            return
+        if done[0] == "ok":
+            self._close_camera()
+            self.goto(HANDED, now)
+            self._handed_at = time.monotonic()
+            return
+        left = done[2]
+        if left is not None:
+            # the old analyser has stopped: a new one finishes the rest here,
+            # keeping what the old one had already measured
+            old = self.analyser
+            self.analyser = OfflineAnalyser(self._make_detect, hands=HANDS,
+                                            keep_dir=self.keep_dir)
+            self.analyser.results.update(old.results)
+            self.analyser.errors.update(old.errors)
+            self.analyser.start()
+            for job in left:
+                self.analyser.submit(*job)
+        self.goto(ANALYSING, now)
+
+    def _close_camera(self):
+        """Let the camera go: the worker needs nothing more from it."""
+        self.recorder.stop()
+        try:
+            self.cap.release()
+        except Exception:  # noqa: BLE001 - it is going away either way
+            pass
+        self.camera_closed = True
+
+    def screen_handed(self, c: Canvas, now: float) -> bool:
+        """The closing card. True once it is time to exit."""
+        w, h = c.w, c.h
+        pw = min(560, w - 2 * theme.SAFE_MARGIN)
+        bh = 42
+        ph = 216
+        px, py = (w - pw) // 2, (h - ph) // 2
+        c.panel(px, py, pw, ph)
+        c.text(w // 2, py + 34, i18n.t("Recording saved"), role="h2",
+               anchor="mm")
+        c.text(w // 2, py + 70,
+               i18n.t("The results are being measured in the background."),
+               role="body", color="text-muted", anchor="mm")
+        c.text(w // 2, py + 96,
+               i18n.t("They will appear in the hub in about a minute."),
+               role="body", color="text-muted", anchor="mm")
+        left = max(0.0, HANDED_SHOW_S - (time.monotonic() - self._handed_at))
+        c.text(w // 2, py + 126,
+               i18n.t("This window closes in {n} s", n=f"{left:.0f}"),
+               role="caption", color="text-muted", anchor="mm")
+        bw = 160
+        bx, by = w // 2 - bw // 2, py + ph - bh - 18
+        b = c.button(bx, by, bw, bh, i18n.t("Close"), variant="primary",
+                     hovered=self.hover(bx, by, bw, bh))
+        c.disclaimer()
+        return left <= 0 or self.pressed(b)
 
     def screen_analysing(self, c: Canvas, now: float):
         """The offline pass finishing what it could not do between holds."""
@@ -533,132 +804,13 @@ class App:
         if self.analyser.idle():
             self._finish(now)
 
-    def _merge_offline(self) -> tuple[int, int]:
-        """Score each hold from the offline pass where it succeeded, else
-        from the live landmarks. Returns the edge-frame counts to use."""
-        clip, total, live_only = 0, 0, False
-        for p in PHASE_ORDER:
-            if p not in self.windows:
-                continue
-            res = self.analyser.results.get(p)
-            if res is not None:
-                self.cells[p] = res["cells"]
-                self.data[p] = res["lm"]
-                self.flow_data[p] = res["flow"]
-                self.capture_stats[p] = res["stats"]
-                clip += res["clip_frames"]
-                total += res["all_frames"]
-            else:
-                live_only = True
-                self.cells[p] = self.cells_live.get(p, {})
-                why = self.analyser.errors.get(p)
-                if why:
-                    print(f"[WARN] {p}: offline pass failed ({why}) - "
-                          "scored from the live landmarks.")
-        if live_only and not total:        # nothing measured offline at all
-            return self.clip_frames, self.all_frames
-        return clip, total
-
     def _finish(self, now: float):
-        clip_frames, all_frames = self._merge_offline()
-        clipped = 100.0 * clip_frames / all_frames if all_frames else 0.0
-        self.results = tm.compute_metrics(
-            self.cells, phase_order=PHASE_ORDER, hands=HANDS,
-            glove=self.glove_cells if self.glove is not None else None,
-            clipped_pct=clipped, glove_hand=self.glove_hand)
-        self.results["edge_clipped_pct"] = round(clipped, 1)
-        methods = {c.get("method") for c in tm.cells_iter(self.cells)
-                   if c.get("scored")}
-        self.results["method"] = (methods.pop() if len(methods) == 1
-                                  else "mixed" if methods else None)
-        self.results["capture_fps"] = round(self.recorder.fps, 1)
-        self.results["engine_version"] = tm.ENGINE_VERSION
-        stats = self.capture_stats.values()
-        frames = sum((s.get("frames") or 0) for s in stats)
-        dropped = sum((s.get("dropped") or 0) for s in stats)
-        self.results["dropped_frames"] = dropped
-        if frames and dropped / frames > 0.02:
-            self.results.setdefault("confidence_reasons", []).append(
-                "The camera lost frames during the holds.")
-        self._save_session()
+        """Finish here, in-process: the path when there is no hand-off."""
+        out = finish_run(self._job(), self.analyser.results,
+                         self.analyser.errors, save=save_session)
+        self.results, self.cells = out["results"], out["cells"]
+        self.saved_path = out["saved_path"]
         self.goto(COMPLETE, now)
-
-    def _save_session(self):
-        r = self.results
-        # The spectra are for the report panel, which reads `raw`; the
-        # metrics block (sent with every session list) keeps one line a cell.
-        def lighten(cells):
-            return {p: {hnd: ({k: c.get(k) for k in ("peak_hz", "amp_pct",
-                                                    "prominence", "verdict",
-                                                    "method")}
-                              if c and c.get("scored") else
-                              {"why": (c or {}).get("why")})
-                        for hnd, c in per.items()}
-                    for p, per in cells.items()}
-        light = lighten(self.cells)
-        metrics = {k: v for k, v in r.items() if k not in ("cells", "glove")}
-        metrics["cells"] = light
-        raw = {"phases": {}, "glove": self.glove_cells or None,
-               "live_cells": lighten(self.cells_live),
-               "offline_errors": dict(self.analyser.errors) or None}
-        for p, per in self.data.items():
-            t0 = self.windows.get(p, (0.0, 0.0))[0]
-            traces = {}
-            for hnd, d in per.items():
-                if not d["t"]:
-                    continue
-                # index fingertip, relative to its own median, in % of the
-                # hand length: the movement the spectrum was computed from
-                scale = sorted(d["len"])[len(d["len"]) // 2]
-                xs = [pt[2][0] for pt in d["pts"]]
-                ys = [pt[2][1] for pt in d["pts"]]
-                mx, my = sorted(xs)[len(xs) // 2], sorted(ys)[len(ys) // 2]
-                traces[hnd] = [[round(t - t0, 3),
-                                round((x - mx) / scale * 100, 2),
-                                round((y - my) / scale * 100, 2)]
-                               for t, x, y in zip(d["t"], xs, ys)]
-            # the flow position, in % of hand length from its median, so a
-            # recorded still hand can serve tools/eval_tremor_accel.py as a
-            # noise carrier the way the fingertip traces do
-            flow_traces = {}
-            for hnd, f in (self.flow_data.get(p) or {}).items():
-                lens = (per.get(hnd) or {}).get("len") or []
-                if len(f["t"]) < 8 or not lens:
-                    continue
-                scale = sorted(lens)[len(lens) // 2]
-                xs = [xy[0] for xy in f["xy"]]
-                ys = [xy[1] for xy in f["xy"]]
-                mx, my = sorted(xs)[len(xs) // 2], sorted(ys)[len(ys) // 2]
-                flow_traces[hnd] = [[round(t - t0, 4),
-                                     round((x - mx) / scale * 100, 3),
-                                     round((y - my) / scale * 100, 3)]
-                                    for t, x, y in zip(f["t"], xs, ys)]
-            raw["phases"][p] = {
-                "traces": traces,
-                "flow_traces": flow_traces,
-                "capture": self.capture_stats.get(p),
-                "spectra": {hnd: c.get("spectrum")
-                            for hnd, c in (self.cells.get(p) or {}).items()
-                            if c and c.get("scored")},
-            }
-        glove_dev = None
-        if self.glove is not None:
-            glove_dev = {"port": self.glove.port, "imu": self.glove.imu_name(),
-                         "hand": self.glove_hand}
-        duration = sum(PHASES[p].duration_s for p in PHASE_ORDER)
-        fw, fh = self.frame_size
-        try:
-            self.saved_path = save_session(
-                test="tremor", mode="rest_postural", hand="both",
-                duration_s=duration,
-                device={"camera_fps": round(self.fps, 1),
-                        "capture_fps": round(self.recorder.fps, 1),
-                        "resolution": f"{fw}x{fh}", "app_version": APP_VERSION,
-                        "glove": glove_dev, **capture_info(self.cap)},
-                metrics=metrics, raw=raw)
-        except OSError as e:
-            self.saved_path = None
-            print(f"[WARN] Could not save session: {e}")
 
     def screen_complete(self, c: Canvas, now: float):
         w, h = c.w, c.h
@@ -794,6 +946,22 @@ class App:
             chips.append((f"{rate:.0f} fps", "warning"))
         return chips
 
+    def _run_handed(self, win, screen_rec) -> bool:
+        """One frame of the closing card, drawn on a plain background since
+        the camera has been released. True when the loop should end."""
+        fw, fh = self.frame_size
+        bg = np.zeros((fh, fw, 3), np.uint8)
+        bg[:] = theme.bgr("bg")
+        c = Canvas(bg)
+        c.status_bar([], i18n.t("Hand Tremor"))
+        close = self.screen_handed(c, time.time())
+        show(win, screen_rec.frame(c.compose()))
+        self.click = None
+        key = cv2.waitKey(30) & 0xFF
+        screen_rec.key(key)
+        self.advance = key in KEY_ADVANCE
+        return close or key == ord("q") or window_closed(win)
+
     def run(self):
         screen_rec = ScreenRecorder("tremor")
         win = "Hand Tremor Test  |  Q or close the window to quit"
@@ -801,7 +969,14 @@ class App:
         self.recorder.start()
         self.analyser.start()
         seq = 0
-        while self.cap.isOpened():
+        while True:
+            if self.camera_closed:
+                # handed off: the camera is gone, only the closing card is left
+                if self._run_handed(win, screen_rec):
+                    break
+                continue
+            if not self.cap.isOpened():
+                break
             got = self.recorder.next_frame(seq)  # already flipped to selfie view
             if got is None:
                 if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -810,7 +985,7 @@ class App:
             seq, now, frame = got
             if not window_ready:
                 create_display_window(win, frame.shape[1], frame.shape[0])
-                cv2.setMouseCallback(win, self.on_mouse)
+                set_mouse_callback(win, self.on_mouse)
                 window_ready = True
             if self._last_frame_t is not None:
                 dt = max(1e-3, now - self._last_frame_t)
@@ -828,10 +1003,21 @@ class App:
             for hnd in HANDS:
                 hd = self.hands.get(hnd)
                 self.monitors[hnd].update(hd["raw"] if hd else None, now)
-                if hd:
-                    draw_hand_skeleton(frame, hd["smooth"], HAND_CONNECTIONS)
+            # The overlay shows the optical flow, which is what gets scored,
+            # not MediaPipe's per-frame skeleton, which twitches on a flat hand
+            # (core/tremor/flow_view.py).
+            self.flow_view.update(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), now,
+                {h: ([(x * fw, y * fh) for x, y in hd["raw"]] if hd else None)
+                 for h in HANDS for hd in (self.hands.get(h),)})
 
+            # V hides every overlay (core/ui/keys.py): keep an undrawn copy
+            bare = frame.copy() if self.overlay_hidden else None
+            if bare is not None:
+                self.click = None      # its buttons cannot be seen
             c = Canvas(frame)
+            self.flow_view.draw(c, now, show_trace=self.state in (POSITION, COUNTDOWN,
+                                                                  RECORDING))
             c.status_bar(self._status_chips(), i18n.t("Hand Tremor"))
 
             if self.state == IDLE:
@@ -844,6 +1030,8 @@ class App:
                 self.screen_countdown(c, now)
             elif self.state == RECORDING:
                 self.screen_recording(c, now)
+            elif self.state == SAVING:
+                self.screen_saving(c, now)
             elif self.state == ANALYSING:
                 self.screen_analysing(c, now)
             elif self.state == COMPLETE:
@@ -854,22 +1042,33 @@ class App:
                     draw_framing(c, self.monitors[hnd], hd["raw"], self.coach)
             self.coach.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            out = (c.compose() if bare is None
+                   else bare_view(bare, i18n.t(OVERLAY_HIDDEN_HINT)))
+            show(win, screen_rec.frame(out))
             self.click = None
             key = cv2.waitKey(5) & 0xFF
             screen_rec.key(key)
+            if key in TOGGLE_OVERLAY:
+                self.overlay_hidden = not self.overlay_hidden
             self.advance = key in KEY_ADVANCE
             if key == ord("q"):
                 break
             if window_closed(win):
                 break
 
+        # Quit mid-hand-off: let it finish, or the run is lost with the
+        # half-written job (the worker is its own process once started).
+        if self._handoff_thread is not None:
+            self._handoff_thread.join(timeout=30.0)
         self.recorder.stop()
         self.analyser.stop()
-        self.cap.release()
+        if not self.camera_closed:
+            self.cap.release()
         screen_rec.close()
         cv2.destroyAllWindows()
         self.landmarker.close()
+        for inst in self.side_landmarkers.values():
+            inst.close()
         self.audio.close()
         if self.glove is not None:
             self.glove.disconnect()
@@ -877,6 +1076,18 @@ class App:
 
 
 def main():
+    args = sys.argv[1:]
+    if "--finish" in args:
+        # the background worker (spawn_worker): no camera, no window
+        i = args.index("--finish")
+        if i + 1 >= len(args):
+            sys.exit("--finish needs a job folder")
+        if hasattr(os, "nice"):
+            try:
+                os.nice(10)            # POSIX; Windows gets it from spawn_worker
+            except OSError:
+                pass
+        sys.exit(0 if run_job(args[i + 1]) is not None else 1)
     # banner already printed by the splash, above the heavy imports
     source = select_camera_source()
     glove = open_glove()

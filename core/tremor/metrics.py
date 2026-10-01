@@ -23,7 +23,10 @@ denominator is tracker noise and the fraction is large for everybody. A still
 hand needs an absolute amplitude and a peak that stands out from its own band.
 
 Signal: the RAW landmarks (never the One-Euro ones, which would erase the
-tremor), in pixels, for the wrist and three fingertips. The tool records only
+tremor), in pixels, for the wrist and the four knuckles, de-spiked (`despike`).
+The optical flow is the primary reading (core/tremor/flow.py); this landmark
+reading is its fallback, and on a flat hand MediaPipe re-guesses the fingers
+from frame to frame (engine 3, below). The tool records only
 frames core/framing.py trusts, so a hand at the edge of the picture — whose
 guessed landmarks jitter — never reaches this module.
 
@@ -48,8 +51,16 @@ from core.tremor.phases import REST_PHASES
 #: loop's rate. 2: the offline pass over every recorded frame
 #: (core/tremor/offline.py, docs/tests/TREMOR_RESTRUCTURE_PLAN.md) -- a 60 fps
 #: flow reading and a 16 fps landmark reading of one hand are different
-#: instruments, so the report says which one it is showing.
-ENGINE_VERSION = 2
+#: instruments, so the report says which one it is showing. 3: the landmark
+#: reading uses the palm (wrist + knuckles) instead of the fingertips, and is
+#: de-spiked -- a flat hand made MediaPipe re-guess the fingers, which read as
+#: tremor (docs/tests/TREMOR_TEST_PLAN.md §3b). The flow reading is unchanged.
+#: 4: per-instrument thresholds -- the optical flow's still-hand floor is
+#: 25-50x below the landmarks', and the landmark floors threw away a real
+#: 0.1-0.2 % tremor it had measured cleanly (2026-09-30) -- a true-peak test
+#: against sway leaking into the bottom of the band, and landmark readings
+#: capped at "possible" (TREMOR_TEST_PLAN.md §3c).
+ENGINE_VERSION = 4
 
 TREMOR_BAND = (3.5, 12.0)
 #: Below this camera rate the band's usable top falls under 7 Hz and no longer
@@ -81,9 +92,49 @@ PROM_MIN = 6.0              # peak / band median for "detected"
 PROM_POSSIBLE = 3.5         # below this there is no peak worth naming
 AMP_FLOOR_PCT = 1.5         # RMS, % of hand length, for "detected"
 
-#: Landmarks read: wrist, thumb tip, index tip, middle tip. The wrist carries
-#: the forearm's rotation, the tips carry pill-rolling.
-LANDMARKS = (0, 4, 8, 12)
+#: Engine 4. The thresholds above belong to the LANDMARK reading, whose
+#: still-hand floor is 0.1-0.8 % RMS. The optical flow's is 0.02-0.03 %
+#: (2026-09-30, Razer at 60 fps), so it gets its own amplitude floors, set by
+#: tools/calibrate_tremor_flow.py (results/tremor_eval/calib_20260930_013354;
+#: TREMOR_TEST_PLAN.md §3c) against pre-set rules: every still-hand hold
+#: none; PADS healthy 0 % detected and >= 95 % none; Parkinson@Home healthy
+#: and video-coded no-tremor windows <= 1 % detected. Of the 126 settings
+#: that pass, this one flags the most < 3 cm tremors (75 %, 30 % detected).
+AMP_FLOW_POSSIBLE = 0.06
+AMP_FLOW_DETECTED = 0.60
+#: A tremor is a peak: power at the peak must be this many times the most
+#: power found 0.75-1.25 Hz below it and 0.75-1.25 Hz above it. Slow sway
+#: leaking into the bottom of the band has no low side -- it keeps rising
+#: toward 1 Hz -- which is how a still arms-out hold scored prominence 57-78
+#: at 3.5-3.8 Hz. Applied to the flow and landmark instruments only.
+PEAK_SIDE_MIN = 1.5
+PEAK_SIDE_NEAR, PEAK_SIDE_FAR = 0.75, 1.25
+INSTRUMENTS = ("flow", "landmarks")
+
+#: Landmarks read: the wrist and the four knuckles (index to little finger
+#: MCP) -- the rigid part of the hand. Engines 1-2 read the wrist and three
+#: fingertips for pill-rolling, but a hand lying flat is the pose MediaPipe
+#: finds most ambiguous: it re-guesses the fingers, a fingertip steps several
+#: percent of the hand length in one frame, and a guess that flips back and
+#: forth is a spectral peak. Simulated on a perfectly still hand
+#: (TREMOR_TEST_PLAN.md §3b), fingers flicking between two guesses at 4.5 Hz
+#: read as a *detected* 23 % tremor from the tips and as nothing from the
+#: palm. Finger motion still reaches the flow reading, which tracks the whole
+#: hand from the image and ignores what the landmarks guess.
+LANDMARKS = (0, 5, 9, 13, 17)
+#: Hampel de-spiking (`despike`): a sample more than DESPIKE_K scaled MADs
+#: from the median of the DESPIKE_HALF samples either side is replaced by that
+#: median, the MAD floored at the stretch's typical MAD. It is only safe with
+#: enough frames per tremor cycle. At 3-4 frames a cycle (8 Hz at 24 fps,
+#: 12 Hz at 48 fps) a 7-sample window of a pure sine can have almost no
+#: spread, and k = 3 then rewrote up to all of it. Swept over 3.5-12 Hz in
+#: 0.05 Hz steps, 6 phases and noise 0-10 %, k = 5 at >= 45 fps touched no
+#: sine sample at all and still removed ~85 % of the energy of 1-2 frame
+#: jumps on a still hand. So it runs on the offline pass (60 fps) and never on
+#: the ~16 fps live loop, which is protected by the palm landmarks alone.
+DESPIKE_HALF = 3
+DESPIKE_K = 5.0
+DESPIKE_MIN_FS = 45.0
 HAND_LEN_FROM, HAND_LEN_TO = 0, 9
 
 DETECTED, POSSIBLE, NONE = "detected", "possible", "none"
@@ -103,14 +154,62 @@ def select(points) -> list[tuple[float, float]]:
     return [(float(points[i][0]), float(points[i][1])) for i in LANDMARKS]
 
 
+def despike(arr: np.ndarray, half: int = DESPIKE_HALF,
+            k: float = DESPIKE_K) -> tuple[np.ndarray, int]:
+    """Hampel filter along axis 0 of an (n, C) array. Returns the cleaned
+    copy and how many values were replaced."""
+    arr = np.asarray(arr, dtype=np.float64)
+    n = len(arr)
+    if n < 2 * half + 1:
+        return arr.copy(), 0
+    # reflect, not edge: repeating the end value makes the ends look flat
+    pad = np.pad(arr, ((half, half), (0, 0)), mode="reflect")
+    win = np.lib.stride_tricks.sliding_window_view(pad, 2 * half + 1, axis=0)
+    med = np.median(win, axis=-1)                                  # (n, C)
+    mad = 1.4826 * np.median(np.abs(win - med[..., None]), axis=-1)
+    # a window that happens to be flat must not make its neighbour a spike
+    mad = np.maximum(mad, np.median(mad, axis=0))
+    bad = np.abs(arr - med) > k * np.maximum(mad, 1e-12)
+    out = np.where(bad, med, arr)
+    return out, int(bad.sum())
+
+
 # ── bands ────────────────────────────────────────────────────────────────────
 
-def classify(prominence: float, amp_pct: float) -> str:
-    if prominence < PROM_POSSIBLE or amp_pct < AMP_FLOOR_PCT / 2:
+def classify(prominence: float, amp_pct: float, instrument: str | None = None,
+             peak_side: float | None = None) -> str:
+    """none / possible / detected.
+
+    instrument None keeps the engine 1-3 rule, so an old caller scores as it
+    always did. "flow" uses the flow's own amplitude floors. "landmarks" can
+    say "possible" at most: on a flat hand MediaPipe's guesses move 1-2 % of
+    the hand length every frame, so a landmark peak is never proof alone."""
+    if instrument in INSTRUMENTS and peak_side is not None and peak_side < PEAK_SIDE_MIN:
         return NONE
-    if prominence >= PROM_MIN and amp_pct >= AMP_FLOOR_PCT:
-        return DETECTED
+    if instrument == "flow":
+        amp_possible, amp_detected = AMP_FLOW_POSSIBLE, AMP_FLOW_DETECTED
+    else:
+        amp_possible, amp_detected = AMP_FLOOR_PCT / 2, AMP_FLOOR_PCT
+    if prominence < PROM_POSSIBLE or amp_pct < amp_possible:
+        return NONE
+    if prominence >= PROM_MIN and amp_pct >= amp_detected:
+        return POSSIBLE if instrument == "landmarks" else DETECTED
     return POSSIBLE
+
+
+def peak_sides(freqs: np.ndarray, psd: np.ndarray, peak_hz: float,
+               top_hz: float) -> float | None:
+    """Peak power over the most power 0.75-1.25 Hz either side of it (the
+    smaller of the two ratios). None when neither side can be read."""
+    pk = float(np.interp(peak_hz, freqs, psd))
+    ratios = []
+    for lo, hi in ((peak_hz - PEAK_SIDE_FAR, peak_hz - PEAK_SIDE_NEAR),
+                   (peak_hz + PEAK_SIDE_NEAR, peak_hz + PEAK_SIDE_FAR)):
+        m = (freqs >= max(lo, 0.0)) & (freqs <= min(hi, top_hz))
+        if m.any():
+            side = float(psd[m].max())
+            ratios.append(pk / side if side > 0 else float("inf"))
+    return min(ratios) if ratios else None
 
 
 def band(verdict: str) -> tuple[str, str]:
@@ -189,7 +288,8 @@ def _slow_range(x: np.ndarray, fs: float) -> float:
 
 
 def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
-                 exact_times: bool = False) -> dict:
+                 exact_times: bool = False, despike_spikes: bool = False,
+                 instrument: str | None = None) -> dict:
     """Spectrum of one hand over one phase.
 
     ts   : frame times, s (trusted frames only, settle already removed)
@@ -201,6 +301,13 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
            lost frames are then filled (fill_drops) and anything longer
            splits. Off for the live loop, whose intervals vary all the time
            with the CPU and would read as losses everywhere.
+    despike_spikes : Hampel-filter each stretch first (`despike`) when the
+           rate is at least DESPIKE_MIN_FS. On for landmark readings, whose
+           guesses jump; off for the optical flow, which is already a median
+           over many points.
+
+    instrument : "flow" or "landmarks" selects that instrument's detection
+           rule (classify); None keeps the engine 1-3 rule.
 
     Always returns a dict. ``scored`` False carries ``why`` — a code, not a
     sentence; compute_metrics turns codes into the one reason a person reads.
@@ -240,6 +347,13 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
     lo, hi = TREMOR_BAND[0], min(TREMOR_BAND[1], 0.95 * nyq)
     if fs < FS_MIN or hi - lo < MIN_BAND_WIDTH_HZ:
         return {"scored": False, "why": "low_fps", "fs": round(fs, 1)}
+
+    despiked, did_despike = 0, despike_spikes and fs >= DESPIKE_MIN_FS
+    if did_despike:
+        # within each stretch only: a gap is not a spike
+        for a, b in segs:
+            arr[a:b], k = despike(arr[a:b])
+            despiked += k
 
     n = int(round(WIN_S * fs))
     step = max(1, n // 2)
@@ -285,6 +399,12 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
             "valid_s": round(valid_s, 1)}
     if exact_times:
         base["filled"] = filled
+    if despike_spikes:
+        # share of landmark values the de-spiker replaced: a measure of how
+        # much MediaPipe was re-guessing this hand. None: too few frames a
+        # tremor cycle to de-spike safely (the live loop).
+        base["despiked_pct"] = (round(100.0 * despiked / max(1, arr.size), 2)
+                                if did_despike else None)
     if used < MIN_WINDOWS:
         why = "moving" if rejected and rejected >= used else "too_short"
         return {"scored": False, "why": why, **base}
@@ -308,7 +428,8 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
     # above already accounts for it, so these sums are real mean squares.
     amp = math.sqrt(float(ms[near].sum()))
     band_amp = math.sqrt(float(ms[in_band].sum()))
-    verdict = classify(prominence, amp * 100.0)
+    side = peak_sides(freqs, psd, peak_hz, 0.95 * nyq)
+    verdict = classify(prominence, amp * 100.0, instrument, side)
     status, label = band(verdict)
 
     # A light copy of the spectrum for the report: 0.25 Hz steps from 1 Hz,
@@ -325,6 +446,8 @@ def analyse_hand(ts, pts, lens, move_max: float = MOVE_MAX,
         "amp_pp_cm_est": round(2 * math.sqrt(2) * amp * PALM_LEN_CM, 2),
         "band_amp_pct": round(band_amp * 100.0, 2),
         "prominence": round(prominence, 2),
+        "peak_side": round(side, 2) if side is not None and side != float("inf") else None,
+        "instrument": instrument,
         "band": [lo, round(hi, 2)],
         "verdict": verdict, "status": status, "label": label,
         "spectrum": spectrum,

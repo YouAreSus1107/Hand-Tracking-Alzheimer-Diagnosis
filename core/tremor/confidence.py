@@ -10,6 +10,10 @@ Factors
   windows    still 4 s windows per scored cell, against a full phase's worth
   stillness  windows dropped because a hand was being moved
   framing    share of frames with a hand at the edge of the picture
+  instrument share of scored cells read from hand landmarks rather than the
+             optical flow (engine 4): landmarks jitter 1-2 % of the hand
+             length a frame on a flat hand, and such a cell can only say
+             "possible"
 
 The camera's frame rate is deliberately NOT a factor. It limits which tremors
 can be seen at all (a 16 fps camera stops near 7.6 Hz), but it is a property
@@ -26,6 +30,7 @@ from core.confidence import clamp, level_of
 
 FULL_WINDOWS = 6            # a clean 18 s phase gives 8; 6 is plenty
 CLIP_CEILING_PCT = 30.0
+LANDMARK_PENALTY = 0.3      # every cell from landmarks: confidence x 0.7
 
 
 def confidence(*, expected_cells: int, scored: list,
@@ -57,6 +62,12 @@ def confidence(*, expected_cells: int, scored: list,
     factors["framing"] = clamp(1.0 - clipped_pct / CLIP_CEILING_PCT)
     if factors["framing"] < 0.9:
         reasons.append("A hand was often at the edge of the picture.")
+
+    lm = sum(1 for c in scored if c.get("instrument") == "landmarks")
+    factors["instrument"] = clamp(1.0 - LANDMARK_PENALTY * lm / max(1, len(scored)))
+    if lm:
+        reasons.append("Part of this reading comes from hand landmarks, which "
+                       "are less precise than the motion tracking.")
 
     score = 100.0
     for v in factors.values():

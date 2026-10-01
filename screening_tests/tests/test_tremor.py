@@ -297,6 +297,161 @@ def test_reader_imu_series_selects_by_host_time_in_physical_units():
     assert reader.imu_name() == "BMI270_BMM150"
 
 
+# ── flat hand: MediaPipe re-guessing the fingers (engine 3, plan §3b) ───────
+
+_HAND21 = np.array([
+    [320, 380], [285, 355], [265, 330], [252, 305], [242, 282],
+    [295, 290], [290, 255], [287, 232], [285, 212],
+    [320, 285], [320, 245], [320, 220], [320, 198],
+    [345, 290], [350, 255], [352, 232], [354, 214],
+    [368, 300], [378, 275], [384, 258], [388, 243]], float)
+_TIPS = [4, 8, 12, 16, 20]
+
+
+def _flat_hand(kind, fs=60.0, dur=18.0, hz=None, amp_px=0.0):
+    """(ts, selected pts, lens) of a hand whose REAL motion is `hz`/`amp_px`
+    (or none), while its landmark guesses misbehave the way a flat hand's do:
+    'flip' = fingertips jump between two guesses at 4.5 Hz, 'spikes' = 10 %
+    of frames jump by ~15 px."""
+    rng = np.random.default_rng(4)
+    ts = np.arange(int(dur * fs)) / fs
+    pts, lens = [], []
+    for t in ts:
+        p = _HAND21 + rng.normal(0, 0.5, _HAND21.shape)
+        if hz:
+            p[:, 0] += amp_px * math.sin(2 * math.pi * hz * t)
+        if kind == "flip" and math.sin(2 * math.pi * 4.5 * t) > 0:
+            p[_TIPS] += (p[0] - p[_TIPS]) * 0.35
+        if kind == "spikes" and rng.random() < 0.10:
+            p += rng.normal(0, 12, 2)
+            p[_TIPS] += rng.normal(0, 15, (5, 2))
+        pts.append(tm.select(p))
+        lens.append(tm.hand_length(p))
+    return list(ts), pts, lens
+
+
+def test_despike_never_touches_a_sine_wave_at_its_rates():
+    # the worst cases are whole-number frames per cycle with no noise at all
+    for fs in (tm.DESPIKE_MIN_FS, 48.0, 60.0):
+        t = np.arange(int(10 * fs)) / fs
+        for hz in (3.5, 5.0, 7.5, 10.0, 12.0):
+            for ph in (0.0, 0.4, 1.1):
+                x = np.sin(2 * math.pi * hz * t + ph)[:, None]
+                out, n = tm.despike(x)
+                assert n == 0, (fs, hz, ph, n)
+
+
+def test_despike_is_skipped_below_its_rate():
+    # at ~16 fps a 7-sample window can make a real tremor look like spikes
+    r = tm.analyse_hand(*_flat_hand("spikes", fs=16.0), despike_spikes=True)
+    assert r["despiked_pct"] is None
+
+
+def test_despike_removes_isolated_jumps():
+    x = np.zeros((200, 2))
+    x[[20, 21, 90, 150], 0] = 8.0     # 1- and 2-frame jumps
+    out, n = tm.despike(x + RNG.normal(0, 0.05, x.shape))
+    assert n >= 4
+    assert np.abs(out[[20, 21, 90, 150], 0]).max() < 1.0
+
+
+def test_landmarks_are_the_rigid_palm():
+    # no fingertip: those are the points MediaPipe re-guesses on a flat hand
+    assert not set(tm.LANDMARKS) & set(_TIPS)
+    assert tm.HAND_LEN_FROM in tm.LANDMARKS and tm.HAND_LEN_TO in tm.LANDMARKS
+
+
+def test_flat_hand_finger_flicker_is_not_a_tremor():
+    # Read from the fingertips (engine 1-2) this was a *detected* 23 % tremor
+    # at 4.5 Hz on a hand that never moved.
+    r = tm.analyse_hand(*_flat_hand("flip"), despike_spikes=True)
+    assert r["scored"], r
+    assert r["verdict"] == tm.NONE, r
+
+
+def test_flat_hand_jumps_neither_invent_nor_hide_a_tremor():
+    still = tm.analyse_hand(*_flat_hand("spikes"), despike_spikes=True)
+    assert still["verdict"] == tm.NONE, still
+    assert still["despiked_pct"] > 0
+    # a real 1.2 % RMS, 5 Hz tremor under the same jumps is still found
+    real = tm.analyse_hand(*_flat_hand("spikes", hz=5.0, amp_px=1.4 * 115 / 100 * 1.4142),
+                           despike_spikes=True)
+    assert abs(real["peak_hz"] - 5.0) <= 0.25, real
+    assert real["verdict"] != tm.NONE, real
+
+
+# ── engine 4: instruments and the true-peak test (plan §3c) ─────────────────
+
+def _flow_hand(hz=None, amp_pct=0.0, sway_pct=0.0, fs=60.0, dur=18.0, seed=5):
+    """One flow track in % of hand length (lens 100): a 0.02 % floor like the
+    Razer's still hands, an optional tremor, an optional slow sway whose
+    spectrum falls from 1 Hz into the bottom of the band."""
+    rng = np.random.default_rng(seed)
+    n = int(dur * fs)
+    t = np.arange(n) / fs
+    xy = rng.normal(0, 0.02, (n, 2))
+    if hz:
+        xy[:, 0] += amp_pct * math.sqrt(2) * np.sin(2 * math.pi * hz * t)
+    if sway_pct:
+        walk = np.cumsum(rng.normal(0, 1, (n, 2)), axis=0)
+        k = int(fs * 0.25)
+        walk = np.apply_along_axis(lambda c: np.convolve(c, np.ones(k) / k, "same"), 0, walk)
+        walk -= walk.mean(axis=0)
+        xy += sway_pct * walk / walk.std()
+    return list(t), [[p] for p in xy], [100.0] * n
+
+
+def test_flow_sees_a_small_tremor_the_landmark_floors_threw_away():
+    # the 2026-09-30 run: 0.1-0.2 % at ~5 Hz read "none" under engine 3
+    ts, pts, lens = _flow_hand(hz=5.0, amp_pct=0.15)
+    assert tm.analyse_hand(ts, pts, lens)["verdict"] == tm.NONE
+    r = tm.analyse_hand(ts, pts, lens, instrument="flow")
+    assert r["verdict"] != tm.NONE, r
+    assert abs(r["peak_hz"] - 5.0) <= 0.25
+
+
+def test_flow_still_hand_stays_none():
+    for seed in range(5):
+        r = tm.analyse_hand(*_flow_hand(seed=seed), instrument="flow")
+        assert r["verdict"] == tm.NONE, (seed, r)
+
+
+def test_sway_leaking_into_the_band_is_not_a_peak():
+    for seed in range(5):
+        r = tm.analyse_hand(*_flow_hand(sway_pct=1.0, seed=seed), instrument="flow",
+                            move_max=PHASES["postural"].move_max)
+        assert r["scored"], r
+        assert r["verdict"] == tm.NONE, (seed, r["peak_hz"], r["peak_side"])
+
+
+def test_true_peak_passes_a_tremor_on_top_of_sway():
+    r = tm.analyse_hand(*_flow_hand(hz=6.0, amp_pct=0.3, sway_pct=1.0), instrument="flow",
+                        move_max=PHASES["postural"].move_max)
+    assert r["peak_side"] >= tm.PEAK_SIDE_MIN, r
+    assert r["verdict"] != tm.NONE
+
+
+def test_landmark_instrument_never_says_detected():
+    big = _hand(hz=5.0, amp_frac=0.05)
+    assert tm.analyse_hand(*big)["verdict"] == tm.DETECTED
+    assert tm.analyse_hand(*big, instrument="landmarks")["verdict"] == tm.POSSIBLE
+
+
+def test_landmark_cells_lower_confidence_and_say_why():
+    cells = {p: {h: tm.analyse_hand(*_hand(), instrument="landmarks") for h in HANDS}
+             for p in PHASE_ORDER}
+    m = tm.compute_metrics(cells, phase_order=PHASE_ORDER)
+    assert any("hand landmarks" in r for r in m["confidence_reasons"])
+    flow = {p: {h: tm.analyse_hand(*_flow_hand(seed=i), instrument="flow")
+                for i, h in enumerate(HANDS)} for p in PHASE_ORDER}
+    assert tm.compute_metrics(flow, phase_order=PHASE_ORDER)["confidence_pct"] > m["confidence_pct"]
+
+
+def test_despike_is_off_by_default():
+    r = tm.analyse_hand(*_hand(hz=5.0, amp_frac=0.03))
+    assert "despiked_pct" not in r
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
