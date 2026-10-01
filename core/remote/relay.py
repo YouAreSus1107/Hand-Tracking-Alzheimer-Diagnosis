@@ -212,6 +212,10 @@ def decode_document(doc) -> dict:
     name = str(doc.get("name", ""))
     if name:
         out["_id"] = name.rsplit("/", 1)[-1]
+    # Firestore's own clock, which the phone cannot set. The hub judges a
+    # result against its invite as of this moment, not as of the pull.
+    if doc.get("createTime"):
+        out["_created"] = str(doc["createTime"])
     return out
 
 
@@ -258,8 +262,10 @@ def _url(cfg: dict, path: str, params: dict | None = None) -> str:
         raise ValueError("query parameters belong in `params`, not the path")
     query = dict(params or {})
     query["key"] = str(cfg.get("api_key", "")).strip()
+    # ":runQuery" is a method on the documents root, not a document path.
+    sep = "" if path.startswith(":") else "/"
     return (f"{API_ROOT}/projects/{cfg['project_id']}/databases/(default)/"
-            f"documents/{path}?{urllib.parse.urlencode(query)}")
+            f"documents{sep}{path}?{urllib.parse.urlencode(query)}")
 
 
 def fetch(path: str, *, method: str = "GET", body: dict | None = None,
@@ -296,13 +302,30 @@ def fetch(path: str, *, method: str = "GET", body: dict | None = None,
         return False, f"Remote inbox error: {exc}", None
 
 
-def pull_results(after: str = "") -> tuple[bool, str, list[dict]]:
-    """Fetch result documents the hub has not seen. Ordered by upload time so
-    `after` can be a simple high-water mark."""
-    params = {"pageSize": MAX_PAGE, "orderBy": "uploaded_at"}
-    if after:
-        params["startAfter"] = after
-    ok, message, body = fetch(RESULTS, params=params)
+def results_query(uid: str, limit: int = MAX_PAGE) -> dict:
+    """The structured query for this helper's results.
+
+    Firestore rules are not filters: `allow list` on remote_results only
+    passes a query that itself restricts helper_uid to the caller, so a plain
+    documents.list of the collection is refused outright -- which is what the
+    first version sent. No orderBy: combined with an equality filter on another
+    field it needs a composite index, and the inbox clears what it pulls, so
+    order buys nothing."""
+    return {"structuredQuery": {
+        "from": [{"collectionId": RESULTS}],
+        "where": {"fieldFilter": {"field": {"fieldPath": "helper_uid"},
+                                  "op": "EQUAL",
+                                  "value": {"stringValue": uid}}},
+        "limit": int(limit),
+    }}
+
+
+def pull_results() -> tuple[bool, str, list[dict]]:
+    """Fetch the result documents addressed to this helper."""
+    uid = helper_uid()
+    if not uid:
+        return False, "Remote inbox is not signed in yet.", []
+    ok, message, body = fetch(":runQuery", method="POST", body=results_query(uid))
     if not ok:
         return False, message, []
     return True, "", decode_documents(body)
@@ -335,6 +358,16 @@ def publish_invite(invite: dict) -> tuple[bool, str]:
     ok, message, _ = fetch(INVITES, method="POST", body=fields,
                            params={"documentId": invite["token"]})
     return ok, message or "Link published."
+
+
+def revoke_invite(token: str) -> tuple[bool, str]:
+    """Mark a published invite revoked, so the participant's page and
+    firestore.rules both stop honouring it. Cancelling used to change only the
+    hub's own ledger, and the link kept working on the phone."""
+    body = {"fields": {"revoked": {"booleanValue": True}}}
+    ok, message, _ = fetch(f"{INVITES}/{token}", method="PATCH", body=body,
+                           params={"updateMask.fieldPaths": "revoked"})
+    return ok, message
 
 
 def delete_result(doc_id: str) -> tuple[bool, str]:

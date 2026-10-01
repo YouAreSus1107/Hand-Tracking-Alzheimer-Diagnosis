@@ -1,4 +1,6 @@
-/* Tapping engine — a direct port of core/tapping/{detector,metrics,modes}.py.
+/* Tapping engine — a direct port of core/tapping/{detector,metrics,modes}.py,
+   plus the pieces of core/hand_utils.py (One-Euro) and core/framing.py that
+   sit in front of it.
    REMOTE_SESSION_PLAN.md §3.1, WEB_PLATFORM_PLAN.md §3.
 
    Python stays the normative implementation (web plan §3, "the parity
@@ -29,12 +31,174 @@ export const MODES = {
   },
 };
 
+// The detector's EMA weight, which lives in screening_tests/finger_tapping.py
+// (EMA_ALPHA_PACED / EMA_ALPHA_FAST) rather than in the engine. The phone used
+// 0.4 for Big & Fast while the desktop used 0.6, so the two smoothed the same
+// hand differently; test_remote_contract.py now pins these to the desktop's.
+export const EMA_ALPHA_PACED = 0.4;
+export const EMA_ALPHA_FAST = 0.6;
+export function emaAlpha(mode) { return mode.paced ? EMA_ALPHA_PACED : EMA_ALPHA_FAST; }
+
 // TapMode.min_intertap_s / max_iti_ms are properties in Python.
 // The debounce follows max_rate_hz, not expected_rate_hz — see modes.py.
 export function minIntertapS(mode) { return 0.5 / (mode.max_rate_hz || mode.expected_rate_hz); }
 export function maxItiMs(mode) {
   return mode.paced ? mode.interval_s * 1000 * 1.5
                     : 3.0 * 1000.0 / mode.expected_rate_hz;
+}
+
+/* ── hand_utils.py: One-Euro landmark smoothing ───────────────────────── */
+// The desktop feeds thumb_index_distance() One-Euro-smoothed landmarks, not
+// raw ones, and the detector's thresholds were tuned on that signal. Feeding
+// the phone's detector raw landmarks made its input noisier than the
+// desktop's in a way the distance-level parity vectors could never see.
+
+export class OneEuroFilter {
+  constructor(minCutoff = 6.0, beta = 1.5, dCutoff = 1.0) {
+    this.minCutoff = minCutoff;
+    this.beta = beta;
+    this.dCutoff = dCutoff;
+    this.reset();
+  }
+
+  _alpha(cutoff, dt) {
+    const tau = 1.0 / (2 * Math.PI * cutoff);
+    return 1.0 / (1.0 + tau / dt);
+  }
+
+  filter(x, t) {
+    if (this._tPrev === null) {
+      this._xPrev = x;
+      this._tPrev = t;
+      return x;
+    }
+    const dt = Math.max(t - this._tPrev, 1e-6);
+    const dx = (x - this._xPrev) / dt;
+    const aD = this._alpha(this.dCutoff, dt);
+    const dxHat = aD * dx + (1 - aD) * this._dxPrev;
+    const cutoff = this.minCutoff + this.beta * Math.abs(dxHat);
+    const a = this._alpha(cutoff, dt);
+    const xHat = a * x + (1 - a) * this._xPrev;
+    this._xPrev = xHat;
+    this._dxPrev = dxHat;
+    this._tPrev = t;
+    return xHat;
+  }
+
+  reset() {
+    this._xPrev = null;
+    this._dxPrev = 0.0;
+    this._tPrev = null;
+  }
+}
+
+/** One filter per landmark per axis, as make_landmark_filters(). */
+export function makeLandmarkFilters() {
+  const make = () => Array.from({ length: 21 }, () => new OneEuroFilter());
+  return [make(), make()];
+}
+
+/** smooth_landmarks(): x and y filtered, z passed through. Accepts {x,y,z}
+ *  or [x,y,z]; returns [x,y,z] triples. */
+export function smoothLandmarks(landmarks, fx, fy, t) {
+  return landmarks.map((p, i) => {
+    const [x, y, z] = Array.isArray(p) ? p : [p.x, p.y, p.z];
+    return [fx[i].filter(x, t), fy[i].filter(y, t), z];
+  });
+}
+
+/* ── framing.py: is the whole hand in the picture? ────────────────────── */
+// A hand part-way out of frame is not reported lost: MediaPipe guesses the
+// hidden landmarks and the guesses jitter, which the detector can count as
+// taps. Nobody is in the room on a remote run to notice the drift.
+
+export const EDGE_CLIP = 0.02;
+export const EDGE_NEAR = 0.07;
+export const CLEAR_HOLD_S = 0.4;
+export const PRE_ROLL_S = 0.15;
+export const OK = "ok", NEAR = "near", CLIPPED = "clipped", LOST = "lost";
+export const EDGES = ["left", "right", "top", "bottom"];
+
+/** [level, edges] for one frame's normalised landmarks (null = no hand). */
+export function edgeState(points) {
+  if (!points || !points.length) return [LOST, []];
+  const xy = points.map((p) => (Array.isArray(p) ? p : [p.x, p.y]));
+  const xs = xy.map((p) => p[0]), ys = xy.map((p) => p[1]);
+  const gaps = { left: Math.min(...xs), right: 1.0 - Math.max(...xs),
+                 top: Math.min(...ys), bottom: 1.0 - Math.max(...ys) };
+  const clipped = EDGES.filter((e) => gaps[e] < EDGE_CLIP);
+  if (clipped.length) return [CLIPPED, clipped];
+  const near = EDGES.filter((e) => gaps[e] < EDGE_NEAR);
+  if (near.length) return [NEAR, near];
+  return [OK, []];
+}
+
+export class FramingMonitor {
+  constructor() {
+    this.level = OK;
+    this.edges = [];
+    this.untrusted = false;
+    this.frames = 0;
+    this.clippedFrames = 0;
+    this.lostFrames = 0;
+    this.blackouts = [];
+    this._badSince = null;
+    this._clearSince = null;
+    this._lastT = null;
+  }
+
+  update(points, t) {
+    this.frames += 1;
+    this._lastT = t;
+    [this.level, this.edges] = edgeState(points);
+    const bad = this.level === CLIPPED || this.level === LOST;
+    if (this.level === CLIPPED) this.clippedFrames += 1;
+    else if (this.level === LOST) this.lostFrames += 1;
+
+    if (bad) {
+      this._clearSince = null;
+      if (!this.untrusted) {
+        this.untrusted = true;
+        this._badSince = t;
+      }
+    } else if (this.untrusted) {
+      if (this._clearSince === null) this._clearSince = t;
+      if (t - this._clearSince >= CLEAR_HOLD_S) {
+        this.untrusted = false;
+        this._close(t);
+      }
+    }
+    return this.level;
+  }
+
+  _close(t) {
+    if (this._badSince !== null) this.blackouts.push([this._badSince - PRE_ROLL_S, t]);
+    this._badSince = null;
+    this._clearSince = null;
+  }
+
+  finish() {
+    if (this.untrusted && this._lastT !== null) this._close(this._lastT);
+    return this.blackouts;
+  }
+
+  get clippedPct() { return this.frames ? 100.0 * this.clippedFrames / this.frames : 0.0; }
+}
+
+/** True if [t0, t1] touches any blackout interval. */
+export function overlaps(t0, t1, blackouts) {
+  return (blackouts || []).some(([b0, b1]) => t0 <= b1 && t1 >= b0);
+}
+
+export const MOVE_BACK = "Move your hand back from the screen";
+
+/** Coaching line for a clipped/near hand. "Toward the middle", never
+ *  left/right: the picture is mirrored. */
+export function hint(edges, tracing = false) {
+  if (tracing && edges.includes("bottom")) return MOVE_BACK;
+  if (edges.includes("bottom") && edges.length === 1) return "Raise your hand a little";
+  if (edges.includes("top") && edges.length === 1) return "Lower your hand a little";
+  return "Move your hand toward the middle";
 }
 
 /* ── detector.py ──────────────────────────────────────────────────────── */
@@ -244,10 +408,19 @@ export function band(cvPct, mode) {
   return ["danger", "Elevated variability - recommend follow-up"];
 }
 
-function intervalStats(mode, tapTimes) {
+/** Consecutive tap pairs, minus any that touch a blackout (metrics._pairs). */
+function pairs(tapTimes, blackouts) {
+  const out = [];
+  for (let i = 0; i < tapTimes.length - 1; i++) {
+    if (!overlaps(tapTimes[i], tapTimes[i + 1], blackouts)) out.push([tapTimes[i], tapTimes[i + 1]]);
+  }
+  return out;
+}
+
+function intervalStats(mode, tapTimes, blackouts = null) {
   if (tapTimes.length < 2) return null;
-  const all = [];
-  for (let i = 0; i < tapTimes.length - 1; i++) all.push((tapTimes[i + 1] - tapTimes[i]) * 1000);
+  const all = pairs(tapTimes, blackouts).map(([a, b]) => (b - a) * 1000);
+  if (!all.length) return null;
   const cutoff = mode.paced ? maxItiMs(mode) : 3.0 * median(all);
   const iti = all.filter(v => v <= cutoff);
   if (iti.length < 2) return null;
@@ -327,15 +500,14 @@ function makeTrace(series, taps) {
   return tr;
 }
 
-export function labelGaps(taps, series) {
-  const pairs = [];
-  for (let k = 0; k + 1 < taps.length; k++) pairs.push([taps[k], taps[k + 1]]);
-  if (pairs.length < 4 || !series.length) return [];
+export function labelGaps(taps, series, blackouts = null) {
+  const scored = pairs(taps, blackouts);
+  if (scored.length < 4 || !series.length) return [];
   const tr = makeTrace(series, taps);
   if (!tr.ok) return [];
-  const iti = pairs.map(([a, b]) => b - a);
+  const iti = scored.map(([a, b]) => b - a);
   const out = [];
-  pairs.forEach(([a, b], k) => {
+  scored.forEach(([a, b], k) => {
     const ratio = iti[k] / localMedian(iti, k);
     if (ratio <= GAP_LONG) return;
     const q = tr.midDip(a, b);
@@ -349,8 +521,8 @@ export function labelGaps(taps, series) {
   return out;
 }
 
-export function restoreMissedTap(taps, series) {
-  const labels = labelGaps(taps, series);
+export function restoreMissedTap(taps, series, blackouts = null) {
+  const labels = labelGaps(taps, series, blackouts);
   if (labels.length !== 1 || labels[0][2] !== "missed_tap") return null;
   const [a, b] = labels[0];
   const tr = makeTrace(series, taps);
@@ -368,16 +540,16 @@ function scoredTaps(mode, tapTimes) {
  *  if the verdict moves one band at most. */
 export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
                                beatTimes = null, handVisibleRatio = 1.0,
-                               cameraFps = null, nearMiss = 0) {
-  const args = [beatTimes, handVisibleRatio, cameraFps, nearMiss];
+                               cameraFps = null, nearMiss = 0, blackouts = null) {
+  const args = [beatTimes, handVisibleRatio, cameraFps, nearMiss, blackouts];
   const out = scoreRun(mode, tapTimes, series, tStart, tEnd, ...args);
   const scored = scoredTaps(mode, tapTimes);
-  const labels = out.scoreable ? labelGaps(scored, series) : [];
+  const labels = out.scoreable ? labelGaps(scored, series, blackouts) : [];
   out.missed_tap_forgiven = 0;
   out.cv_pct_unrepaired = out.cv_pct;
   out.interruptions = out.scoreable ? labels.filter(l => l[2] !== "missed_tap").length : null;
   if (!out.scoreable) return out;
-  const tNew = restoreMissedTap(scored, series);
+  const tNew = restoreMissedTap(scored, series, blackouts);
   if (tNew === null) return out;
   const fixed = scoreRun(mode, [...tapTimes, tNew].sort((x, y) => x - y), series, tStart, tEnd, ...args);
   if (!fixed.scoreable || BANDS.indexOf(out.status) - BANDS.indexOf(fixed.status) > 1) return out;
@@ -391,7 +563,7 @@ export function computeMetrics(mode, tapTimes, series, tStart, tEnd,
  *  early-return reasons — those strings are shown to the participant. */
 function scoreRun(mode, tapTimes, series, tStart, tEnd,
                   beatTimes = null, handVisibleRatio = 1.0,
-                  cameraFps = null, nearMiss = 0) {
+                  cameraFps = null, nearMiss = 0, blackouts = null) {
   const out = {
     scoreable: false,
     reason: null,
@@ -420,7 +592,7 @@ function scoreRun(mode, tapTimes, series, tStart, tEnd,
   let taps = tapTimes;
   if (taps.length - mode.trim_taps >= mode.min_taps) taps = taps.slice(mode.trim_taps);
 
-  const stats = intervalStats(mode, taps);
+  const stats = intervalStats(mode, taps, blackouts);
   const iti = stats ? stats.iti : [];
   if (iti.length < mode.min_taps - 1) {
     out.reason = "Tapping was too irregular to score - large pauses interrupted the rhythm. Try to keep a continuous motion.";
@@ -448,14 +620,14 @@ function scoreRun(mode, tapTimes, series, tStart, tEnd,
   out.taps_w10 = tapsW10.length;
   let compatTaps = tapsW10;
   if (compatTaps.length-mode.trim_taps >= mode.min_taps) compatTaps=compatTaps.slice(mode.trim_taps);
-  const compat = intervalStats(mode, compatTaps);
+  const compat = intervalStats(mode, compatTaps, blackouts);
   if (compat) { out.frequency_hz_w10=compat.frequency_hz; out.cv_pct_w10=compat.cv_pct; }
 
   const mids = [], rates = [];
-  for (let i = 0; i < taps.length - 1; i++) {
-    const itiI = (taps[i + 1] - taps[i]) * 1000;
+  for (const [a, b] of pairs(taps, blackouts)) {
+    const itiI = (b - a) * 1000;
     if (itiI <= cutoff) {
-      mids.push((taps[i] + taps[i + 1]) / 2 - tStart);
+      mids.push((a + b) / 2 - tStart);
       rates.push(1000.0 / itiI);
     }
   }
@@ -466,8 +638,8 @@ function scoreRun(mode, tapTimes, series, tStart, tEnd,
   }
 
   const amps = [];
-  for (let i = 0; i < taps.length - 1; i++) {
-    const seg = series.filter(([t]) => t >= taps[i] && t < taps[i + 1]).map(([, d]) => d);
+  for (const [a, b] of pairs(taps, blackouts)) {
+    const seg = series.filter(([t]) => t >= a && t < b).map(([, d]) => d);
     if (seg.length >= 2) amps.push(Math.max(...seg) - Math.min(...seg));
   }
   if (amps.length >= 2) {

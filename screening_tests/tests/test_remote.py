@@ -74,6 +74,30 @@ def test_unknown_test_and_mode_refused():
         raise AssertionError(f"accepted {kw}")
 
 
+def test_only_phone_ready_tests_can_be_minted():
+    for kw in ({"test": "spiral", "mode": "air_spiral"},
+               {"test": "oculomotor", "mode": "pro_anti"},
+               {"test": "iiv", "mode": "paced"}):
+        try:
+            _invite(**kw)
+        except ValueError:
+            continue
+        raise AssertionError(f"minted {kw}")
+    assert invites.offered() == {"iiv": {"label": "Finger Tapping",
+                                         "modes": ["big_and_fast"]}}
+
+
+def test_old_invite_for_an_unported_test_cannot_file_a_result():
+    """An invite minted before remote_modes existed, for paced tapping: the
+    page would have run Big & Fast and labelled it paced."""
+    old = dict(_invite(), mode="paced")
+    try:
+        validate(_payload(mode="paced"), old)
+    except Rejected:
+        return
+    raise AssertionError("paced result filed from a phone")
+
+
 def test_expiry_is_enforced():
     inv = _invite(ttl_hours=2)
     assert invites.is_live(inv, NOW + timedelta(hours=1))
@@ -364,6 +388,141 @@ def test_published_invite_id_is_the_bare_token():
     token = query["documentId"][0]
     assert "?" not in token and "KEY" not in token, token
     assert query["key"] == ["KEY"]
+
+
+# ── The inbox: judged when the result arrived, never lost ─────────────────
+
+def test_a_result_is_judged_as_of_when_it_reached_firestore():
+    inv = _invite(ttl_hours=48)
+    hour = lambda h: NOW + timedelta(hours=h)
+    # Uploaded at hour 47, pulled at hour 50: this is the result that used to
+    # be skipped for good.
+    assert invites.state(inv, hour(50)) == invites.EXPIRED
+    assert invites.pull_decision(inv, hour(47)) == invites.FILE
+    assert invites.pull_decision(inv, hour(49)) == invites.REFUSE
+    assert invites.pull_decision(None, hour(1)) == invites.UNKNOWN
+
+
+def test_a_use_past_the_limit_is_kept_and_flagged_not_dropped():
+    used = invites.spend(_invite(uses=1), "first", NOW)
+    assert invites.pull_decision(used, NOW + timedelta(hours=1)) == invites.EXTRA
+
+
+def test_cancelling_only_refuses_what_arrived_afterwards():
+    inv = dict(_invite(), revoked=True,
+               revoked_at=(NOW + timedelta(hours=5)).isoformat())
+    assert invites.pull_decision(inv, NOW + timedelta(hours=4)) == invites.FILE
+    assert invites.pull_decision(inv, NOW + timedelta(hours=6)) == invites.REFUSE
+    # A ledger written before revoked_at existed: revoked means revoked.
+    legacy = dict(_invite(), revoked=True)
+    assert invites.pull_decision(legacy, NOW) == invites.REFUSE
+
+
+def test_firestore_create_time_parses_with_nanoseconds():
+    at = invites.parse_stamp("2026-08-24T12:30:00.123456789Z")
+    assert at == datetime(2026, 8, 24, 12, 30, 0, 123456, tzinfo=timezone.utc)
+    assert invites.parse_stamp("2026-08-24T12:30:00Z").tzinfo is not None
+    assert invites.parse_stamp("") is None and invites.parse_stamp(None) is None
+
+
+def test_create_time_is_decoded_beside_the_fields():
+    doc = {"name": "projects/p/databases/(default)/documents/remote_results/abc",
+           "createTime": "2026-08-24T12:30:00.5Z",
+           "fields": {"invite_token": {"stringValue": "t"}}}
+    out = relay.decode_document(doc)
+    assert out["_id"] == "abc" and out["_created"] == "2026-08-24T12:30:00.5Z"
+
+
+def test_pull_query_is_filtered_to_this_helper():
+    """Rules are not filters: an unfiltered list is refused outright."""
+    q = relay.results_query("uid-1")["structuredQuery"]
+    assert q["from"] == [{"collectionId": relay.RESULTS}]
+    f = q["where"]["fieldFilter"]
+    assert f["field"]["fieldPath"] == "helper_uid" and f["op"] == "EQUAL"
+    assert f["value"] == {"stringValue": "uid-1"}
+    url = relay._url({"project_id": "p", "api_key": "K"}, ":runQuery")
+    assert "/documents:runQuery?" in url, url
+
+
+def test_profile_id_never_leaves_the_hub():
+    import urllib.request
+    bodies = []
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"{}"
+
+    saved = (relay.config, relay._id_token, relay.helper_uid, urllib.request.urlopen)
+    relay.config = lambda: {"project_id": "p", "api_key": "KEY"}
+    relay._id_token = lambda: ("tok", "")
+    relay.helper_uid = lambda: "uid"
+    urllib.request.urlopen = lambda req, timeout=None: (bodies.append(req.data), _Resp())[1]
+    try:
+        relay.publish_invite(_invite(profile_id="p-123"))
+    finally:
+        (relay.config, relay._id_token, relay.helper_uid, urllib.request.urlopen) = saved
+    assert bodies and b"p-123" not in bodies[0] and b"profile_id" not in bodies[0]
+
+
+def test_inbox_files_late_and_extra_results_under_the_profile():
+    """_remote_pull end to end with the network stubbed: a result uploaded
+    before expiry but pulled after it is filed, a use past the limit is filed
+    and flagged, and both join the profile the link was made for."""
+    import json
+    import tempfile
+    import launcher
+    from core import profiles
+    from core import session as ss
+    from core.remote import store
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        saved = (ss.RESULTS_DIR, store.STORE_FILE, profiles.PROFILES_FILE,
+                 relay.pull_results, relay.delete_result)
+        ss.RESULTS_DIR = tmp / "results"
+        store.STORE_FILE = tmp / "remote.json"
+        profiles.PROFILES_FILE = tmp / "profiles.json"
+        deleted = []
+        try:
+            ok, _m, who = profiles.upsert({"name": "Mrs Chen", "age_years": 78})
+            assert ok
+            # Made 49 h ago with a 48 h life, one use: expired *now*.
+            made = datetime.now(timezone.utc) - timedelta(hours=49)
+            inv = invites.make_invite(test="iiv", mode="big_and_fast", ttl_hours=48,
+                                      uses=1, profile_id=who["id"], now=made)
+            store.add(inv)
+            at = lambda h: (made + timedelta(hours=h)).isoformat().replace("+00:00", "Z")
+            docs = [
+                {"_id": "d1", "_created": at(47), "invite_token": inv["token"],
+                 "session": _payload(session_id="s-late")},
+                {"_id": "d2", "_created": at(47.5), "invite_token": inv["token"],
+                 "session": _payload(session_id="s-extra")},
+                {"_id": "d3", "_created": at(48.5), "invite_token": inv["token"],
+                 "session": _payload(session_id="s-expired")},
+                {"_id": "d4", "_created": at(1), "invite_token": "not-in-ledger",
+                 "session": _payload(session_id="s-stranger")},
+            ]
+            relay.pull_results = lambda: (True, "", docs)
+            relay.delete_result = lambda doc_id: (deleted.append(doc_id), (True, ""))[1]
+
+            ok, note, counts = launcher._remote_pull()
+            assert ok and counts == {"filed": 2, "skipped": 2}, (note, counts)
+            # d4 belongs to no invite this hub knows: left for a human.
+            assert sorted(deleted) == ["d1", "d2", "d3"]
+            recs = {r["session_id"]: r for r in
+                    (json.loads(f.read_text(encoding="utf-8"))
+                     for f in (tmp / "results").glob("*.json"))}
+            assert set(recs) == {"s-late", "s-extra"}
+            assert recs["s-late"]["profile"]["id"] == who["id"]
+            assert recs["s-late"]["profile"]["name"] == "Mrs Chen"
+            assert "extra_use" not in recs["s-late"]["metrics"]
+            assert recs["s-extra"]["metrics"]["extra_use"] == 1
+            assert recs["s-late"]["metrics"]["status"] == "success"
+            assert store.get(inv["token"])["uses_left"] == 0
+        finally:
+            (ss.RESULTS_DIR, store.STORE_FILE, profiles.PROFILES_FILE,
+             relay.pull_results, relay.delete_result) = saved
 
 
 def test_relay_reports_what_is_missing_and_never_echoes_secrets():

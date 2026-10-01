@@ -126,7 +126,8 @@ export async function uploadResult(token, invite, session) {
     fields: {
       invite_token: { stringValue: token },
       helper_uid: { stringValue: invite.helper_uid || "" },
-      uploaded_at: { timestampValue: new Date().toISOString() },
+      // No upload time from the phone: its clock can be anything. The hub
+      // reads Firestore's own createTime (relay.decode_document).
       session: encodeValue(session),
     },
   };
@@ -143,33 +144,73 @@ export async function uploadResult(token, invite, session) {
 }
 
 /* ── Offline buffer ────────────────────────────────────────────────────── */
-// A finished test must never be lost to a dead connection (§3.3, §6). The
-// result is parked in localStorage and retried; the participant is told it is
-// saved, not that it has been delivered.
+// A finished test must never be lost to a dead connection (§3.3, §6). Each
+// result is parked in localStorage under its session id and retried; the
+// participant is told it is saved, not that it has been delivered. One slot
+// used to hold one result, so a second offline session overwrote the first.
 
-const PARK = "pending_session";
+const PARK = "pending_sessions";
+const OLD_PARK = "pending_session";          // the single slot, before 0.2
+const DONE = "done:";
 
-export function park(token, invite, session) {
+function readParked() {
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(PARK) || "{}") || {}; }
+  catch (e) { all = {}; }
   try {
-    localStorage.setItem(PARK, JSON.stringify({ token, invite, session }));
+    const old = JSON.parse(localStorage.getItem(OLD_PARK) || "null");
+    if (old && old.session && old.session.session_id) all[old.session.session_id] = old;
+  } catch (e) { /* ignore */ }
+  return all;
+}
+
+function writeParked(all) {
+  try {
+    if (Object.keys(all).length) localStorage.setItem(PARK, JSON.stringify(all));
+    else localStorage.removeItem(PARK);
+    localStorage.removeItem(OLD_PARK);
   } catch (e) { /* private mode — nothing more we can do */ }
 }
 
-export function parked() {
-  try { return JSON.parse(localStorage.getItem(PARK) || "null"); }
-  catch (e) { return null; }
+export function park(token, invite, session) {
+  const all = readParked();
+  all[session.session_id] = { token, invite, session };
+  writeParked(all);
 }
 
-export function clearPark() {
-  try { localStorage.removeItem(PARK); } catch (e) { /* ignore */ }
+export function parked() { return Object.values(readParked()); }
+
+export function clearPark(sessionId) {
+  const all = readParked();
+  delete all[sessionId];
+  writeParked(all);
 }
 
 /** Retry whatever is parked. Safe to call on load and on reconnect: the hub
- *  de-duplicates by session_id, so a double send costs nothing. */
+ *  de-duplicates by session_id, so a double send costs nothing. One failure
+ *  does not stop the rest. Returns how many went. */
 export async function flushParked() {
-  const item = parked();
-  if (!item) return false;
-  await uploadResult(item.token, item.invite, item.session);
-  clearPark();
-  return true;
+  let sent = 0;
+  for (const item of parked()) {
+    try {
+      await uploadResult(item.token, item.invite, item.session);
+      clearPark(item.session.session_id);
+      sent += 1;
+    } catch (e) { /* stays parked for the next try */ }
+  }
+  return sent;
+}
+
+/* ── Links already done on this phone ──────────────────────────────────── */
+// Reopening a finished link used to run the test again: the use count only
+// falls when the helper's hub next pulls, so the invite still read as live.
+
+export function markDone(token) {
+  try { localStorage.setItem(DONE + token, String(doneCount(token) + 1)); }
+  catch (e) { /* ignore */ }
+}
+
+export function doneCount(token) {
+  try { return Number(localStorage.getItem(DONE + token) || 0) || 0; }
+  catch (e) { return 0; }
 }

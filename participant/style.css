@@ -113,10 +113,16 @@ button.primary:focus-visible, button.ghost:focus-visible, .tool:focus-visible {
 
 /* ── Camera stage ──────────────────────────────────────────────────────── */
 
+/* The stage takes the camera's own shape (set from app.js once the stream
+   reports its size) and shows the whole frame: `contain`, never `cover`.
+   A cropped view let a hand look inside the picture while its landmarks sat
+   at the frame's real edge, which is the edge core/framing.py judges. */
 .stage {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  max-width: calc(62vh * var(--stage-ar, 1.3333));
+  margin-left: auto; margin-right: auto;
+  aspect-ratio: var(--stage-ar, 4 / 3);
   background: #000;
   border-radius: 20px;
   overflow: hidden;
@@ -127,7 +133,7 @@ button.primary:focus-visible, button.ghost:focus-visible, .tool:focus-visible {
 .stage video, .stage canvas {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   transform: scaleX(-1);          /* selfie view, as the desktop tests use */
 }
 
@@ -139,6 +145,20 @@ button.primary:focus-visible, button.ghost:focus-visible, .tool:focus-visible {
   font-weight: 600;
 }
 .framing.good { background: rgba(34,197,94,.85); color: #04120F; }
+
+.paused {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 20px; text-align: center;
+  background: rgba(0,0,0,.72);
+}
+.paused[hidden] { display: none; }
+.paused-title { margin: 0; font-size: calc(24px * var(--scale)); font-weight: 700; color: #FBBF24; }
+.paused-hint { margin: 0; font-size: calc(21px * var(--scale)); }
+
+/* Two answers, equal weight, each a full-size target (web plan §5.6). */
+.handpick { display: grid; gap: 20px; }
+.handpick button.primary { margin: 0; }
 
 .tapcount {
   position: absolute; top: 14px; right: 18px;
@@ -212,7 +232,32 @@ button.primary:focus-visible, button.ghost:focus-visible, .tool:focus-visible {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Practice demo: the movement, shown rather than described (§5.5) ──── */
+/* A thumb and a first finger pivot from the palm until their tips meet, then
+   open wide -- big and fast, the instruction in one loop. */
+.demo { display: block; width: min(220px, 60%); margin: 0 auto 16px; }
+.demo-palm { fill: var(--surface); stroke: var(--border); stroke-width: 3; }
+.demo rect { fill: var(--surface); stroke: var(--brand); stroke-width: 4; }
+.demo-index { transform-origin: 38px 30px; animation: demo-index .7s ease-in-out infinite alternate; }
+.demo-thumb { transform-origin: 38px 70px; animation: demo-thumb .7s ease-in-out infinite alternate; }
+@keyframes demo-index { from { transform: rotate(-14deg); } to { transform: rotate(9deg); } }
+@keyframes demo-thumb { from { transform: rotate(14deg); } to { transform: rotate(-9deg); } }
+
+/* ── Turn the phone upright ─────────────────────────────────────────────── */
+.turn {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; padding: 24px; text-align: center;
+  background: rgba(14,21,32,.96);
+  font-size: calc(28px * var(--scale)); font-weight: 700;
+}
+.turn[hidden] { display: none; }
+.turn svg { width: 96px; height: 96px; fill: none; stroke: var(--brand); stroke-width: 3;
+            stroke-linecap: round; stroke-linejoin: round; }
+
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 3s; }
   .tapcount.pulse { animation: none; }
+  /* Still shows both positions, just without the motion: open, at rest. */
+  .demo-index, .demo-thumb { animation: none; }
 }

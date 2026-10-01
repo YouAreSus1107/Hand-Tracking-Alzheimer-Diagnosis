@@ -77,6 +77,24 @@ def _timestamp(raw) -> datetime:
     return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
 
 
+def _verdict(test: str, mode: str, metrics: dict) -> dict:
+    """`status`/`label` worked out here from the scored number, with the same
+    band() the desktop uses, rather than taken from the phone: they are text,
+    and a metric that arrives as text is refused above. Without them the
+    Analysis view falls back to its own provisional bands and the report has
+    no verdict line."""
+    cv = metrics.get("cv_pct")
+    if test != "finger_tapping" or not metrics.get("scoreable") \
+            or isinstance(cv, bool) or not isinstance(cv, (int, float)):
+        return {}
+    from core.tapping.metrics import band
+    from core.tapping.modes import MODES
+    if mode not in MODES:
+        return {}
+    status, label = band(float(cv), MODES[mode])
+    return {"status": status, "label": label}
+
+
 def validate(payload, invite: dict) -> dict:
     """Check an uploaded session against the invite it claims. Returns the
     normalised record ready for `accept()`. Raises `Rejected` with a message
@@ -102,6 +120,10 @@ def validate(payload, invite: dict) -> dict:
     mode = str(payload.get("mode", "")).strip() or invite.get("mode", "")
     if mode != invite.get("mode"):
         raise Rejected("That result does not match the test that was sent.")
+    # An invite minted before a test was phone-ready (or edited by hand) must
+    # not file whatever the page happened to run under that test's name.
+    if not invites.remote_ready(str(invite.get("test", "")), mode):
+        raise Rejected("That test cannot be taken on a phone yet.")
 
     metrics_in = payload.get("metrics")
     if not isinstance(metrics_in, dict) or not metrics_in:
@@ -109,6 +131,7 @@ def validate(payload, invite: dict) -> dict:
     if len(metrics_in) > MAX_METRICS:
         raise Rejected("That result has more measurements than expected.")
     metrics = {str(k)[:40]: _number(v) for k, v in metrics_in.items()}
+    metrics.update(_verdict(test, mode, metrics))
 
     duration = _number(payload.get("duration_s", 0)) or 0
     if not 0 < float(duration) < 3600:
@@ -121,7 +144,8 @@ def validate(payload, invite: dict) -> dict:
     device = {}
     if isinstance(device_in, dict):
         # A fixed, known set — not whatever the client felt like sending.
-        for key in ("ua", "platform", "fps_sustained", "screen", "app_version"):
+        for key in ("ua", "platform", "fps_sustained", "screen", "app_version",
+                    "lang", "delegate", "frame_w", "frame_h", "hand_detected"):
             if key in device_in:
                 device[key] = (str(device_in[key])[:200]
                                if isinstance(device_in[key], str)
@@ -148,6 +172,17 @@ def validate(payload, invite: dict) -> dict:
     }
 
 
+def _profile(invite: dict) -> dict | None:
+    """The snapshot of the person the link was made for, so the result joins
+    their Analysis history without being assigned by hand. None when the link
+    was made with no profile chosen, or the profile has since been deleted."""
+    pid = str(invite.get("profile_id") or "")
+    if not pid:
+        return None
+    from core import profiles
+    return profiles.snapshot(pid) or None
+
+
 def already_have(session_id: str, results_dir: Path | None = None) -> bool:
     """True if this session id is already in `results/`.
 
@@ -168,7 +203,8 @@ def already_have(session_id: str, results_dir: Path | None = None) -> bool:
     return False
 
 
-def accept(payload, invite: dict) -> tuple[bool, str, dict | None]:
+def accept(payload, invite: dict, *, extra_use: bool = False
+           ) -> tuple[bool, str, dict | None]:
     """Validate and store one uploaded session.
 
     Returns (ok, message, record). `ok` is True for a duplicate too — the
@@ -179,6 +215,10 @@ def accept(payload, invite: dict) -> tuple[bool, str, dict | None]:
         record = validate(payload, invite)
     except Rejected as exc:
         return False, str(exc), None
+    if extra_use:
+        # One more upload than the link allowed. Kept -- the participant did
+        # the test -- and marked, so the helper can see the link was reused.
+        record["metrics"]["extra_use"] = 1
 
     if already_have(record["session_id"]):
         # A retry after a dropped connection (§3.3). The participant already
@@ -192,6 +232,7 @@ def accept(payload, invite: dict) -> tuple[bool, str, dict | None]:
         duration_s=record["duration_s"], device=record["device"],
         metrics=record["metrics"], raw={},          # §4: nothing per-frame
         source=session_store.REMOTE, participant=record["participant"],
+        profile=_profile(invite),
         session_id=record["session_id"], timestamp=record["timestamp"],
     )
     record["filed"] = True

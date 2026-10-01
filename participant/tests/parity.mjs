@@ -17,8 +17,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import {
-  Calibrator, MODES, TapDetector, band, computeMetrics,
-  maxItiMs, minIntertapS, thumbIndexDistance,
+  CLEAR_HOLD_S, Calibrator, EDGE_CLIP, EDGE_NEAR, FramingMonitor, MODES,
+  PRE_ROLL_S, TapDetector, band, computeMetrics, hint, makeLandmarkFilters,
+  maxItiMs, minIntertapS, smoothLandmarks, thumbIndexDistance,
 } from "../engine.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -104,8 +105,11 @@ for (const c of V.cases) {
   check(`${c.name}/det.smoothed`, det.smoothed, c.detector.smoothed);
   checkArray(`${c.name}/det.tap_times`, flagged, c.detector.tap_times);
 
+  const kw = c.kwargs || {};
   const m = computeMetrics(mode, det.tapTimes, det.series,
-                           c.samples[0][0], c.samples[c.samples.length - 1][0]);
+                           c.samples[0][0], c.samples[c.samples.length - 1][0],
+                           null, kw.hand_visible_ratio ?? 1.0, kw.camera_fps ?? null,
+                           kw.near_miss ?? 0, kw.blackouts ?? null);
   for (const key of Object.keys(c.metrics)) {
     check(`${c.name}/metrics.${key}`, m[key], c.metrics[key]);
   }
@@ -118,6 +122,37 @@ for (const c of V.cases) {
     check(`${c.name}/band.label`, label, c.metrics.label);
   }
 }
+
+/* ── One-Euro smoothing (hand_utils.py) ────────────────────────────────── */
+(V.one_euro_cases || []).forEach((oc, i) => {
+  const [fx, fy] = makeLandmarkFilters();
+  oc.frames.forEach((f, k) => {
+    const sm = smoothLandmarks(f.raw, fx, fy, f.t);
+    checkArray(`oneEuro[${i}][${k}]`, sm.flat(), f.smoothed.flat());
+    check(`oneEuro[${i}][${k}].d`, thumbIndexDistance(sm), f.d);
+  });
+});
+
+/* ── framing (framing.py) ──────────────────────────────────────────────── */
+if (V.framing_consts) {
+  check("framing.EDGE_CLIP", EDGE_CLIP, V.framing_consts.EDGE_CLIP);
+  check("framing.EDGE_NEAR", EDGE_NEAR, V.framing_consts.EDGE_NEAR);
+  check("framing.CLEAR_HOLD_S", CLEAR_HOLD_S, V.framing_consts.CLEAR_HOLD_S);
+  check("framing.PRE_ROLL_S", PRE_ROLL_S, V.framing_consts.PRE_ROLL_S);
+}
+(V.framing_cases || []).forEach((fc, i) => {
+  const mon = new FramingMonitor();
+  fc.frames.forEach((f, k) => {
+    check(`framing[${i}][${k}].level`, mon.update(f.points, f.t), f.level);
+    check(`framing[${i}][${k}].edges`, mon.edges.join(","), f.edges.join(","));
+    check(`framing[${i}][${k}].untrusted`, mon.untrusted, f.untrusted);
+  });
+  checkArray(`framing[${i}].blackouts`, mon.finish().flat(), fc.blackouts.flat());
+  check(`framing[${i}].clipped_pct`, mon.clippedPct, fc.clipped_pct);
+});
+(V.hint_cases || []).forEach((hc) => {
+  check(`hint(${hc.edges},${hc.tracing})`, hint(hc.edges, hc.tracing), hc.expect);
+});
 
 if (pending.length) {
   console.log(`\n  PENDING  mode(s) not ported to JS yet: ${pending.join(", ")}` +

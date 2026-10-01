@@ -54,7 +54,7 @@ service cloud.firestore {
       allow create: if signedIn()
                     && inviteUsable(request.resource.data.invite_token)
                     && request.resource.data.keys().hasOnly(
-                         ['invite_token', 'helper_uid', 'session', 'uploaded_at'])
+                         ['invite_token', 'helper_uid', 'session'])
                     && request.resource.data.session.keys().hasOnly(
                          ['session_id', 'timestamp', 'test', 'mode', 'hand',
                           'duration_s', 'participant', 'device', 'metrics'])

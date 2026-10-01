@@ -10,68 +10,95 @@
 <body>
 
 <!-- One screen visible at a time. Every screen has exactly one primary
-     action, always the biggest thing on it (WEB_PLATFORM_PLAN.md §5.6). -->
+     action, always the biggest thing on it (WEB_PLATFORM_PLAN.md §5.6).
+
+     Language: every fixed string carries `data-t`, and its English markup is
+     the key i18n.js looks it up by (only Chinese is stored). Text that app.js
+     fills in goes through t() instead. An element with `data-t` must not hold
+     an element app.js addresses by id -- translating it rewrites innerHTML.
+     tests/i18n_check.mjs fails on any string without a Chinese entry. -->
 <main id="app">
 
   <!-- 0. Checking the link -->
   <section class="screen active" id="s-boot">
     <div class="spinner" aria-hidden="true"></div>
-    <p class="lead" data-say>Just a moment.</p>
+    <p class="lead" data-say data-t>Just a moment.</p>
   </section>
 
-  <!-- 1. Dead ends: bad link, in-app browser. Each names a next action. -->
+  <!-- 1. Dead ends: bad link, in-app browser. Each names a next action, and
+       offers one as a button wherever the page can take it itself. -->
   <section class="screen" id="s-blocked">
-    <h1 id="blocked-title">This link cannot be opened</h1>
+    <h1 id="blocked-title"></h1>
     <p class="lead" id="blocked-body" data-say></p>
     <div class="hint" id="blocked-hint"></div>
+    <button class="primary" id="blocked-action" hidden></button>
+  </section>
+
+  <!-- 1b. This link was already completed on this phone. -->
+  <section class="screen" id="s-done">
+    <h1 data-t>Thank you</h1>
+    <p class="lead" data-say id="done-lead"></p>
+    <button class="ghost" id="btn-done-again" hidden data-t>Do the check again</button>
   </section>
 
   <!-- 2. Welcome + consent. Names the actual person (§5, §6). -->
   <section class="screen" id="s-welcome">
-    <h1 id="welcome-title">Hello</h1>
+    <h1 id="welcome-title"></h1>
     <p class="lead" data-say id="welcome-lead"></p>
     <ul class="facts">
-      <li><span class="tick" aria-hidden="true"></span>It takes about two minutes.</li>
-      <li><span class="tick" aria-hidden="true"></span>Your camera picture stays on this phone. It is never sent anywhere.</li>
-      <li><span class="tick" aria-hidden="true"></span>Only the measurements are sent, and only to <b id="welcome-helper">the person who invited you</b>.</li>
+      <li><span class="tick" aria-hidden="true"></span><span data-t>It takes about two minutes.</span></li>
+      <li><span class="tick" aria-hidden="true"></span><span data-t>Your camera picture stays on this phone. It is never sent anywhere.</span></li>
+      <li><span class="tick" aria-hidden="true"></span><span id="welcome-helper"></span></li>
     </ul>
-    <button class="primary" id="btn-consent">I'm ready</button>
-    <p class="fine">This is a wellness check, not a medical test. It cannot diagnose anything.</p>
+    <button class="primary" id="btn-consent" data-t>I'm ready</button>
+    <p class="fine" data-t>This is a wellness check, not a medical test. It cannot diagnose anything.</p>
+  </section>
+
+  <!-- 2b. Which hand. Asked, not guessed: the camera's own label is kept as a
+       cross-check, since nobody has yet confirmed how every phone's front
+       camera hands its picture over. -->
+  <section class="screen" id="s-hand">
+    <h1 data-t>Which hand will you use?</h1>
+    <p class="lead" data-say data-t>Choose the hand you will tap with.</p>
+    <div class="handpick">
+      <button class="primary" id="btn-hand-left" data-t>Left hand</button>
+      <button class="primary" id="btn-hand-right" data-t>Right hand</button>
+    </div>
   </section>
 
   <!-- 3. Camera explainer, BEFORE the browser prompt (§5.2) -->
   <section class="screen" id="s-camera">
-    <h1>Next, we need the camera</h1>
-    <p class="lead" data-say>Your phone will ask for permission. Please choose <b>Allow</b>.</p>
+    <h1 data-t>Next, we need the camera</h1>
+    <p class="lead" data-say data-t>Your phone will ask for permission. Please choose <b>Allow</b>.</p>
     <div class="callout" id="camera-where"></div>
-    <p class="fine">The picture stays on your phone. Nobody sees it, and nothing is recorded.</p>
-    <button class="primary" id="btn-camera">Turn on the camera</button>
+    <p class="fine" data-t>The picture stays on your phone. Nobody sees it, and nothing is recorded.</p>
+    <button class="primary" id="btn-camera" data-t>Turn on the camera</button>
   </section>
 
   <!-- 4. Permission refused — recovery, per browser (§5.2) -->
   <section class="screen" id="s-denied">
-    <h1>The camera is switched off</h1>
-    <p class="lead" data-say>We cannot do the test without it. Here is how to switch it back on.</p>
+    <h1 data-t>The camera is switched off</h1>
+    <p class="lead" data-say data-t>We cannot do the test without it. Here is how to switch it back on.</p>
     <ol class="steps" id="denied-steps"></ol>
-    <button class="primary" id="btn-retry-camera">I've done that &mdash; try again</button>
+    <button class="primary" id="btn-retry-camera" data-t>I've done that — try again</button>
   </section>
 
   <!-- 5. Set up the phone, then framing check -->
   <section class="screen wide" id="s-setup">
-    <h1>Stand your phone up</h1>
-    <p class="lead" data-say>Lean it against something so you don't have to hold it. Sit about an arm's length away.</p>
+    <h1 data-t>Stand your phone up</h1>
+    <p class="lead" data-say data-t>Lean it against something so you don't have to hold it. Sit about an arm's length away.</p>
     <div class="stage">
       <video id="video" playsinline autoplay muted></video>
       <canvas id="overlay"></canvas>
-      <div class="framing" id="framing">Looking for your hand&hellip;</div>
+      <div class="framing" id="framing"></div>
     </div>
-    <button class="primary" id="btn-setup" disabled>Next</button>
+    <button class="primary" id="btn-setup" disabled data-t>Next</button>
   </section>
 
   <!-- 6. Calibration: the detector needs this person's own open/closed range -->
   <section class="screen wide" id="s-calibrate">
-    <h1>Open and close your hand</h1>
-    <p class="lead" data-say>Touch your thumb and finger together, then open them wide. Do that a few times, slowly.</p>
+    <h1 data-t>Open and close your hand</h1>
+    <p class="lead" data-say data-t>Touch your thumb and finger together, then open them wide. Do that a few times, slowly.</p>
     <div class="stage">
       <video id="video-cal" playsinline autoplay muted></video>
       <canvas id="overlay-cal"></canvas>
@@ -80,66 +107,84 @@
     <p class="lead" id="cal-status">&nbsp;</p>
   </section>
 
-  <!-- 7. Practice, unscored and repeatable (§5.5) -->
+  <!-- 7. Practice, unscored and repeatable (§5.5). The movement is shown, not
+       only described: a looping thumb-and-finger demo above the camera. -->
   <section class="screen wide" id="s-practice">
-    <h1>Let's practise</h1>
-    <p class="lead" data-say>Tap your thumb and first finger together, as big and as fast as you can.</p>
+    <h1 data-t>Let's practise</h1>
+    <p class="lead" data-say data-t>Tap your thumb and first finger together, as big and as fast as you can.</p>
+    <svg class="demo" viewBox="0 0 170 100" role="img" aria-hidden="true">
+      <circle class="demo-palm" cx="38" cy="50" r="26"/>
+      <g class="demo-index"><rect x="38" y="20" width="96" height="20" rx="10"/></g>
+      <g class="demo-thumb"><rect x="38" y="60" width="92" height="20" rx="10"/></g>
+    </svg>
     <div class="stage">
       <video id="video-practice" playsinline autoplay muted></video>
       <canvas id="overlay-practice"></canvas>
       <div class="tapcount" id="practice-count">0</div>
     </div>
     <p class="lead" id="practice-feedback">&nbsp;</p>
-    <button class="primary" id="btn-practice-done">I'm ready to start</button>
-    <button class="ghost" id="btn-practice-again">Let me practise more</button>
+    <button class="primary" id="btn-practice-done" disabled data-t>I'm ready to start</button>
+    <button class="ghost" id="btn-practice-again" data-t>Let me practise more</button>
   </section>
 
   <!-- 8. The scored trial -->
   <section class="screen wide" id="s-trial">
-    <h1 id="trial-title">Get ready</h1>
-    <p class="lead" id="trial-lead" data-say>Tap as big and as fast as you can until we say stop.</p>
+    <h1 id="trial-title"></h1>
+    <p class="lead" data-say data-t>Tap as big and as fast as you can until we say stop.</p>
     <div class="stage">
       <video id="video-trial" playsinline autoplay muted></video>
       <canvas id="overlay-trial"></canvas>
       <div class="tapcount" id="trial-count">0</div>
       <div class="countdown" id="trial-countdown"></div>
+      <!-- The run pauses while the hand is out of view (core/framing.py). -->
+      <div class="paused" id="trial-paused" hidden>
+        <p class="paused-title" data-t>Paused — your hand is out of view</p>
+        <p class="paused-hint" id="trial-paused-hint"></p>
+      </div>
     </div>
     <div class="bar"><div class="bar-fill" id="trial-bar"></div></div>
   </section>
 
-  <!-- 9. Result — plain sentence first, number second (§5.8) -->
+  <!-- 9. Result — a thank-you only (decided 2026-09-29; see app.js) -->
   <section class="screen" id="s-result">
-    <h1 id="result-headline">All done</h1>
+    <h1 data-t>All done</h1>
     <p class="lead" data-say id="result-plain"></p>
     <div class="metric" id="result-metric"></div>
     <p class="lead" id="result-sent"></p>
     <div class="hint" id="result-retry" hidden>
-      <p>We could not send the result yet. It is saved on this phone and will be sent when you are back online.</p>
-      <button class="ghost" id="btn-resend">Try sending again</button>
+      <p data-t>We could not send the result yet. It is saved on this phone and will be sent when you are back online.</p>
+      <button class="ghost" id="btn-resend" data-t>Try sending again</button>
     </div>
-    <p class="fine">This is a screening tool, not a medical diagnosis. Please talk to a healthcare
-      professional about anything that concerns you.</p>
+    <p class="fine" data-t>This is a screening tool, not a medical diagnosis. Please talk to a healthcare professional about anything that concerns you.</p>
   </section>
 
-  <!-- 10. Refused to score — honest, and never a dead end (§7) -->
+  <!-- 10. Refused to score — honest, and never a dead end (§7). "Try again"
+       goes back to the step that failed, not to the top of the page. -->
   <section class="screen" id="s-nogood">
-    <h1>Let's try that again</h1>
+    <h1 data-t>Let's try that again</h1>
     <p class="lead" data-say id="nogood-why"></p>
-    <button class="primary" id="btn-again">Try again</button>
+    <button class="primary" id="btn-again" data-t>Try again</button>
   </section>
 
 </main>
 
+<!-- A phone turned on its side mid-test changes the camera's picture shape
+     under the hand. Shown over the camera screens only; the trial pauses. -->
+<div class="turn" id="turn" hidden>
+  <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="20" y="8" width="24" height="44" rx="4"/><path d="M50 40a18 18 0 0 1-18 18m0 0 5-4m-5 4 5 4"/></svg>
+  <p data-t>Please turn your phone upright</p>
+</div>
+
 <!-- Always visible, never in a menu (§5.6). Sound is off by default. -->
 <div class="tools">
-  <button class="tool" id="btn-say" aria-pressed="false" title="Read aloud">
-    <span aria-hidden="true">&#128266;</span><span class="tool-label">Read aloud</span>
+  <button class="tool" id="btn-say" aria-pressed="false">
+    <span aria-hidden="true">&#128266;</span><span class="tool-label" data-t>Read aloud</span>
   </button>
-  <button class="tool" id="btn-bigger" title="Bigger text">
-    <span aria-hidden="true">A&#43;</span><span class="tool-label">Bigger text</span>
+  <button class="tool" id="btn-bigger">
+    <span aria-hidden="true">A&#43;</span><span class="tool-label" data-t>Bigger text</span>
   </button>
-  <button class="tool" id="btn-stop" title="Start over">
-    <span aria-hidden="true">&#10227;</span><span class="tool-label">Start over</span>
+  <button class="tool" id="btn-stop">
+    <span aria-hidden="true">&#10227;</span><span class="tool-label" data-t>Start over</span>
   </button>
 </div>
 

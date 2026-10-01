@@ -129,6 +129,9 @@ def revoke(token: str) -> tuple[bool, str]:
                 if inv.get("revoked"):
                     return False, "That link was already cancelled."
                 inv["revoked"] = True
+                # Results that reached the relay before this still count
+                # (invites.pull_decision).
+                inv["revoked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 data["invites"] = items
                 _write(data)
                 return True, "Link cancelled."
