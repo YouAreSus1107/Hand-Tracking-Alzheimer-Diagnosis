@@ -42,6 +42,11 @@ FPS = 15.0              # enough to clear tremor's 14 fps floor, half the frames
 FRAME_W, FRAME_H = 640, 480
 CLICK_EVERY = 13        # frames between button presses
 SPACE_EVERY = 20        # frames between Space presses (tremor's advance key)
+VIEW_EVERY = 211        # frames between V presses (hide overlay); each hide
+VIEW_HOLD = 7           # lasts this many frames, so button coverage barely drops
+SKIP_EVERY = 1009       # frames between S presses (skip practice); sparse and
+                        # co-prime with the others, so some practices finish
+                        # and some are cut short at an arbitrary moment
 
 # A right hand, palm to camera, wrist at the origin, y down, ~1 hand length.
 _HAND = [
@@ -180,6 +185,7 @@ class _Harness:
         self.mod = _load(self.path)
         self.clock = _Clock()
         self.frame_i = 0
+        self.skips = 0
         self.buttons: list[tuple] = []
         self.presses = 0
         self.states: list[str] = []
@@ -211,6 +217,14 @@ class _Harness:
                 app.mouse = app.click
         self.buttons = []
 
+    def _key(self, _ms):
+        if self.frame_i % VIEW_EVERY in (0, VIEW_HOLD):
+            return ord("v")    # hide the overlay for a few frames, then back
+        if self.frame_i % SKIP_EVERY == 0:
+            self.skips += 1
+            return ord("s")
+        return 32 if self.frame_i % SPACE_EVERY == 0 else 255
+
     def install(self):
         m = self.mod
         cv2 = m.cv2
@@ -224,8 +238,7 @@ class _Harness:
         self.patch(cv2, "imshow", lambda *a: None)
         self.patch(cv2, "setMouseCallback", lambda *a: None)
         self.patch(cv2, "destroyAllWindows", lambda *a: None)
-        self.patch(cv2, "waitKey",
-                   lambda _ms: 32 if self.frame_i % SPACE_EVERY == 0 else 255)
+        self.patch(cv2, "waitKey", self._key)
         self.patch(m, "create_display_window", lambda *a, **k: None)
         self.patch(m, "window_closed", lambda _w: False)
         self.patch(m, "save_session",
@@ -315,7 +328,7 @@ class _LockstepRecorder:
         pass
 
     def next_frame(self, after_seq, timeout=1.0):
-        if getattr(self.h.app, "state", "") == "analysing":
+        if getattr(self.h.app, "state", "") in ("analysing", "saving"):
             _real_time.sleep(0.02)
         if not self.rec.step():
             return None
@@ -379,6 +392,51 @@ def test_tremor_run_loop():
     print(f"        visited: {' > '.join(dict.fromkeys(states))}")
 
 
+def test_tremor_run_loop_hands_off():
+    """The normal ending: the unfinished holds go to a worker (core/pending.py)
+    and the test releases the camera and closes. The worker is run here in a
+    thread, with the scripted landmarker, instead of as a process."""
+    import tempfile
+    from core import pending
+    h = _Harness("tremor_test.py")
+    feed = _hand_feed(h, True)
+    worker: dict = {}
+    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+
+    def make(mod, cap):
+        h.patch(pending, "ROOT", Path(tmp.name))
+        h.patch(mod, "HANDED_SHOW_S", 0.3)
+        fake = lambda: _FakeHandLandmarker(feed)
+
+        def spawn(job_dir):
+            save = mod.save_session        # the harness's; unpatched when run() ends
+
+            def go():
+                worker["out"] = mod.run_job(job_dir, make_detect=mod.detect_factory(fake),
+                                            save=save)
+                worker["status"] = pending.read_status(job_dir)
+                worker["left"] = sorted(p.name for p in Path(job_dir).iterdir())
+            worker["thread"] = t = __import__("threading").Thread(target=go)
+            t.start()
+        app = mod.App(cap, landmarker_factory=fake, background=True, spawn=spawn)
+        app.recorder = _LockstepRecorder(mod.FrameRecorder(cap, clock=h.clock.time), h)
+        return app
+
+    try:
+        states = _check_run("tremor_test.py", h, 200, make)
+        assert "saving" in states, f"never reached the hand-off: {states}"
+        assert h.app.state == "handed" and h.app.camera_closed, h.app.state
+        worker["thread"].join(timeout=120)
+        out = worker.get("out")
+        assert out is not None, worker.get("status")
+        assert out["saved_path"] is not None and out["results"] is not None
+        assert worker["status"]["state"] == pending.DONE, worker["status"]
+        assert pending.JOB not in worker["left"], worker["left"]   # frames gone
+    finally:
+        tmp.cleanup()
+    print(f"        visited: {' > '.join(dict.fromkeys(states))} > handed")
+
+
 def test_oculomotor_run_loop():
     h = _Harness("oculomotor_test.py")
     GazeSample = sys.modules["core.gaze.tracker"].GazeSample
@@ -398,7 +456,10 @@ def test_oculomotor_run_loop():
             ratio_y=None if blink else 0.0, ratio_y_raw=None if blink else 0.0,
             blink=blink, iris_px=[(cx - 40, cy), (cx + 40, cy)],
             corners_px=[(cx - 60, cy), (cx - 20, cy), (cx + 20, cy), (cx + 60, cy)],
-            openness=0.05 if blink else 0.3, open_frac=0.15 if blink else 1.0)
+            openness=0.05 if blink else 0.3, open_frac=0.15 if blink else 1.0,
+            # the head swings past the turn limit now and then, so the
+            # head-turn coaching and its saved readings are exercised too
+            head=(8.0 * math.sin(0.7 * t), 1.0))
 
     def make(mod, cap):
         app = mod.App(cap)

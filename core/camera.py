@@ -403,21 +403,94 @@ def _screen_size() -> tuple[int, int]:
         return 1280, 720
 
 
-def create_display_window(name: str, frame_w: int, frame_h: int,
-                          screen_fraction: float = 0.9) -> None:
-    """Create a resizable, aspect-locked window sized to fit the screen.
+def _dpi_aware() -> None:
+    """Ask Windows for real pixels, before any window or screen size is read.
 
-    Uses WINDOW_NORMAL (keeps the OS title bar with minimize / maximize /
-    close ✕) plus WINDOW_KEEPRATIO so the camera image is letterboxed rather
-    than stretched — no horizontal distortion, even if the user resizes.
-    The window is opened at the largest whole-screen-fraction scale of the
-    frame that still fits, preserving aspect ratio.
+    A DPI-unaware process is told the screen is 1536x864 at 125 % scaling and
+    its full-screen window is blown up by the compositor, which blurs every
+    overlay. Once per process; harmless if already set or not on Windows.
     """
-    cv2.namedWindow(name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-    sw, sh = _screen_size()
-    scale = min(sw * screen_fraction / frame_w, sh * screen_fraction / frame_h)
-    cv2.resizeWindow(name, max(int(frame_w * scale), frame_w // 2),
-                     max(int(frame_h * scale), frame_h // 2))
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)      # per-monitor
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+def letterbox_pad(img_w: int, img_h: int, screen_w: int,
+                  screen_h: int) -> tuple[int, int, int, int]:
+    """Border (left, top, right, bottom) that gives the image the screen's shape.
+
+    Pads the short axis only: a 4:3 frame on a 16:9 screen gets bars left and
+    right, a frame wider than the screen gets them top and bottom.
+    """
+    if img_w <= 0 or img_h <= 0 or screen_w <= 0 or screen_h <= 0:
+        return 0, 0, 0, 0
+    if img_w * screen_h < img_h * screen_w:          # narrower than the screen
+        extra = round(img_h * screen_w / screen_h) - img_w
+        return extra // 2, 0, extra - extra // 2, 0
+    extra = round(img_w * screen_h / screen_w) - img_h
+    return 0, extra // 2, 0, extra - extra // 2
+
+
+# Full-screen windows: name -> screen size, and name -> the pad last drawn.
+_screens: dict[str, tuple[int, int]] = {}
+_pads: dict[str, tuple[int, int, int, int]] = {}
+
+
+def create_display_window(name: str, frame_w: int, frame_h: int) -> None:
+    """Open a full-screen window for the tool.
+
+    OpenCV's Win32 backend stretches the image over the whole window whatever
+    its shape (WINDOW_KEEPRATIO only limits drag-resizing), so a 4:3 camera
+    frame came out stretched sideways on a 16:9 screen. Frames therefore go
+    through show(), which pads them to the screen's shape first; clicks go
+    through set_mouse_callback(), which takes the pad back off.
+    """
+    _dpi_aware()
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    # A tool started from the hub's console opens behind the browser, and a
+    # full-screen window hidden there looks like a launch that did nothing.
+    # Pinning it on top and straight back raises it once without keeping it
+    # above everything else.
+    try:
+        cv2.setWindowProperty(name, cv2.WND_PROP_TOPMOST, 1)
+        cv2.setWindowProperty(name, cv2.WND_PROP_TOPMOST, 0)
+    except (cv2.error, AttributeError):
+        pass
+    _screens[name] = _screen_size()
+
+
+def show(name: str, img) -> None:
+    """cv2.imshow, pillarboxed to the screen's shape for a full-screen window.
+
+    Pads at the frame's own resolution (640x480 -> 853x480) and lets the
+    window scale it up, so the only per-frame cost is one border copy.
+    """
+    screen = _screens.get(name)
+    if screen is not None:
+        pad = letterbox_pad(img.shape[1], img.shape[0], *screen)
+        _pads[name] = pad
+        if any(pad):
+            left, top, right, bottom = pad
+            img = cv2.copyMakeBorder(img, top, bottom, left, right,
+                                     cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    cv2.imshow(name, img)
+
+
+def set_mouse_callback(name: str, callback) -> None:
+    """cv2.setMouseCallback with coordinates in the unpadded frame.
+
+    The window reports clicks in the pixels of the image shown, which
+    includes show()'s bars; shift them back so buttons keep their positions.
+    """
+    def shifted(event, x, y, flags, param):
+        left, top, _r, _b = _pads.get(name, (0, 0, 0, 0))
+        callback(event, x - left, y - top, flags, param)
+    cv2.setMouseCallback(name, shifted)
 
 
 def window_closed(name: str) -> bool:

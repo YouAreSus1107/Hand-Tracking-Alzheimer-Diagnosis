@@ -29,6 +29,7 @@ PRI_EDGE = 40      # hand part-way out of the picture
 PRI_LINE = 30      # fingertip off the arm it is tracing
 PRI_SETUP = 20     # before/around the start: distance, calibration trouble
 PRI_PACE = 10      # practice pace and smoothness
+PRI_GUIDE = 5      # the standing step instruction, when nothing is wrong
 
 MIN_SHOW_S = 1.0
 LINGER_S = 0.6
@@ -37,7 +38,11 @@ STATUS = "warning"  # one colour for every prompt
 
 
 class Coach:
-    def __init__(self):
+    def __init__(self, prompt_y: int = PROMPT_Y, compact: bool = False):
+        # A screen whose picture fills the middle (the spiral) moves the slot
+        # below its artwork; every prompt still lands in that one place.
+        self.prompt_y = prompt_y
+        self.compact = compact
         self.msg: str | None = None
         self.shown_at = -1e9       # when the current prompt appeared
         self.asked_at = -1e9       # last frame something asked for it
@@ -78,4 +83,4 @@ class Coach:
             min(1.0, (now - self.shown_at) / fade))
         a_out = 1.0 if gone <= 0 else 1.0 - gone / fade
         canvas.toast(self.msg, STATUS, max(0.0, min(a_in, a_out)),
-                     y=canvas.h - PROMPT_Y)
+                     y=canvas.h - self.prompt_y, compact=self.compact)

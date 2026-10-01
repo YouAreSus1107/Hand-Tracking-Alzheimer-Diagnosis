@@ -184,28 +184,43 @@ ZH: dict[str, object] = {
     "Practice Again": "再練習一次",
 
     # ── The centre-hold gate ───────────────────────────────────────────────
-    "Hold steady...": "請保持穩定…",
-    "Move your fingertip onto the center dot to begin.":
-        "請將指尖移到中心的圓點上開始。",
+    "Hold steady": "請保持穩定",
+    "Put your fingertip on the center dot": "請將指尖移到中心的圓點上",
 
     # ── Live readout ───────────────────────────────────────────────────────
-    "Time": "時間",
-    "Trace": "進度",
+    "Practice - not scored": "練習 — 不計分",
+    "Scored test": "正式測驗",
+    "S  skip practice": "S  略過練習",
+    "S  skip this part": "S  略過這一部分",
+    "V  show instructions": "V  顯示說明",
     "trace out to the edge": "描繪至邊緣",
 
     # ── Results ────────────────────────────────────────────────────────────
     "Spiral Tracing - Results": "螺旋描繪 — 測驗結果",
-    "Smoothness index (0-100, higher = smoother)":
-        "流暢度指數（0-100，越高越流暢）",
-    "Velocity CV": "速度 CV",
     "Norm. jerk": "正規化急動度",
-    "Tremor power*": "震顫功率＊",
+    "Mean deviation": "平均偏離",
+    "Line accuracy": "線條準確度",
+    "Tremor": "震顫",
+    "higher = closer to the line": "越高 = 越貼近線條",
+    "higher = more tremor": "越高 = 震顫越明顯",
+    "Tremor amplitude": "震顫幅度",
+    "Smoothness index": "流暢度指數",
+    "Two provisional scores - screening, not diagnosis.":
+        "兩個暫定分數 — 僅供篩檢，並非診斷。",
+    "No tremor detected": "未偵測到震顫",
+    "Mild tremor - consider monitoring": "輕微震顫 — 建議持續追蹤",
+    "Marked tremor - recommend follow-up": "明顯震顫 — 建議進一步追蹤檢查",
+    "Traced close to the line": "描繪貼近線條",
+    "Drifted from the line - consider monitoring": "偏離線條 — 建議持續追蹤",
+    "Far from the line - recommend follow-up": "明顯偏離線條 — 建議進一步追蹤檢查",
+    "Accurate tracing, no tremor": "描繪準確，未見震顫",
+    "Tremor unavailable": "無法計算震顫",
+    "Accuracy unavailable": "無法計算準確度",
+    "Could not measure this trace.": "無法測量這次描繪。",
     "Tremor freq*": "震顫頻率＊",
     "Completion": "完成度",
     "Mean speed": "平均速度",
     "Data frames": "資料影格",
-    "Smoothness via SPARC. Provisional bands - screening, not diagnosis.":
-        "流暢度以 SPARC 計算。分級為暫定值 — 僅供篩檢，並非診斷。",
     "* tremor metrics are coarse at this frame rate.":
         "＊在此影格率下，震顫指標較為粗略。",
 
@@ -218,8 +233,6 @@ ZH: dict[str, object] = {
     # ── Failure states ─────────────────────────────────────────────────────
     "Could not compute a motion profile from this trace.":
         "無法從這次描繪計算出動作曲線。",
-    "Could not compute smoothness from this trace.":
-        "無法從這次描繪計算出流暢度。",
 
     # ══ Oculomotor (eye movement) ══════════════════════════════════════════
 
@@ -326,6 +339,13 @@ ZH: dict[str, object] = {
         "本部分有一段時間無法辨識您的眼睛。",
     "Several trials could not be scored.": "有數次試驗無法計分。",
     "Parts re-recorded": "重做的部分",
+    "Parts skipped": "略過的部分",
+    "{part} skipped": "已略過{part}",
+    "No error rate - Part 2 skipped": "沒有錯誤率 — 已略過第二部分",
+    "All three parts skipped": "三個部分都已略過",
+    "Nothing was recorded, so nothing was saved.": "沒有錄到任何資料，因此沒有儲存。",
+    "The look-away part was skipped, so there is no error rate to score.":
+        "看向反方向的部分已略過，因此沒有錯誤率可評分。",
 
     # ── Practice feedback badges ───────────────────────────────────────────
     "Correct": "正確",
@@ -350,6 +370,7 @@ ZH: dict[str, object] = {
     "Valid anti trials": "有效反向試次",
     "Valid pro trials": "有效順向試次",
     "Started too early": "太早開始",
+    "Head turned": "頭部移動",
     "Fixation jitter": "注視抖動",
     "Gaze intrusions": "視線闖入",
 
@@ -549,10 +570,18 @@ ZH: dict[str, object] = {
     "Measuring every frame": "正在分析每一格畫面",
     "Sensor glove connected - which hand is wearing it?": "已連接感測手套 — 戴在哪一隻手？",
     "You can rest your hands.": "雙手可以休息了。",
+    "Saving the recording": "正在儲存錄影",
+    "Recording saved": "錄影已儲存",
+    "The results are being measured in the background.": "結果正在背景中分析。",
+    "They will appear in the hub in about a minute.": "約一分鐘後會出現在 Hub 中。",
+    "This window closes in {n} s": "此視窗將在 {n} 秒後關閉",
+    "Close": "關閉",
     "The camera lost frames during the holds.": "錄影時鏡頭掉了一些畫面。",
     "The hands moved during the holds, so parts of the recording were left out.":
         "姿勢維持期間手有移動，所以部分錄製內容被排除。",
     "A hand was often at the edge of the picture.": "手常常位於畫面邊緣。",
+    "Part of this reading comes from hand landmarks, which are less precise than the motion tracking.":
+        "部分結果來自手部關鍵點，準確度不如動作追蹤。",
 
     # ══ Hand-tracking inspector ════════════════════════════════════════════
     "{name} hand": "{name}手",

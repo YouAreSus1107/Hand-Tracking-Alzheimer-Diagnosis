@@ -48,7 +48,8 @@ from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe,
                              true_hand)
 from core.camera import (capture_info, preset_camera_name, select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.mirror_check import ensure_orientation
 from core import profiles
@@ -61,9 +62,10 @@ from core.tapping.metrics import compute_metrics, scored_taps
 from core.tapping.modes import MODES, DEFAULT_MODE, TapMode
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, lerp
-from core.ui.components import Canvas, draw_hand_skeleton, get_font
+from core.ui.components import Canvas, draw_hand_skeleton, get_font, bare_view
 from core import framing
 from core.ui.framing_ui import framing_chips, draw_framing
+from core.ui.keys import SKIP_HINT, SKIP_PRACTICE, OVERLAY_HIDDEN_HINT, TOGGLE_OVERLAY
 from core.ui.coach import Coach, PROMPT_Y, PRI_HAND, PRI_SETUP
 
 _splash.done()   # imports are in; the camera prompt follows immediately
@@ -112,6 +114,7 @@ class App:
 
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
+        self.overlay_hidden = False
         self.fps = 30.0
         self._last_frame_t: float | None = None
 
@@ -119,6 +122,7 @@ class App:
 
     # ── run-scoped state ──────────────────────────────────────────────────
     def reset_run(self):
+        self.practice_skipped = False
         self.calibrator = Calibrator()
         self.detector: TapDetector | None = None
         self.d_closed = self.d_open = None
@@ -329,6 +333,13 @@ class App:
             self.audio.play(self.beep_wav)      # start cue
             self._start_recording(now)
 
+    def skip_practice(self, now: float):
+        """S: end the paced warm-up early. The metronome grid is absolute
+        (grid_t0), so the scored run starts on the same beat it would have."""
+        if self.state == WARMUP:
+            self.practice_skipped = True
+            self._start_recording(now)
+
     def _start_recording(self, now: float):
         self.recording_start = now
         # fresh detector state for scored data; thresholds carry over
@@ -430,6 +441,8 @@ class App:
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        elapsed / self.mode.warmup_s, color="warning",
                        label=i18n.t("warm-up"))
+        c.text(theme.SAFE_MARGIN, h - 52, i18n.t(SKIP_HINT), role="caption",
+               color="text-muted", anchor="ls")
         if landmarks is None:
             self.coach.say(i18n.t("Show your hand to the camera"), PRI_HAND)
 
@@ -501,6 +514,7 @@ class App:
         self._compare_with_usual(hand, camera_name)
         t0 = self.recording_start
         raw = {
+            "practice_skipped": self.practice_skipped,
             "tap_times_s": [round(t - t0, 3) for t in self.detector.tap_times],
             "distance_series": [[round(t - t0, 3), round(dd, 4)]
                                 for t, dd in self.detector.series],
@@ -550,7 +564,9 @@ class App:
         usual becomes Monitor; nothing is ever lowered."""
         r = self.results
         try:
-            pid = profiles.from_env().get("id")
+            who = profiles.from_env()
+            # A group is many people: nobody in it has a "usual" to compare to.
+            pid = None if profiles.is_group(who) else who.get("id")
             prior = baseline.eligible(load_index("finger_tapping", self.mode.key),
                                       pid, hand, self.mode.key)
         except Exception as e:           # a history problem must not lose the run
@@ -729,7 +745,7 @@ class App:
             frame = cv2.flip(frame, 1)
             if not window_ready:
                 create_display_window(win, frame.shape[1], frame.shape[0])
-                cv2.setMouseCallback(win, self.on_mouse)
+                set_mouse_callback(win, self.on_mouse)
                 window_ready = True
             now = time.time()
             if self._last_frame_t is not None:
@@ -751,6 +767,10 @@ class App:
                 draw_hand_skeleton(frame, landmarks, HAND_CONNECTIONS,
                                    highlight=(now - self.glow_t) < 0.15)
 
+            # V hides every overlay (core/ui/keys.py): keep an undrawn copy
+            bare = frame.copy() if self.overlay_hidden else None
+            if bare is not None:
+                self.click = None      # its buttons cannot be seen
             c = Canvas(frame)
             # persistent status bar (§5): hand + FPS quality + mode
             c.status_bar(framing_chips(self.framing, landmarks, self.fps),
@@ -777,10 +797,16 @@ class App:
                 draw_framing(c, self.framing, self._raw_pts, self.coach)
             self.coach.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            out = (c.compose() if bare is None
+                   else bare_view(bare, i18n.t(OVERLAY_HIDDEN_HINT)))
+            show(win, screen_rec.frame(out))
             self.click = None
             key = cv2.waitKey(5) & 0xFF
             screen_rec.key(key)
+            if key in TOGGLE_OVERLAY:
+                self.overlay_hidden = not self.overlay_hidden
+            if key in SKIP_PRACTICE:
+                self.skip_practice(now)
             if key == ord("q"):
                 break
             if window_closed(win):

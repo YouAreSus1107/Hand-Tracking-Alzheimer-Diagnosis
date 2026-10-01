@@ -60,7 +60,8 @@ from core.hand_utils import (HAND_CONNECTIONS, make_landmark_filters,
                              smooth_landmarks, preprocess_for_mediapipe,
                              true_hand)
 from core.camera import (select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show,
+                         window_closed, pause_before_exit)
 from core.mirror_check import ensure_orientation
 from core.tapping.detector import TapDetector, thumb_index_distance
 from core.ui import theme
@@ -297,7 +298,7 @@ class Inspector:
             self._last_frame_t = now
 
             detected = self.process(frame, now)
-            cv2.imshow(win, self.render(frame, detected, now))
+            show(win, self.render(frame, detected, now))
 
             key = cv2.waitKey(5) & 0xFF
             if key == ord("q"):

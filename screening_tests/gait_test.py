@@ -48,14 +48,16 @@ from core.gait.pose import PoseTracker   # imports mediapipe (quietly)
 _splash.step()               # MediaPipe in
 
 from core.camera import (capture_info, select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
 from core.ui import theme
 from core.ui.anim import ease_out_cubic, lerp
 from core.ui.coach import Coach, PRI_EDGE, PRI_HAND, PRI_SETUP
-from core.ui.components import Canvas, get_font
+from core.ui.components import Canvas, get_font, bare_view
+from core.ui.keys import OVERLAY_HIDDEN_HINT, TOGGLE_OVERLAY
 from core import framing
 from core.gait import body, seated
 from core.gait import metrics as gm
@@ -107,6 +109,7 @@ class App:
 
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
+        self.overlay_hidden = False
         self.advance = False
         self.fps = 30.0
         self._last_frame_t: float | None = None
@@ -670,10 +673,14 @@ class App:
             frame = cv2.flip(frame, 1)
             if not window_ready:
                 create_display_window(win, frame.shape[1], frame.shape[0])
-                cv2.setMouseCallback(win, self.on_mouse)
+                set_mouse_callback(win, self.on_mouse)
                 window_ready = True
             self._draw_skeleton(frame)
 
+            # V hides every overlay (core/ui/keys.py): keep an undrawn copy
+            bare = frame.copy() if self.overlay_hidden else None
+            if bare is not None:
+                self.click = None      # its buttons cannot be seen
             c = Canvas(frame)
             c.status_bar(self._status_chips(), i18n.t("Walking Test"))
 
@@ -698,10 +705,14 @@ class App:
                     self.coach.say(i18n.t("Stay in the picture"), PRI_SETUP)
             self.coach.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            out = (c.compose() if bare is None
+                   else bare_view(bare, i18n.t(OVERLAY_HIDDEN_HINT)))
+            show(win, screen_rec.frame(out))
             self.click = None
             key = cv2.waitKey(5) & 0xFF
             screen_rec.key(key)
+            if key in TOGGLE_OVERLAY:
+                self.overlay_hidden = not self.overlay_hidden
             self.advance = key in KEY_ADVANCE
             if key == ord("q"):
                 break

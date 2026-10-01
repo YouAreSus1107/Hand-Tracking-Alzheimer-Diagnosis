@@ -256,6 +256,38 @@ def test_resolve_index_follows_the_name():
     assert camera_list.resolve_index("", 4, cams) == 4
 
 
+def test_letterbox_pads_the_short_axis():
+    assert camera.letterbox_pad(640, 480, 1920, 1080) == (106, 0, 107, 0)   # 4:3 on 16:9
+    assert camera.letterbox_pad(1280, 720, 1920, 1080) == (0, 0, 0, 0)      # same shape
+    assert camera.letterbox_pad(480, 640, 1920, 1080) == (329, 0, 329, 0)   # portrait phone
+    assert camera.letterbox_pad(1280, 480, 1920, 1080) == (0, 120, 0, 120)  # wider than screen
+    assert camera.letterbox_pad(640, 480, 0, 0) == (0, 0, 0, 0)
+
+
+def test_show_pads_to_the_screen_and_clicks_come_back_unpadded():
+    import numpy as np
+    shown, calls = {}, []
+    real = (cv2.imshow, cv2.setMouseCallback)
+    cv2.imshow = lambda name, img: shown.__setitem__(name, img)
+    cv2.setMouseCallback = lambda name, cb: shown.__setitem__("cb", cb)
+    try:
+        camera._screens["w"] = (1920, 1080)
+        camera.show("w", np.full((480, 640, 3), 255, np.uint8))
+        img = shown["w"]
+        assert img.shape[:2] == (480, 853)
+        assert img[:, :106].max() == 0 and img[:, -107:].max() == 0
+        assert img[:, 106:-107].min() == 255
+        camera.set_mouse_callback("w", lambda *a: calls.append(a[1:3]))
+        shown["cb"](cv2.EVENT_LBUTTONDOWN, 106 + 20, 30, 0, None)
+        assert calls == [(20, 30)]
+        camera.show("plain", np.zeros((10, 10, 3), np.uint8))       # no window: as is
+        assert shown["plain"].shape[:2] == (10, 10)
+    finally:
+        cv2.imshow, cv2.setMouseCallback = real
+        camera._screens.pop("w", None)
+        camera._pads.pop("w", None)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

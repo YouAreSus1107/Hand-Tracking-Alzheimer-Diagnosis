@@ -240,14 +240,25 @@ STATUS_ICON = {"success": "check", "warning": "alert", "danger": "cross", "info"
 
 
 class Canvas:
-    """Per-frame drawing surface: PIL overlay + post-composite cv2 callbacks."""
+    """Per-frame drawing surface in three layers, bottom to top:
+
+      scene -- cv2 marks that belong to the picture (the spiral, fingertip
+               dots, targets); drawn onto the camera frame *before* the
+               panels, so a panel always covers them instead of being
+               scribbled over;
+      overlay -- the PIL layer: panels, text, chips, buttons;
+      ui    -- cv2 marks that live inside a panel (a sparkline, a meter's
+               tick), drawn last so their own panel does not hide them.
+
+    polyline/dot/ring take `layer="scene"` (default) or `layer="ui"`."""
 
     def __init__(self, frame_bgr: np.ndarray):
         self.frame = frame_bgr
         self.h, self.w = frame_bgr.shape[:2]
         self.overlay = Image.new("RGBA", (self.w, self.h), (0, 0, 0, 0))
         self.draw = ImageDraw.Draw(self.overlay)
-        self._post: list = []          # callables(frame) run after compositing
+        self._pre: list = []           # scene: callables(frame) run before
+        self._post: list = []          # ui: callables(frame) run after
         self._dirty = False
 
     # ── primitives ────────────────────────────────────────────────────────
@@ -405,13 +416,14 @@ class Canvas:
                       anchor="rs", mono=True)
 
     def toast(self, msg: str, status: str, alpha: float,
-              y: int | None = None) -> None:
-        """Transient bottom-center coach pill (§5/§7)."""
+              y: int | None = None, compact: bool = False) -> None:
+        """Transient bottom-center coach pill (§5/§7). `compact` is a slimmer
+        pill for screens whose free strip is narrow (the spiral's)."""
         if alpha <= 0.01 or not msg:
             return
-        h = 40
-        icon_s = 18
-        pad = 16
+        h = 34 if compact else 40
+        icon_s = 16 if compact else 18
+        pad = 14 if compact else 16
         tw = self.text_width(msg, "body")
         w = pad + icon_s + 8 + tw + pad
         x = (self.w - w) // 2
@@ -511,9 +523,17 @@ class Canvas:
 
         self._post.append(_draw)
 
+    def _layer(self, layer: str) -> list:
+        if layer == "scene":
+            return self._pre
+        if layer == "ui":
+            return self._post
+        raise ValueError(f"unknown layer {layer!r}")
+
     def polyline(self, points, color: str, *, thickness: int = 2,
-                 alpha: float = 1.0, closed: bool = False) -> None:
-        """Anti-aliased polyline on top of the composited frame (§5).
+                 alpha: float = 1.0, closed: bool = False,
+                 layer: str = "scene") -> None:
+        """Anti-aliased polyline, under the panels unless layer="ui" (§5).
 
         Used for reference guides (e.g. the spiral) and traced-path highlights;
         color is a theme token scaled by `alpha`."""
@@ -525,12 +545,12 @@ class Canvas:
         def _draw(frame):
             cv2.polylines(frame, [poly], closed, col, thickness, cv2.LINE_AA)
 
-        self._post.append(_draw)
+        self._layer(layer).append(_draw)
 
     def dot(self, cx: int, cy: int, radius: float, color: str, *,
             alpha: float = 1.0, outline: str | None = None,
-            outline_w: int = 2) -> None:
-        """Filled anti-aliased marker on top of the composited frame (§5).
+            outline_w: int = 2, layer: str = "scene") -> None:
+        """Filled anti-aliased marker, under the panels unless layer="ui" (§5).
 
         Used for guide dots and fingertip markers; optional themed outline."""
         if alpha <= 0.01:
@@ -545,12 +565,12 @@ class Canvas:
                 cv2.circle(frame, (int(cx), int(cy)), int(radius), ring_col,
                            outline_w, cv2.LINE_AA)
 
-        self._post.append(_draw)
+        self._layer(layer).append(_draw)
 
     def ring(self, cx: int, cy: int, radius: float, color: str,
              thickness: int = 2, alpha: float = 1.0,
-             sweep_deg: float = 360.0) -> None:
-        """Anti-aliased circle/arc drawn on top of the composited frame."""
+             sweep_deg: float = 360.0, layer: str = "scene") -> None:
+        """Anti-aliased circle/arc, under the panels unless layer="ui"."""
         col = tuple(int(c * alpha) for c in theme.bgr(color))
 
         def _draw(frame):
@@ -561,7 +581,7 @@ class Canvas:
                 cv2.ellipse(frame, (int(cx), int(cy)), (int(radius), int(radius)),
                             -90, 0, sweep_deg, col, thickness, cv2.LINE_AA)
 
-        self._post.append(_draw)
+        self._layer(layer).append(_draw)
 
     def border_glow(self, color: str, alpha: float) -> None:
         """Gentle 2px border pulse (§6.3) — never a full-screen flash."""
@@ -615,6 +635,8 @@ class Canvas:
 
     def compose(self) -> np.ndarray:
         frame = self.frame
+        for fn in self._pre:
+            fn(frame)
         if self._dirty:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             base = Image.fromarray(rgb).convert("RGBA")
@@ -623,6 +645,15 @@ class Canvas:
         for fn in self._post:
             fn(frame)
         return frame
+
+
+def bare_view(frame_bgr: np.ndarray, hint: str) -> np.ndarray:
+    """The camera picture with every overlay hidden (V, core/ui/keys.py):
+    only a small chip at the bottom-left saying how to bring them back."""
+    c = Canvas(frame_bgr)
+    m = theme.SPACE[3]
+    c.chip(m, c.h - 28 - m, hint, status="info", icon=False)
+    return c.compose()
 
 
 def draw_hand_skeleton(frame: np.ndarray, landmarks, connections,

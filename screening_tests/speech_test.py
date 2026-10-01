@@ -46,7 +46,8 @@ import numpy as np
 _splash.step()               # OpenCV in
 
 from core import i18n
-from core.camera import create_display_window, window_closed, pause_before_exit
+from core.camera import (create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.session import save_session
 from core.speech import onsets as on
@@ -235,7 +236,7 @@ class App:
         x0 = x + pad + (span - n) * (w - 2 * pad) / span
         pts = [(int(x0 + i * (w - 2 * pad) / span),
                 int(y + h - pad - f * (h - 2 * pad))) for i, f in enumerate(frac)]
-        c.polyline(pts, "brand", thickness=2)
+        c.polyline(pts, "brand", thickness=2, layer="ui")   # inside its panel
 
     # ── screens ───────────────────────────────────────────────────────────
     def screen_no_mic(self, c: Canvas, now: float):
@@ -713,7 +714,7 @@ class App:
         screen_rec = ScreenRecorder("speech")
         win = "Speech Test  |  Q or close the window to quit"
         create_display_window(win, W, H)
-        cv2.setMouseCallback(win, self.on_mouse)
+        set_mouse_callback(win, self.on_mouse)
         bg = np.empty((H, W, 3), np.uint8)
         bg[:] = theme.bgr("bg")
         while True:
@@ -739,7 +740,7 @@ class App:
             screen(c, now)
             self.toasts.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            show(win, screen_rec.frame(c.compose()))
             self.click = None
             # The stream never stops, so drop what nobody will score while the
             # window sits between runs (~64-176 kB/s would otherwise pile up).

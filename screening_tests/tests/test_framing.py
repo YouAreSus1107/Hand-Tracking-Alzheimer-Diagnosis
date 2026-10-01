@@ -141,7 +141,7 @@ class _Canvas:
     def __init__(self):
         self.drawn = []
 
-    def toast(self, msg, status, alpha, y=None):
+    def toast(self, msg, status, alpha, y=None, compact=False):
         if alpha > 0.01:
             self.drawn.append((msg, status, y))
 

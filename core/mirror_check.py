@@ -27,7 +27,7 @@ from core import quiet       # keep above mediapipe: silences its startup log
 import mediapipe as mp
 
 from core import i18n, orientation
-from core.camera import Capture, create_display_window, window_closed
+from core.camera import Capture, create_display_window, show, window_closed
 from core.hand_utils import HAND_CONNECTIONS
 from core.ui import theme
 from core.ui.components import Canvas, draw_hand_skeleton
@@ -149,7 +149,7 @@ def _run_check(cap: Capture) -> bool | None:
                 c.dot(int(nose.x * c.w), int(nose.y * c.h), 5, "brand")
             _draw(c, answer, vote.progress(now),
                   _prompt(n_hands, face_x, hand_x, label))
-            cv2.imshow(WIN, c.compose())
+            show(WIN, c.compose())
 
             key = cv2.waitKey(5) & 0xFF
             if key in (ord("q"), 27) or window_closed(WIN):
