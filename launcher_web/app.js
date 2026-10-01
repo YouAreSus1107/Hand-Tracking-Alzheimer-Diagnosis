@@ -36,19 +36,15 @@ const I = {
 };
 
 const TOOLS = [
-  { key:"iiv", title:"Finger Tapping Test", file:"finger_tapping.py", icon:"hand",
-    tags:["30 s test","1 hand","Audio metronome","Paced tapping"],
+  { key:"iiv", title:"Finger Tapping Test", file:"finger_tapping.py",
     video:"/assets/videos/finger-tapping.mp4" },
-  { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py", icon:"spiral",
-    tags:["40 s test","1 hand","On-screen guide","Air tracing"],
+  { key:"spiral", title:"Spiral Tracing Test", file:"spiral_test.py",
     video:"/assets/videos/spiral-test.mp4" },
-  { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py", icon:"eye",
-    tags:["~4 min test","Pro + anti-saccade","Webcam gaze","Error rate headline"],
+  { key:"oculomotor", title:"Eye Movement Test", file:"oculomotor_test.py",
     // This clip is a capture of the test UI, which already dims its own camera
     // feed; the idle veil on top of that leaves it unreadable. Play it bright.
     video:"/assets/videos/eye-movement.mp4", dimPreview:false },
-  { key:"ddk", title:"Speech Test", file:"speech_test.py", icon:"mic",
-    tags:["2 short parts","Microphone only","Pa-ta-ka","Sustained ahh"],
+  { key:"ddk", title:"Speech Test", file:"speech_test.py",
     // No preview clip yet: a still of the loudness envelope the test scores,
     // one peak per syllable with its onset dot, stands in for it.
     art:(()=>{
@@ -63,10 +59,9 @@ const TOOLS = [
         ${xs.map(x=>`<circle cx="${x-5}" cy="120" r="3" fill="var(--success)"/>`).join("")}
       </svg>`;
     })() },
-  { key:"tremor", title:"Hand Tremor Test", file:"tremor_test.py", icon:"wave",
+  { key:"tremor", title:"Hand Tremor Test", file:"tremor_test.py",
     // A supporting check, not a screening result (the way paced tapping sits
     // beside Big & Fast): docs/tests/TREMOR_RESTRUCTURE_PLAN.md §2.
-    tags:["Supporting check","~2 min test","2 hands","Glove IMU optional"],
     // No preview clip yet: a still of what the test computes — one hand's
     // tremor-band spectrum with a single peak standing out of the noise.
     art:(()=>{
@@ -84,8 +79,7 @@ const TOOLS = [
         <circle cx="${20+340*0.36}" cy="${122-6-70}" r="4" fill="var(--warning)"/>
       </svg>`;
     })() },
-  { key:"gait", title:"Walking Test", file:"gait_test.py", icon:"walk",
-    tags:["~2 min, seated","Side-on camera","Leg stamps","5 sit-to-stands"],
+  { key:"gait", title:"Walking Test", file:"gait_test.py",
     // No preview clip yet: a still of the sit-to-stand trace the test scores,
     // the hip rising to standing and back, five times, each stand marked.
     art:(()=>{
@@ -104,8 +98,7 @@ const TOOLS = [
         ${ups.map(x=>`<circle cx="${x.toFixed(1)}" cy="${122-86*.75}" r="3.5" fill="var(--success)"/>`).join("")}
       </svg>`;
     })() },
-  { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py", icon:"broadcast",
-    tags:["Live stream","2 hands","UDP :5052","21 landmarks"],
+  { key:"tracking", title:"Hand Tracking / UDP", file:"hand_tracking.py",
     video:"/assets/videos/hand-tracking.mp4" },
 ];
 
@@ -307,13 +300,12 @@ function buildCards(){
     card.setAttribute("data-key", tool.key);
     card.setAttribute("data-index", i);
     const title = t(tool.title);
-    const tagsHtml = tool.tags.map(x=>`<span class="card-tag">${t(x)}</span>`).join("");
     card.innerHTML = `
       <div class="card-glow"></div>
       <div class="card-body">
-        <div class="card-header"><div class="card-icon">${I[tool.icon]}</div><div class="card-tags">${tagsHtml}</div></div>
         <h3>${title}</h3>
         <div class="live-badge ${on?"on":""}"><span class="live-pulse"></span>${t("Running — check the camera window")}</div>
+        <div class="an-badge" role="status"><span class="an-pulse"></span><span data-an-text></span></div>
         <div class="card-video${tool.video?" has-video":""}${tool.dimPreview===false?" no-veil":""}">${tool.video?`<video muted loop autoplay playsinline preload="auto" src="${tool.video}"></video>`:(tool.art||"")}</div>
         <div class="card-actions">
           <button class="btn btn-primary" data-go="${tool.key}" ${on?"disabled":""} aria-label="${t("Launch {name}",{name:title})}">${on?t("Running..."):I.play+" "+t("Launch")}</button>
@@ -498,12 +490,97 @@ function updateCardStates(running){
     card.querySelector("[data-stop]").disabled = !on;
   });
   TOOLS.forEach(tool => renderDetailActions(tool.key));
+  applyAnalysing();
+}
+
+/* ── Background analyses ──────────────────────────────────────────────
+   The tremor test hands its last minute of measuring to a worker process
+   and closes, so the camera is free (core/pending.py). /api/status lists
+   those jobs under `analysing`; they are not "running" and block nothing.
+   A job's end is a state ("done"/"failed"), kept by the hub for a while,
+   and that is the moment its session lands in results/ — so that, not the
+   test closing, is when the readings refetch and the assign card appears. */
+let anJobs = [];
+let anSeen = null;          // id -> state at the last poll; null until the first
+
+function anText(job){
+  if(job.state === "failed") return t("Couldn't measure the results");
+  const pct = Math.round((job.progress || 0) * 100);
+  return t("Measuring results… {pct}%", {pct});
+}
+
+function applyAnalysing(){
+  const byTool = {};
+  // newest job per tool: a failure is only shown while nothing newer runs
+  anJobs.forEach(j => { if(j.state !== "done") byTool[j.tool] = j; });
+  // Analysis page: a line per job still measuring, since its session is not
+  // in the list until it is saved
+  const bar = document.getElementById("analysis-pending");
+  if(bar){
+    const lines = Object.values(byTool).map(j => {
+      const tool = TOOLS.find(x => x.key === j.tool);
+      return `<span class="an-pulse"></span><b>${esc(t(tool ? tool.title : j.tool))}</b> ${esc(anText(j))}`;
+    });
+    bar.hidden = !lines.length;
+    const html = lines.join("<br>");
+    if(bar.innerHTML !== html) bar.innerHTML = html;
+  }
+  TOOLS.forEach(tool => {
+    const job = byTool[tool.key];
+    const show = !!job && !currentRunning[tool.key];
+    const card = cardsEl && cardsEl.querySelector(`[data-key="${tool.key}"]`);
+    const badge = card && card.querySelector(".an-badge");
+    if(badge){
+      badge.classList.toggle("on", show);
+      badge.classList.toggle("failed", show && job.state === "failed");
+      const txt = show ? anText(job) : "";
+      const el = badge.querySelector("[data-an-text]");
+      if(el.textContent !== txt) el.textContent = txt;
+    }
+    const note = document.querySelector(`#${tool.key}-actions [data-act-note]`);
+    if(note){
+      note.hidden = !show;
+      note.classList.toggle("failed", show && job.state === "failed");
+      const txt = show ? anText(job) : "";
+      if(note.textContent !== txt) note.textContent = txt;
+    }
+  });
+}
+
+function renderAnalysing(list){
+  anJobs = Array.isArray(list) ? list : [];
+  const now = {};
+  anJobs.forEach(j => { now[j.id] = j.state; });
+  if(anSeen){
+    const active = st => st === "queued" || st === "running";
+    let landed = false;
+    Object.entries(anSeen).forEach(([id, was]) => {
+      if(!active(was)) return;
+      const is = now[id];
+      if(is === "failed"){
+        // the reason is technical (it is in the job's worker.log); the
+        // badge stays up for ten minutes so the failure is not missed
+        toast(t("Couldn't measure the tremor results"), "fail");
+      } else if(!active(is)){
+        landed = true;        // "done", or gone before we saw it end
+      }
+    });
+    if(landed){
+      toast(t("Tremor results are ready"), "ok");
+      if(window.afterRun) window.afterRun();
+      else loadVitals(true);
+    }
+  }
+  anSeen = now;
+  applyAnalysing();
 }
 
 /* Built once, then only the two buttons are touched. This runs on every 3 s
    status poll, and it used to rewrite the whole row — which deleted the camera
-   and profile chips in it, so an open popover (or a native <select> dropdown
-   inside one) vanished mid-choice every few seconds. */
+   chip in it, so an open popover (or a native <select> dropdown inside one)
+   vanished mid-choice every few seconds. Who is being tested is the navbar's
+   switcher (profiles.js); the Launch button names them, since that is where
+   the eye is at the moment it matters. */
 function renderDetailActions(key){
   const el = document.getElementById(key+"-actions");
   if(!el) return;
@@ -512,20 +589,27 @@ function renderDetailActions(key){
       <button class="btn btn-primary" data-act-go onclick="act('launch','${key}')"></button>
       <button class="btn btn-danger" data-act-stop onclick="act('stop','${key}')"></button>
       <span class="cam-slot" data-cam></span>
-      <span class="pf-slot" data-profile></span>`;
+      <span class="act-note" data-act-note role="status" hidden></span>`;
   }
   const on = !!currentRunning[key];
   const go = el.querySelector("[data-act-go]");
   const stop = el.querySelector("[data-act-stop]");
   go.disabled = on;
-  go.setAttribute("aria-label", t("Launch test"));
-  go.innerHTML = on ? t("Running...") : I.play + " " + t("Launch Test");
+  const who = window.activeProfile?.() || {};
+  const label = !who.name ? t("Launch Test")
+    : window.isGroupProfile?.(who) ? t("Launch in {name}", {name: who.name})
+    : t("Launch for {name}", {name: who.name});
+  go.setAttribute("aria-label", label);
+  go.innerHTML = on ? t("Running...")
+    : I.play + " " + esc(label) + (who.name && window.profileAvatar ? " " + window.profileAvatar(who, "xs") : "");
   stop.disabled = !on;
   stop.setAttribute("aria-label", t("Stop test"));
   stop.innerHTML = I.stop + " " + t("Stop");
   renderCamChips();
   window.renderProfileChips?.();      // profiles.js loads after this file
 }
+// profiles.js calls this whenever who is being tested changes.
+window.refreshLaunchButtons = () => TOOLS.forEach(tool => renderDetailActions(tool.key));
 
 /* ── Camera-source chip ───────────────────────────────────────────────
    The tools used to stop at a console prompt asking for a camera; the
@@ -836,6 +920,7 @@ function renderWhy(){
     matrix.innerHTML = `<table class="cmp"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
   }
 
+  renderLiveDemo();
   whyBuilt = true;
 }
 
@@ -898,6 +983,7 @@ function renderStatus(s){
     else loadVitals(true);
   }
   wasRunning = busy;
+  renderAnalysing(s.analysing);
 }
 
 /* `ok` is tri-state: null means "not known yet" — a hub that has not answered
@@ -942,13 +1028,23 @@ window.rehydrate = function(){
   if(page && page.classList.contains("active")) loadAnalysis();
 };
 
-async function act(kind, key){
+async function act(kind, key, profileId){
+  // Launching with nobody chosen, while there are people to choose from, is
+  // how runs end up filed under nobody. Ask first (profiles.js); the pick
+  // then rides in the launch request itself.
+  if(kind === "launch" && profileId === undefined && window.needsProfilePick?.()){
+    const tool = TOOLS.find(x => x.key === key);
+    window.pickThenLaunch(tool ? t(tool.title) : "", id => act(kind, key, id));
+    return;
+  }
   try{
+    const body = {test:key, lang:getLang()};
+    if(profileId !== undefined) body.profile_id = profileId;
     const r = await fetch("/api/"+kind, {
       method:"POST", headers:{"Content-Type":"application/json"},
       // The language rides along so a switch made a moment ago cannot lose
       // the race against the /api/lang POST that persists it.
-      body: JSON.stringify({test:key, lang:getLang()})
+      body: JSON.stringify(body)
     });
     const data = await r.json();
     // Server text is English; tMsg maps the known strings (i18n.zh.js).
@@ -1003,10 +1099,26 @@ const TREND = {
   },
   spiral: {
     label:"Spiral Tracing", icon:"spiral", page:"spiral",
-    headline:{ key:"vel_cv_pct", name:"Velocity variability", unit:"%", lowerBetter:true, bands:null },
+    // Two scores, as on the test's own result screen (core/spiral/metrics.py
+    // engine 4): line accuracy (how close to the spiral) and tremor. The card
+    // switches between them; each is coloured by its own band (statusKey),
+    // not the run's overall verdict, so a steady-but-shaky run plots high on
+    // accuracy in green and high on tremor in amber. The home strip shows the
+    // first view. App-0.2 runs have neither score and so no point here.
+    headline:{ key:"accuracy_score", name:"Line accuracy", unit:"", lowerBetter:false,
+               bands:null, statusKey:"accuracy_status" },
+    views:[
+      { key:"accuracy", label:"Line accuracy",
+        headline:{ key:"accuracy_score", name:"Line accuracy", unit:"", lowerBetter:false,
+                   bands:null, statusKey:"accuracy_status" } },
+      { key:"tremor", label:"Tremor",
+        headline:{ key:"tremor_score", name:"Tremor (higher = more)", unit:"", lowerBetter:true,
+                   bands:null, statusKey:"tremor_status" } },
+    ],
     supporting:[
+      {key:"mean_dev_pct", name:"Mean deviation", unit:"%"},
+      {key:"tremor_pct", name:"Tremor amplitude", unit:"%"},
       {key:"smoothness_index", name:"Smoothness index", unit:""},
-      {key:"norm_jerk", name:"Normalized jerk", unit:""},
       {key:"completion_pct", name:"Completion", unit:"%"},
     ],
   },
@@ -1019,6 +1131,9 @@ const TREND = {
       {key:"confidence_pct", name:"Confidence", unit:"%"},
       {key:"corrected_rate_pct", name:"Corrected errors", unit:"%"},
       {key:"valid_trials", name:"Valid trials", unit:""},
+      // Runs with Part 2 skipped have no headline but still measure these.
+      {key:"prosaccade_latency_ms", name:"Pro-saccade latency", unit:"ms"},
+      {key:"fixation_rms_pct", name:"Fixation jitter (RMS)", unit:"%"},
     ],
   },
   ddk: {
@@ -1097,6 +1212,7 @@ let analysisFilter = "all";
 let analysisProfile = null;
 let analysisSessions = null;
 let analysisModes = {};   // per-test selected sub-mode (e.g. finger_tapping → "paced")
+let analysisViews = {};   // per-test selected score (spiral → "tremor")
 let sessionCalendarState = {}; // per trend/mode: visible month + selected day
 
 function fmtNum(v){
@@ -1127,6 +1243,8 @@ const VERDICT = {success:"ok", warning:"warn", danger:"bad", info:"none"};
 function statusOf(session, h){
   if(h.neutral) return "none";            // a supporting check: no verdict colour
   const m = session.metrics || {};
+  // a test with more than one score colours each by its own band (spiral)
+  if(h.statusKey && VERDICT[m[h.statusKey]]) return VERDICT[m[h.statusKey]];
   if(m.status && VERDICT[m.status]) return VERDICT[m.status];
   return bandFor(m[h.key], h.bands);
 }
@@ -1162,8 +1280,10 @@ function profileFilter(){
     if(!list.length || has(analysisProfile)) return analysisProfile;
     analysisProfile = null;
   }
+  // Never default to a group: its runs are different people, and the home
+  // readings strip would present them as one person's latest numbers.
   const active = window.activeProfileId?.();
-  return active && has(active) ? active : "all";
+  return active && has(active) && !window.isGroupProfile?.(active) ? active : "all";
 }
 
 /* The one place the person filter is applied. The chart, the calendar and the
@@ -1175,6 +1295,17 @@ function visibleSessions(){
   if(f === "all") return list;
   if(f === "none") return list.filter(sn => !(sn.profile && sn.profile.id));
   return list.filter(sn => sn.profile && sn.profile.id === f);
+}
+
+/* A group's sessions are different people: charted as separate dots, with no
+   line, no "latest" readout and no change-since-last chip. */
+function pooledView(){
+  const f = profileFilter();
+  if(f === "all" || f === "none") return false;
+  if(window.isGroupProfile?.(f)) return true;
+  // A removed group still says what it was in its sessions' snapshots.
+  return (analysisSessions || []).some(sn => sn.profile && sn.profile.id === f
+    && sn.profile.kind === "group");
 }
 
 function setAnalysisProfile(id){
@@ -1273,24 +1404,34 @@ function renderAnalysisPeople(){
     if(id) counts[id] = (counts[id] || 0) + 1; else unassigned++;
   });
 
-  const opts = [["all", t("All people")]];
-  roster.forEach(pr => { if(counts[pr.id]) opts.push([pr.id, pr.name]); });
-  // A session outlives the profile it names - the record keeps its own
-  // snapshot - so offer those names too rather than hiding the sessions.
-  all.forEach(sn => {
-    const pr = sn.profile;
-    if(pr && pr.id && !opts.some(o => o[0] === pr.id))
-      opts.push([pr.id, pr.name || t("Removed profile")]);
-  });
-  if(unassigned) opts.push(["none", t("Unassigned")]);
+  // [key, label, profile-ish for the avatar]. People first, then groups:
+  // groups are pools, not people.
+  const isGrp = pr => pr.kind === "group" || !!window.isGroupProfile?.(pr.id);
+  const opts = [["all", t("All people"), null]];
+  const add = wantGroup => {
+    roster.forEach(pr => {
+      if(counts[pr.id] && isGrp(pr) === wantGroup) opts.push([pr.id, pr.name, pr]);
+    });
+    // A session outlives the profile it names - the record keeps its own
+    // snapshot - so offer those names too rather than hiding the sessions.
+    all.forEach(sn => {
+      const pr = sn.profile;
+      if(pr && pr.id && isGrp(pr) === wantGroup && !opts.some(o => o[0] === pr.id))
+        opts.push([pr.id, pr.name || t("Removed profile"), pr]);
+    });
+  };
+  add(false);
+  add(true);
+  if(unassigned) opts.push(["none", t("Unassigned"), null]);
 
   // One person and nothing unassigned: the row would be a single button that
   // does nothing. Hide it and let the line below carry the name.
   const cur = profileFilter();
   el.hidden = opts.length < 3;
-  el.innerHTML = opts.map(([k, label]) =>
+  el.innerHTML = opts.map(([k, label, pr]) =>
     `<button class="seg-btn ${cur===k?"active":""}" role="tab"
-       aria-selected="${cur===k}" data-person="${esc(k)}">${esc(label)}</button>`).join("");
+       aria-selected="${cur===k}" data-person="${esc(k)}">${pr && window.profileAvatar
+         ? window.profileAvatar(pr, "xs") + " " : ""}${esc(label)}</button>`).join("");
   el.querySelectorAll("[data-person]").forEach(b =>
     b.onclick = () => setAnalysisProfile(b.dataset.person));
 
@@ -1302,9 +1443,6 @@ function renderAnalysisPeople(){
     who.querySelector("[data-edit-person]")?.addEventListener("click", ev =>
       window.openProfileEditor?.(ev.currentTarget.dataset.editPerson));
   }
-  // A rebuild while the editor is open would leave it orphaned above a filter
-  // row that no longer matches it.
-  window.closeProfileEditor?.();
 }
 
 /* "Jane Chen - Female - 68 - right-handed". Age and sex are the reason the
@@ -1323,13 +1461,18 @@ function whoLine(filterId){
   if(filterId === "none")
     return `<span class="who-name">${t("Unassigned sessions")}</span>
       <span class="who-note">${t("Recorded with no profile set.")}</span>${acts}`;
-  if(filterId === "all") return acts;
+  // Without a line of its own the button sat alone on an otherwise empty row.
+  if(filterId === "all")
+    return `<span class="who-note">${t("Everyone's sessions, together.")}</span>${acts}`;
   const pr = window.profileById?.(filterId)
     || (visibleSessions().slice(-1)[0] || {}).profile;
   if(!pr || !pr.name) return acts;
   const detail = window.describeProfile?.(pr) || "";
-  return `<span class="who-name">${esc(pr.name)}</span>`
-    + (detail ? `<span class="who-detail">${esc(detail)}</span>` : "") + acts;
+  const av = window.profileAvatar ? window.profileAvatar(pr, "sm") : "";
+  return `${av}<span class="who-name">${esc(pr.name)}</span>`
+    + (detail ? `<span class="who-detail">${esc(detail)}</span>` : "")
+    + (pooledView() ? `<span class="who-note">${t("Different people. Not one person's trend.")}</span>` : "")
+    + acts;
 }
 
 function renderAnalysisFilter(byTest){
@@ -1344,7 +1487,7 @@ function renderAnalysisFilter(byTest){
 }
 
 function trendCard(key, allSessions){
-  const cfg = TREND[key], h = cfg.headline;
+  const cfg = TREND[key], h = viewHeadline(key, cfg);
 
   // Optional per-mode split (finger tapping: Big & Fast vs Paced). The toggle
   // swaps everything below the header — chart, readout, and supporting tiles.
@@ -1362,6 +1505,14 @@ function trendCard(key, allSessions){
         onclick="setTrendMode('${key}','${md.key}')">${t(md.label)}</button>`).join("")}</div>`;
   }
 
+  if(cfg.views){
+    const cur = analysisViews[key] || cfg.views[0].key;
+    modeBar += `<div class="trend-modes" role="tablist" aria-label="${t("Score")}">${cfg.views.map(v =>
+      `<button class="seg-btn seg-sm ${v.key===cur?"active":""}" role="tab"
+        aria-selected="${v.key===cur}"
+        onclick="setTrendView('${key}','${v.key}')">${t(v.label)}</button>`).join("")}</div>`;
+  }
+
   const calendarPts = cardPoints(sessions, h);
   const pts = calendarPts.filter(p=>p.scoreable);
 
@@ -1373,17 +1524,27 @@ function trendCard(key, allSessions){
       <button class="trend-open" onclick="showPage('${cfg.page}')">${t("Details")} ${I.arrowRight}</button>
     </div>`;
 
+  const support = `<div class="trend-support">${supporting.map(m =>
+    supportTile(sessions, m)).join("")}</div>`;
+
   if(!pts.length){
+    const partial = calendarPts.some(p => p.partial);
     return `<div class="trend-card">${head}${modeBar}
-      <div class="analysis-note">${cfg.modes
+      <div class="analysis-note">${partial
+        ? t("{n} session(s) logged without Part 2, so there is no error rate to chart. Open one from the calendar for its report.",{n:sessions.length})
+        : cfg.modes
         ? t("{n} session(s) logged for this type, but none were scoreable for this metric yet.",{n:sessions.length})
         : t("{n} session(s) logged, but none were scoreable for this metric yet.",{n:sessions.length})}</div>
-      ${sessionCalendar(calendarPts,h,calendarKey)}</div>`;
+      ${sessionCalendar(calendarPts,h,calendarKey)}
+      ${support}</div>`;
   }
 
-  const latest = pts[pts.length-1], prev = pts.length>1 ? pts[pts.length-2] : null;
+  const pooled = pooledView();
+  const latest = pts[pts.length-1], prev = pts.length>1 && !pooled ? pts[pts.length-2] : null;
   const st = ST[latest.status];
-  const readout = `<div class="trend-readout">
+  const readout = pooled
+    ? `<div class="trend-readout"><span class="analysis-note">${t("Different people. Not one person's trend.")}</span></div>`
+    : `<div class="trend-readout">
       <div class="trend-now"><span class="trend-now-val">${fmtNum(latest.v)}</span>
         <span class="trend-now-unit">${h.unit}</span></div>
       <span class="badge badge-${latest.status}"><span class="badge-dot"></span>${t(st.word)}</span>
@@ -1391,6 +1552,7 @@ function trendCard(key, allSessions){
     </div>`;
   const dateSpan = pts.length>1
     ? `${fmtDate(pts[0].iso)} – ${fmtDate(latest.iso)} · ${t("{n} sessions",{n:pts.length})}`
+    : pooled ? t("1 session")
     : t("1 session · a trend line appears after your next");
 
   const legend = `<div class="trend-legend">
@@ -1400,14 +1562,11 @@ function trendCard(key, allSessions){
       <span class="trend-legend-note">${t("colour is the verdict the test gave that session")}</span>
     </div>`;
 
-  const support = `<div class="trend-support">${supporting.map(m =>
-    supportTile(sessions, m)).join("")}</div>`;
-
   // The legend explains the chart's dot colours, so it sits with the chart —
   // below the calendar it would be a key to something a screen away.
   return `<div class="trend-card">${head}${modeBar}${readout}
     <div class="trend-span">${dateSpan}</div>
-    <div class="trend-chart">${trendSvg(pts, h)}</div>
+    <div class="trend-chart">${trendSvg(pts, h, pooled)}</div>
     ${legend}
     <div class="trend-hint" role="note" tabindex="0">
       <span class="hint-ic">${I.info}</span><span class="hint-text">${t("Open a report from any chart point, or choose a date in the calendar")}</span>
@@ -1419,11 +1578,18 @@ function trendCard(key, allSessions){
 /* One session as the Analysis page thinks of it. The chart plots only the
    scoreable ones, but the calendar keeps every saved session — a run that
    failed the quality gate still has a report explaining why. */
+function isPartialEyeRun(s){
+  const sk = (s.metrics && s.metrics.parts_skipped) || [];
+  return s.test === "oculomotor" && sk.includes("anti") && sk.length < 3;
+}
 function cardPoints(sessions, h){
   return sessions.map(s => {
     const v = s.metrics ? s.metrics[h.key] : null;
     const scoreable = v!=null && isFinite(v);
-    return {v, iso:s.timestamp, id:s.session_id, mode:s.mode, scoreable,
+    // An eye run with Part 2 skipped: no headline, but a real report of the
+    // parts that were done, so it is not listed as a failed run.
+    const partial = !scoreable && isPartialEyeRun(s);
+    return {v, iso:s.timestamp, id:s.session_id, mode:s.mode, scoreable, partial,
             label:s.metrics ? (h.neutral ? tremorFinding(s.metrics)
                                         : (s.metrics.reason || s.metrics.label)) : null,
             status:scoreable ? statusOf(s,h) : "none"};
@@ -1439,7 +1605,8 @@ function calendarFor(key){
   if(!cfg) return null;
   const sessions = visibleSessions().filter(s =>
     s.test===test && (mode ? s.mode===mode : true));
-  return {pts: cardPoints(sessions, cfg.headline), h: cfg.headline};
+  const h = viewHeadline(test, cfg);
+  return {pts: cardPoints(sessions, h), h};
 }
 
 // Selected sub-mode for a test: explicit choice, else the mode with the most
@@ -1457,6 +1624,13 @@ function activeMode(key, cfg, sessions){
 }
 function setTrendMode(key, mode){ analysisModes[key] = mode; renderAnalysis(); }
 
+function viewHeadline(key, cfg){
+  if(!cfg.views) return cfg.headline;
+  const v = cfg.views.find(x => x.key === analysisViews[key]) || cfg.views[0];
+  return v.headline;
+}
+function setTrendView(key, view){ analysisViews[key] = view; renderAnalysis(); }
+
 function deltaChip(cur, prev, lowerBetter){
   const d = cur - prev;
   if(Math.abs(d) < 1e-9) return `<span class="delta delta-flat">${t("no change")}</span>`;
@@ -1467,14 +1641,26 @@ function deltaChip(cur, prev, lowerBetter){
 }
 
 /* ── SVG line chart with status bands ─────────────────────────────── */
-function trendSvg(pts, h){
+function trendSvg(pts, h, pooled){
   const W=640, H=210, padL=46, padR=18, padT=18, padB=36;
   const iw=W-padL-padR, ih=H-padT-padB;
   let vals = pts.map(p=>p.v);
   let lo=Math.min(...vals), hi=Math.max(...vals);
   if(h.bands) h.bands.forEach(b=>{ if(isFinite(b.max)){ lo=Math.min(lo,b.max); hi=Math.max(hi,b.max);} });
   if(lo===hi){ const e=Math.abs(lo)*0.15||1; lo-=e; hi+=e; }
+  const floor0 = Math.min(...vals) >= 0;   // a CV% or a time never goes below zero
   const p=(hi-lo)*0.12; lo-=p; hi+=p;
+  if(floor0) lo = Math.max(lo, 0);
+  // Snap the range to a round step so the four tick labels read 0 / 25 / 50…
+  // rather than 17.3 / 45.4 / 73.6.
+  // Smallest round step that covers the range in at most five gaps.
+  const mag = Math.pow(10, Math.floor(Math.log10((hi-lo)/5)));
+  const step = [1,2,2.5,5,10,20].map(m=>m*mag)
+    .find(s => Math.ceil(hi/s) - Math.floor(lo/s) <= 5);
+  lo = Math.floor(lo/step)*step; hi = Math.ceil(hi/step)*step;
+  let stepDp = 0;   // as many decimals as the step itself has: 50 → 0, 2.5 → 1
+  while(stepDp < 4 && Math.abs(step*10**stepDp - Math.round(step*10**stepDp)) > 1e-9) stepDp++;
+  const tickLabel = v => (Math.abs(v) < step/1e6 ? 0 : v).toFixed(stepDp);
   const x = i => padL + (pts.length===1 ? iw/2 : iw*i/(pts.length-1));
   const y = v => padT + ih*(1-(v-lo)/(hi-lo));
   const clampY = v => Math.max(padT, Math.min(padT+ih, y(v)));
@@ -1494,16 +1680,17 @@ function trendSvg(pts, h){
     }
   }
 
-  // Horizontal gridlines + y tick labels (4 ticks).
-  const ticks = 4;
+  // Horizontal gridlines + y tick labels, one per step (usually 4).
+  const ticks = Math.round((hi-lo)/step);
   for(let i=0;i<=ticks;i++){
     const v = lo + (hi-lo)*i/ticks, yy = y(v);
     svg += `<line x1="${padL}" y1="${yy}" x2="${padL+iw}" y2="${yy}" stroke="${GRID}" stroke-width="1" opacity="${i===0?0:.55}"/>`;
-    svg += `<text x="${padL-8}" y="${yy+3.5}" text-anchor="end" font-size="11" fill="${INK_DIM}" font-family="'JetBrains Mono',monospace">${fmtNum(v)}</text>`;
+    svg += `<text x="${padL-8}" y="${yy+3.5}" text-anchor="end" font-size="11" fill="${INK_DIM}" font-family="'JetBrains Mono',monospace">${tickLabel(v)}</text>`;
   }
 
-  // Area fill + line.
-  if(pts.length>1){
+  // Area fill + line. Not for a group: joining strangers' runs draws a trend
+  // that belongs to nobody.
+  if(pts.length>1 && !pooled){
     const line = pts.map((pt,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join("");
     const area = `M${x(0).toFixed(1)},${(padT+ih)} `
       + pts.map((pt,i)=>`L${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(" ")
@@ -1532,7 +1719,8 @@ function trendSvg(pts, h){
   const lx = x(pts.length-1), lv = y(latestVal(pts));
   const above = lv - 14 > padT+6;
   svg += `<text x="${Math.min(lx, W-padR)}" y="${above? lv-12 : lv+18}" text-anchor="${pts.length===1?"middle":"end"}"
-    font-size="12.5" font-weight="700" fill="#E2E8F0" font-family="'JetBrains Mono',monospace">${fmtNum(latestVal(pts))}${h.unit}</text>`;
+    font-size="12.5" font-weight="700" fill="#E2E8F0" stroke="#0E1520" stroke-width="4"
+    stroke-linejoin="round" paint-order="stroke" font-family="'JetBrains Mono',monospace">${fmtNum(latestVal(pts))}${h.unit}</text>`;
 
   // X-axis end labels.
   svg += `<text x="${padL}" y="${H-12}" text-anchor="start" font-size="11" fill="${INK_MUTED}">${fmtDate(pts[0].iso)}</text>`;
@@ -1660,7 +1848,8 @@ function sessionCalendar(pts, h, key){
       <span class="cal-time">${fmtTime(p.iso)}</span>
       <span class="cal-value${p.scoreable?"":" cal-unscored"}">${p.scoreable
         ? `${fmtNum(p.v)}<small>${h.unit}</small>` : "—"}</span>
-      <span class="cal-verdict"><i></i>${p.scoreable?t(ST[p.status].word):t("Not scoreable")}</span>
+      <span class="cal-verdict"><i></i>${p.scoreable?t(ST[p.status].word)
+        :p.partial?t("Partial run"):t("Not scoreable")}</span>
       <span class="cal-go">${I.arrowRight}</span>
     </button>`).join("");
 
@@ -1686,7 +1875,7 @@ function sessionCalendar(pts, h, key){
       </div>
       <div class="cal-day-panel">
         <div class="cal-day-head"><strong>${selectedTitle}</strong>
-          <span>${t("{n} session(s)",{n:selected.length})}</span></div>
+          <span>${selected.length===1 ? t("1 session") : t("{n} sessions",{n:selected.length})}</span></div>
         <div class="cal-list">${rows}</div>
       </div>
     </div>
@@ -1776,7 +1965,9 @@ function vitalTile(key, sessions){
   const pts = sessions
     .map(s => ({ v:s.metrics ? s.metrics[h.key] : null, iso:s.timestamp,
                  confidence:s.metrics ? s.metrics.confidence_pct : null,
-                 status:bandFor(s.metrics ? s.metrics[h.key] : null, h.bands) }))
+                 // the verdict the test itself gave, as on the Analysis page
+                 // and in the report; bands alone left the spiral "Logged"
+                 status:statusOf(s, h) }))
     .filter(p => p.v!=null && isFinite(p.v));
   const head = `<span class="vital-ic">${I[cfg.icon]}</span><span class="vital-test">${t(cfg.label)}</span>`;
   const name = `<div class="vital-name">${t(h.name)}${h.unit?` <span class="vital-unit-i">(${h.unit})</span>`:""}</div>`;
@@ -1856,6 +2047,53 @@ function idleSpark(){
     <line x1="7" y1="${H/2}" x2="${W-7}" y2="${H/2}" stroke="${GRID}" stroke-width="2"
       stroke-linecap="round" stroke-dasharray="3 9"/></svg>`;
 }
+
+/* ── Disclaimer dock ──────────────────────────────────────────────────
+   The bar used to sit across the bottom of every page permanently. It is a
+   standing legal note, not a status line, so it now lives just below the
+   viewport edge and rises while the pointer is in the strip it occupies.
+
+   The zone is measured from the bar itself rather than hard-coded: a
+   transform does not change the layout box, so offsetHeight is the bar's
+   real height whether it is up or down, and the trigger is therefore exactly
+   where the bar lands. Pointer position is read instead of a CSS :hover on
+   an invisible catcher, so nothing transparent is sitting over the bottom of
+   the page swallowing clicks.
+
+   Touch has no hover at all, and this must stay reachable: the grabber is a
+   real target and a tap pins the bar open. */
+(function disclaimerDock(){
+  const dock = document.getElementById("disclaimer-dock");
+  if(!dock) return;
+  const bar = dock.querySelector(".disclaimer-bar");
+  const grab = dock.querySelector(".disclaimer-grab");
+  let near = false, pinned = false;
+
+  const apply = () => dock.classList.toggle("is-open", near || pinned);
+
+  // The report sheet sits at z-index 300, so a bar rising behind its backdrop
+  // would animate for nobody. Treat an open report as "not near".
+  const blocked = () => !document.getElementById("report")?.hidden;
+
+  addEventListener("mousemove", e => {
+    const zone = bar.offsetHeight || 40;
+    const n = !blocked() && (innerHeight - e.clientY) <= zone;
+    if(n === near) return;            // only touch the DOM on a real change
+    near = n; apply();
+  }, {passive:true});
+
+  // Leaving the window leaves no final mousemove, so the bar would stay up.
+  document.addEventListener("mouseleave", () => { near = false; apply(); });
+  addEventListener("blur", () => { near = false; apply(); });
+
+  grab.addEventListener("click", e => {
+    e.preventDefault(); pinned = !pinned; apply();
+  });
+  // Pinned is the touch path; any click elsewhere puts it back down.
+  addEventListener("click", e => {
+    if(pinned && !dock.contains(e.target)){ pinned = false; apply(); }
+  });
+})();
 
 /* ── Finger tapping: mode switcher ────────────────────────────────────
    The two modes share their first two steps, so they are one filmstrip each
@@ -2023,6 +2261,169 @@ document.addEventListener("click", e => {
   // draw waits for the page to finish parsing.
   document.addEventListener("DOMContentLoaded", renderRecordings);
 })();
+
+/* ── Why This: watch it work ──────────────────────────────────────────
+   Hand-only HUBU-FIS clips (tools/make_why_clips.py) with the engine's own
+   analysis of each: the smoothed thumb-index distance, the close threshold in
+   force, every accepted tap and the final score. Nothing is computed from the
+   video here; the chart replays that analysis against video.currentTime, so
+   the trace, the tap marks and the counters move with the fingers. The
+   running CV% is plain SD/mean of the intervals so far; the verdict at the end
+   is the engine's, which also forgives a lone missed tap, so the two can
+   differ by a little. Hidden entirely when clips.json is absent. */
+const LD = {clips:null, i:0, load:null, bound:false, raf:0, userPaused:false};
+const LD_GRADE = ["Normal", "Slight", "Mild", "Moderate", "Severe"];
+
+function renderLiveDemo(){
+  const root = document.getElementById("live-demo");
+  if(!root) return;
+  LD.load = LD.load || fetch("img/validation/clips.json")
+    .then(r => r.ok ? r.json() : null).catch(() => null)
+    .then(d => { LD.clips = d && Array.isArray(d.clips) && d.clips.length ? d.clips : null; });
+  LD.load.then(() => {
+    if(!LD.clips) return;
+    root.hidden = false;
+    document.getElementById("ld-seg").innerHTML = LD.clips.map((c, i) =>
+      `<button type="button" role="tab" data-i="${i}" aria-selected="${i === LD.i}" tabindex="${i === LD.i ? 0 : -1}">`
+      + `<span>UPDRS ${c.updrs}</span><small>${t(LD_GRADE[c.updrs] || "")}</small></button>`).join("");
+    if(!LD.bound) bindLiveDemo();
+    ldSelect(LD.i);
+  });
+}
+
+function bindLiveDemo(){
+  LD.bound = true;
+  const v = document.getElementById("ld-video");
+  const seg = document.getElementById("ld-seg");
+  seg.addEventListener("click", e => {
+    const b = e.target.closest("[data-i]");
+    if(b) ldSelect(+b.dataset.i, true);
+  });
+  seg.addEventListener("keydown", e => {
+    const n = LD.clips.length;
+    const next = {ArrowRight:LD.i+1, ArrowLeft:LD.i-1, Home:0, End:n-1}[e.key];
+    if(next === undefined) return;
+    e.preventDefault();
+    ldSelect((next + n) % n, true);
+    seg.querySelector(`[data-i="${LD.i}"]`).focus();
+  });
+  document.getElementById("ld-play").addEventListener("click", () => {
+    LD.userPaused = !v.paused;
+    v.paused ? v.play().catch(() => {}) : v.pause();
+  });
+  v.addEventListener("play", ldTick);
+  v.addEventListener("pause", ldSync);
+  v.addEventListener("seeked", ldDraw);
+  v.addEventListener("loadeddata", ldDraw);
+  // Plays while on screen (never with reduced motion unless asked), pauses
+  // when scrolled away or when the page switches (display:none leaves view).
+  new IntersectionObserver(([en]) => {
+    if(en.isIntersecting && !LD.userPaused && !reducedMotion) v.play().catch(() => {});
+    else if(!en.isIntersecting) v.pause();
+  }, {threshold: 0.35}).observe(document.querySelector(".ld-stage"));
+  window.addEventListener("resize", ldDraw);
+}
+
+function ldSelect(i, user){
+  LD.i = i;
+  document.querySelectorAll("#ld-seg [role=tab]").forEach(b => {
+    const on = +b.dataset.i === i;
+    b.setAttribute("aria-selected", on);
+    b.tabIndex = on ? 0 : -1;
+  });
+  const v = document.getElementById("ld-video"), c = LD.clips[i];
+  if(!v.src.endsWith(c.file)){
+    const wasPlaying = !v.paused;
+    v.src = c.file;
+    if(wasPlaying || (user && !LD.userPaused)) v.play().catch(() => {});
+  }
+  ldDraw();
+}
+
+function ldTick(){
+  cancelAnimationFrame(LD.raf);
+  const v = document.getElementById("ld-video");
+  const loop = () => { ldDraw(); if(!v.paused) LD.raf = requestAnimationFrame(loop); };
+  ldSync();
+  loop();
+}
+function ldSync(){
+  const v = document.getElementById("ld-video");
+  const b = document.getElementById("ld-play");
+  b.classList.toggle("is-paused", v.paused);
+  b.innerHTML = v.paused ? I.play || "▶" : "";
+}
+
+function ldDraw(){
+  const c = LD.clips && LD.clips[LD.i];
+  const cv = document.getElementById("ld-chart");
+  if(!c || !cv || !cv.offsetWidth) return;
+  const now = document.getElementById("ld-video").currentTime || 0;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.offsetWidth, H = cv.offsetHeight;
+  if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){
+    cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+  }
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement);
+  const col = n => css.getPropertyValue(n).trim();
+  const s = c.series, dur = c.duration_s || (s.length ? s[s.length-1][0] : 1);
+  let lo = Infinity, hi = -Infinity;
+  s.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); });
+  if(!(hi > lo)){ lo = 0; hi = 1; }
+  const pad = {l:8, r:8, t:14, b:22};
+  const X = tt => pad.l + tt / dur * (W - pad.l - pad.r);
+  const Y = d => pad.t + (1 - (d - lo) / (hi - lo)) * (H - pad.t - pad.b);
+  const path = (pts, upto) => {
+    g.beginPath();
+    let started = false;
+    for(const p of pts){
+      if(p[0] > upto) break;
+      started ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1]));
+      started = true;
+    }
+    g.stroke();
+  };
+  // Axis: seconds.
+  g.fillStyle = col("--text-disabled"); g.font = "11px Inter, sans-serif"; g.textAlign = "center";
+  for(let sec = 0; sec <= dur; sec += 2) g.fillText(sec + " s", X(sec), H - 6);
+  // The whole trace faint, so the viewer sees where the clip is going.
+  g.lineWidth = 1.5; g.strokeStyle = "rgba(180,192,208,.18)"; path(s, Infinity);
+  // The close threshold the detector used, up to now.
+  g.setLineDash([4, 4]); g.lineWidth = 1; g.strokeStyle = "rgba(245,165,36,.7)";
+  path(c.thresholds.map(r => [r[0], r[1]]), now);
+  g.setLineDash([]);
+  // Taps so far, the newest one flashing.
+  const taps = c.taps.filter(x => x <= now);
+  taps.forEach(x => {
+    const age = now - x, flash = Math.max(0, 1 - age / 0.35);
+    g.strokeStyle = `rgba(18,165,148,${0.35 + 0.65*flash})`;
+    g.lineWidth = 1 + 2*flash;
+    g.beginPath(); g.moveTo(X(x), pad.t); g.lineTo(X(x), H - pad.b); g.stroke();
+  });
+  // The trace up to now, and the playhead.
+  g.lineWidth = 2.25; g.strokeStyle = col("--brand"); path(s, now);
+  g.strokeStyle = col("--text"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(X(now), pad.t - 6); g.lineTo(X(now), H - pad.b); g.stroke();
+
+  // Readouts.
+  const iv = taps.slice(1).map((x, k) => x - taps[k]);
+  const mean = iv.reduce((a, b) => a + b, 0) / (iv.length || 1);
+  const sd = iv.length > 1 ? Math.sqrt(iv.reduce((a, b) => a + (b - mean)**2, 0) / (iv.length - 1)) : null;
+  document.getElementById("ld-taps").textContent = taps.length;
+  document.getElementById("ld-rate").textContent = iv.length ? (1 / mean).toFixed(1) : "–";
+  document.getElementById("ld-cv").textContent = iv.length >= 3 && sd != null ? (sd / mean * 100).toFixed(1) + "%" : "–";
+  const m = c.metrics || {}, done = now >= dur - 0.25;
+  const k = VERDICT[m.status] || "none", st = ST[k];
+  const box = document.getElementById("ld-verdict");
+  const html = done && m.scoreable !== false
+    ? `<span class="rec-verdict" style="color:${st.dot};background:${st.band}">${t(st.word)}</span>`
+      + `<span>${t("Final score")} · CV ${recNum(m.cv_pct, 1) ?? "–"}%</span>`
+    : `<span class="ld-pending">${t("Scoring as it plays")}</span>`;
+  if(box.dataset.html !== html){ box.innerHTML = html; box.dataset.html = html; }
+}
 
 /* ── Language switch ──────────────────────────────────────────────────
    Almost everything on these pages is built from JS, so a switch has to ask

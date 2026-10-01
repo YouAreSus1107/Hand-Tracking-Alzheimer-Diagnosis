@@ -6,6 +6,10 @@
   --bg:#0E1520;--surface:#111827;--surface-2:#1C2430;
   --border:#2A3442;--text:#F8FAFC;--text-muted:#B4C0D0;--text-disabled:#8C9BB2;
   --radius:16px;--radius-btn:12px;
+  /* Avatar hues (profiles.js). None is a status colour, so a person's colour
+     can never read as a verdict; each carries white initials at >= 4.5:1. */
+  --av-1:#0E8577;--av-2:#2563EB;--av-3:#4F46E5;--av-4:#7C3AED;
+  --av-5:#A21CAF;--av-6:#0E7490;--av-7:#475569;--av-8:#9D4B6E;
   /* Inter and JetBrains Mono carry no CJK glyphs; Traditional Chinese falls
      through to this stack so both languages look like one system. */
   --font-cjk:'Noto Sans TC','Microsoft JhengHei','PingFang TC','Heiti TC',sans-serif;
@@ -23,6 +27,18 @@ body{font-family:'Inter','Segoe UI',var(--font-cjk),system-ui,-apple-system,sans
 
 /* ── Background canvas (reaction-diffusion) ──────────────────────── */
 #rd-bg{position:fixed;inset:0;z-index:0;pointer-events:none;width:100%;height:100%}
+/* The floor under the maze: grey hexagon tiles on near-black, with a 6 px
+   gap between tiles, fixed like the canvas so the strands and their cast
+   shadow stay in register with it. ::before is body's first child, so the
+   canvas (same z-index, later in the DOM) paints above it. The radial layer
+   fades it into --bg under the centre column, the same way the maze fades
+   (background.js FADE). Tile: pointy-top hexagons of side 22 on a
+   38.11 x 66 repeat (width 22·√3), each inset so parallel edges sit 6 apart. */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 34% 75% at 50% 50%,var(--bg) 20%,transparent 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='38.11' height='66' viewBox='0 0 38.11 66'%3E%3Crect width='38.11' height='66' fill='%2306080B'/%3E%3Cpath d='M0 18.54L-16.05 9.27L-16.05 -9.27L0 -18.54L16.05 -9.27L16.05 9.27ZM38.11 18.54L22.05 9.27L22.05 -9.27L38.11 -18.54L54.16 -9.27L54.16 9.27ZM19.05 51.54L3 42.27L3 23.73L19.05 14.46L35.11 23.73L35.11 42.27ZM0 84.54L-16.05 75.27L-16.05 56.73L0 47.46L16.05 56.73L16.05 75.27ZM38.11 84.54L22.05 75.27L22.05 56.73L38.11 47.46L54.16 56.73L54.16 75.27Z' fill='%23101419'/%3E%3C/svg%3E");
+  background-size:auto,38.11px 66px}
 
 /* ── Global layout ─────────────────────────────────────────────────── */
 .app{position:relative;z-index:1;min-height:100vh}
@@ -102,7 +118,9 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
 .detail-back:focus-visible{outline:2px solid var(--interactive);outline-offset:2px}
 
 /* ── Status bar (floating pills) ───────────────────────────────────── */
-.status-float{position:fixed;top:68px;right:24px;z-index:90;display:flex;gap:8px;
+/* Absolute, not fixed: pinned to the viewport they sat on top of every card
+   the page scrolled under them (readings strip, charts, calendar). */
+.status-float{position:absolute;top:68px;right:24px;z-index:90;display:flex;gap:8px;
               animation:slideDown .6s cubic-bezier(.22,1,.36,1) both;animation-delay:.3s}
 @keyframes slideDown{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
 .s-pill{display:flex;align-items:center;gap:6px;padding:6px 12px;
@@ -213,31 +231,7 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
                       rgba(56,189,248,.10) 0%,transparent 60%)}
 .card:hover .card-glow{opacity:1}
 .card-body{padding:24px}
-.card-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;
-           justify-content:center;margin-bottom:16px;color:var(--brand);
-           background:rgba(18,165,148,.1);border:1px solid rgba(18,165,148,.2);
-           transition:background .3s,border-color .3s,transform .3s}
-.card:hover .card-icon{background:rgba(18,165,148,.18);border-color:rgba(18,165,148,.35);
-                       transform:scale(1.05)}
-.card-icon svg{width:24px;height:24px}
 .card h3{font-size:20px;font-weight:600;margin-bottom:6px;letter-spacing:-.01em;text-wrap:balance}
-.card-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
-.card-tag{font-size:11px;padding:4px 10px;border-radius:6px;font-weight:500;
-          color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);
-          transition:color .25s,background .25s,border-color .25s,transform .2s,opacity .2s;
-          cursor:default}
-.card-tag:hover{color:#0E1520;background:#fff;border-color:#fff}
-/* Icon + tags in a row */
-.card-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.card-header .card-icon{margin-bottom:0}
-.card-header .card-tags{margin-bottom:0}
-/* Tag staggered entrance */
-.card-tag{opacity:0;transform:translateY(8px);animation:tagIn .4s ease forwards}
-.card-tag:nth-child(1){animation-delay:.6s}
-.card-tag:nth-child(2){animation-delay:.7s}
-.card-tag:nth-child(3){animation-delay:.8s}
-.card-tag:nth-child(4){animation-delay:.9s}
-@keyframes tagIn{to{opacity:1;transform:translateY(0)}}
 /* Video placeholder */
 .card-video{width:100%;aspect-ratio:16/9;border-radius:8px;background:var(--surface-2);
             border:1px solid var(--border);margin-bottom:16px;overflow:hidden;position:relative}
@@ -257,6 +251,22 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
 .card .live-pulse{width:8px;height:8px;border-radius:50%;background:var(--success);
                   animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+/* A test that closed but is still measuring in the background (app.js
+   renderAnalysing). Info-blue, not the live green: nothing holds the camera. */
+.card .an-badge{display:none;align-items:center;gap:6px;font-size:12px;
+                color:var(--info);font-weight:500;margin-bottom:14px}
+.card .an-badge.on{display:flex}
+.card .an-badge.failed,.act-note.failed{color:var(--warning)}
+.an-pulse{width:8px;height:8px;border-radius:50%;background:currentColor;
+          animation:pulse 1.2s ease-in-out infinite}
+.card .an-badge.failed .an-pulse{animation:none}
+.act-note{align-self:center;font-size:13px;font-weight:500;color:var(--info)}
+.act-note[hidden]{display:none}
+.an-note-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 16px;
+             padding:10px 14px;border-radius:10px;font-size:14px;color:var(--info);
+             border:1px solid currentColor;background:color-mix(in srgb,currentColor 8%,transparent)}
+.an-note-bar[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.an-pulse{animation:none}}
 .card-more{margin-left:auto;font-size:13px;color:var(--brand);font-weight:500;
            display:flex;align-items:center;gap:4px;opacity:.7;
            transition:opacity .2s,transform .2s;background:none;border:none;
@@ -273,7 +283,6 @@ button:focus-visible,.nav-link:focus-visible,.card:focus-visible,
   .card{position:relative;top:auto;left:auto;width:auto;transform:none;
         opacity:1;filter:none;box-shadow:0 12px 40px rgba(0,0,0,.4)}
   .carousel-nav,.carousel-dots{display:none}
-  .card-tag{opacity:1;animation:none}
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────── */
@@ -646,6 +655,41 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .paper-link:hover{gap:8px;color:var(--brand)}
 .paper-link svg{width:13px;height:13px}
 
+/* ── Disclaimer bar ────────────────────────────────────────────────── */
+/* The dock is the fixed box; the bar inside it is what moves. Transforms do
+   not change layout, so the dock keeps the bar's height whether it is up or
+   down and the grabber can be positioned against the real bottom edge. */
+.disclaimer-dock{position:fixed;bottom:0;left:0;right:0;z-index:100;
+                 pointer-events:none}
+.disclaimer-bar{background:rgba(8,14,24,.95);backdrop-filter:blur(12px);
+                border-top:1px solid rgba(245,165,36,.15);
+                padding:10px 24px;text-align:center;
+                font-size:13px;color:var(--warning);
+                box-shadow:0 -2px 16px rgba(0,0,0,.3);
+                transform:translateY(102%);opacity:0;
+                transition:transform .34s cubic-bezier(.22,1,.36,1),
+                           opacity .2s ease}
+.disclaimer-bar strong{color:var(--text)}
+.disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0);opacity:1}
+
+/* Always visible, so the bar is discoverable without a stray mouse finding
+   it by accident. It ducks out of the way as the bar comes up. */
+.disclaimer-grab{position:absolute;left:50%;bottom:5px;width:44px;height:4px;
+                 border-radius:999px;background:rgba(245,165,36,.3);
+                 transform:translateX(-50%);pointer-events:auto;cursor:pointer;
+                 transition:opacity .2s ease,transform .3s cubic-bezier(.22,1,.36,1),
+                            background .2s ease}
+.disclaimer-grab:hover{background:rgba(245,165,36,.6)}
+/* A 4 px line is not a touch target. This is the one people actually hit. */
+.disclaimer-grab::before{content:"";position:absolute;inset:-12px -18px}
+.disclaimer-dock.is-open .disclaimer-grab{opacity:0;pointer-events:none;
+                 transform:translateX(-50%) translateY(6px)}
+@media (prefers-reduced-motion:reduce){
+  .disclaimer-bar,.disclaimer-grab{transition:opacity .15s ease}
+  .disclaimer-bar{transform:translateY(102%)}
+  .disclaimer-dock.is-open .disclaimer-bar{transform:translateY(0)}
+}
+
 /* ── Toast ─────────────────────────────────────────────────────────── */
 .toast{position:fixed;left:50%;bottom:56px;z-index:200;
        transform:translateX(-50%) translateY(20px);
@@ -818,60 +862,192 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
   .cam-refresh.spin svg{animation:none}
 }
 
-/* ── Patient-profile chip ────────────────────────────────────────────
-   The camera chip's sibling, and deliberately the same object: a status
-   pill that folds open. This one says who the next test records for,
-   and holds the roster and its small edit form. */
-.pf-slot{position:relative;display:inline-flex;flex:none}
-.pf-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
-         font-size:11.5px;font-weight:600;font-family:inherit;
-         padding:4px 8px;border-radius:999px;
-         color:var(--text);background:rgba(18,165,148,.14);
-         border:1px solid rgba(18,165,148,.4);transition:color .15s,border-color .15s}
-.pf-chip.pf-unset{color:var(--text-muted);background:var(--surface-2);
-                  border-color:var(--border)}
-.pf-chip:hover{color:var(--brand);border-color:var(--brand)}
-.pf-chip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.pf-slot.open .pf-chip{color:var(--brand);border-color:var(--brand)}
-.pf-chip svg{width:12px;height:12px;flex:none}
-.pf-chip-text{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pf-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:280px;
-        padding:12px;border-radius:12px;text-align:left;
+/* ── Patient profiles (profiles.js) ──────────────────────────────────
+   Who the next test records for. It used to be a small pill beside the
+   camera chip, the same weight as a device setting, and it was missed. Now
+   one switcher lives in the navbar, the Launch button names the person, and
+   Launch with nobody chosen asks first. */
+
+/* Avatars: initials on a hue from --av-1..8 (tokens in :root). White text on
+   each clears 4.5:1; the name always sits beside it, so it is decoration. */
+.pf-av{display:inline-flex;align-items:center;justify-content:center;flex:none;
+       border-radius:50%;background:var(--av,var(--av-1));color:#fff;
+       font-weight:700;line-height:1;letter-spacing:.01em;user-select:none;
+       box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.pf-av svg{width:58%;height:58%}
+.pf-av-xs{width:18px;height:18px;font-size:8.5px}
+.pf-av-sm{width:28px;height:28px;font-size:11.5px}
+.pf-av-md{width:34px;height:34px;font-size:13px}
+.pf-av-lg{width:52px;height:52px;font-size:19px}
+/* A group is a rounded square: shape, not colour, says "many people". */
+.pf-av-group{border-radius:30%}
+.pf-av-none,.pf-av-add{background:none;color:var(--text-muted);
+                       box-shadow:inset 0 0 0 1.5px var(--text-disabled)}
+.pf-av-none{box-shadow:none;border:1.5px dashed var(--text-disabled)}
+.pf-av-add{color:var(--brand);box-shadow:inset 0 0 0 1.5px var(--brand)}
+.btn .pf-av-xs{margin-left:2px}
+.seg-btn .pf-av-xs{vertical-align:-4px;margin-right:2px}
+
+/* The navbar switcher. */
+nav .pf-nav{position:relative;display:flex;flex:none;margin-left:8px}
+/* On the published site with no hub behind it there is no roster to show. */
+body[data-hub]:not([data-hub="connected"]) nav .pf-nav{display:none}
+.pf-who{display:inline-flex;align-items:center;gap:9px;min-height:44px;
+        padding:4px 10px 4px 5px;border-radius:12px;cursor:pointer;
+        font-family:inherit;text-align:left;color:var(--text);
         background:var(--surface);border:1px solid var(--border);
-        box-shadow:0 12px 32px rgba(0,0,0,.45)}
-.pf-pop-title{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
-              color:var(--text-disabled);font-weight:700;margin-bottom:9px}
-.pf-list{max-height:230px;overflow-y:auto;margin:0 -4px 10px;padding:0 4px}
-.pf-row{display:flex;align-items:center;gap:6px}
-.pf-opt{display:flex;align-items:baseline;gap:8px;flex:1;cursor:pointer;
-        padding:5px 4px;border-radius:8px;font-size:13px;color:var(--text)}
-.pf-opt:hover{background:var(--surface-2)}
-.pf-opt input[type=radio]{accent-color:var(--brand);flex:none;margin:0}
-.pf-nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pf-sub{font-size:10.5px;color:var(--text-disabled);white-space:nowrap}
-.pf-edit{flex:none;font-family:inherit;font-size:11px;font-weight:600;
-         padding:4px 7px;border:0;border-radius:7px;
-         background:none;color:var(--text-disabled);cursor:pointer}
-.pf-edit:hover{color:var(--brand);background:var(--surface-2)}
-.pf-f{display:flex;align-items:center;gap:8px;margin-bottom:8px;
-      font-size:12.5px;color:var(--text-muted)}
-.pf-f>span{width:96px;flex:none}
-.pf-f input,.pf-f select{flex:1;min-width:0;font-family:inherit;font-size:12.5px;
-      color:var(--text);background:var(--surface-2);border:1px solid var(--border);
-      border-radius:7px;padding:5px 7px}
-.pf-f input:focus,.pf-f select:focus{outline:none;border-color:var(--brand)}
-.pf-foot{display:flex;align-items:center;gap:8px;margin-top:10px}
-.pf-note{font-size:10.5px;line-height:1.35;color:var(--text-disabled)}
+        transition:border-color .15s,background .15s}
+.pf-who:hover,.pf-nav.open .pf-who{border-color:var(--brand);background:var(--surface-2)}
+.pf-who:focus-visible{outline:2px solid var(--interactive);outline-offset:2px}
+.pf-who>svg{width:10px;height:10px;flex:none;color:var(--text-muted);
+            transition:transform .2s cubic-bezier(.22,1,.36,1)}
+.pf-nav.open .pf-who>svg{transform:rotate(180deg)}
+.pf-who-text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.pf-who-lbl{font-size:10.5px;font-weight:600;color:var(--text-muted)}
+.pf-who-nm{font-size:13.5px;font-weight:600;max-width:150px;
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf-alert{display:inline-flex;align-items:center;justify-content:center;flex:none;
+          width:28px;height:28px;border-radius:50%;
+          color:var(--warning);background:rgba(245,165,36,.16)}
+.pf-alert svg{width:15px;height:15px}
+.pf-alert-add{color:var(--brand);background:rgba(18,165,148,.14)}
+/* Nobody chosen while there are people to choose from: the case that files
+   runs under nobody. Amber, an icon and words (UI_STYLE_GUIDE §2.4). */
+.pf-who.pf-unset{border-color:rgba(245,165,36,.6);background:rgba(245,165,36,.07)}
+.pf-who.pf-unset .pf-who-lbl{color:var(--warning)}
+.pf-who.pf-unset:hover,.pf-nav.open .pf-who.pf-unset{border-color:var(--warning)}
+
+/* The roster popover. */
+.pf-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:120;
+        width:min(340px,calc(100vw - 32px));padding:12px;border-radius:14px;
+        text-align:left;background:rgba(12,19,30,.98);
+        backdrop-filter:blur(20px) saturate(1.6);
+        border:1px solid var(--border);box-shadow:0 18px 40px rgba(0,0,0,.55)}
+.pf-pop-head{display:flex;flex-direction:column;gap:2px;padding:2px 4px 10px}
+.pf-pop-title{font-size:14px;font-weight:600;color:var(--text)}
+.pf-pop-note{font-size:12px;color:var(--text-muted)}
+.pf-search{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:0 10px;
+           height:38px;border-radius:9px;background:var(--surface-2);
+           border:1px solid var(--border);color:var(--text-muted)}
+.pf-search:focus-within{border-color:var(--brand)}
+.pf-search input{flex:1;min-width:0;border:0;outline:none;background:none;
+                 font-family:inherit;font-size:13px;color:var(--text)}
+.pf-list{max-height:min(360px,60vh);overflow-y:auto;margin:0 -4px;padding:0 4px}
+.pf-row{display:flex;align-items:center;gap:2px;border-radius:10px}
+.pf-row[hidden]{display:none}
+.pf-row:hover{background:var(--surface-2)}
+.pf-row.on{background:rgba(18,165,148,.14)}
+.pf-pick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:48px;
+         padding:6px 8px;border:0;border-radius:10px;background:none;cursor:pointer;
+         font-family:inherit;text-align:left;color:var(--text)}
+.pf-pick:focus-visible,.pf-edit:focus-visible,.pf-new:focus-visible,
+.pf-tile:focus-visible,.pf-seg button:focus-visible,.pf-swatches button:focus-visible{
+  outline:2px solid var(--interactive);outline-offset:1px}
+.pf-row-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.pf-nm{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf-tag{font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf-on{display:inline-flex;color:var(--brand);flex:none}
+.pf-edit{flex:none;display:inline-flex;align-items:center;justify-content:center;
+         width:36px;height:36px;margin-right:4px;border:0;border-radius:8px;
+         background:none;color:var(--text-muted);cursor:pointer;opacity:0;
+         transition:opacity .12s,color .12s,background .12s}
+.pf-row:hover .pf-edit,.pf-row.on .pf-edit,.pf-edit:focus-visible{opacity:1}
+.pf-edit:hover{color:var(--brand);background:rgba(255,255,255,.06)}
+@media (hover:none){.pf-edit{opacity:1}}
+.pf-sec{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+        color:var(--text-muted);margin:10px 8px 4px}
+.pf-sec[hidden]{display:none}
+.pf-row-none{margin-top:6px;border-top:1px solid var(--border);border-radius:0 0 10px 10px}
+.pf-empty-note{font-size:13px;line-height:1.45;color:var(--text-muted);padding:4px 6px 8px}
+.pf-foot{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.pf-new{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+        min-height:40px;padding:0 10px;border-radius:9px;cursor:pointer;
+        font-family:inherit;font-size:13px;font-weight:600;
+        color:var(--brand);background:none;border:1px solid var(--border)}
+.pf-new:hover{border-color:var(--brand);background:rgba(18,165,148,.08)}
+.pf-new svg{width:14px;height:14px}
+
+/* The sheet: the form and the launch picker. Centred, like the report. */
+.pf-backdrop{position:fixed;inset:0;z-index:310;background:rgba(4,8,14,.72);
+             backdrop-filter:blur(4px);opacity:0;transition:opacity .2s ease}
+.pf-backdrop.on{opacity:1}
+.pf-sheet{position:fixed;top:50%;left:50%;z-index:311;
+          width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 48px);
+          display:flex;flex-direction:column;overflow:hidden;
+          background:#1A2230;color:var(--text);border:1px solid #334055;border-radius:18px;
+          box-shadow:0 32px 80px rgba(0,0,0,.6);
+          opacity:0;transform:translate(-50%,-50%) scale(.96);
+          transition:opacity .2s ease,transform .2s cubic-bezier(.22,1,.36,1)}
+.pf-sheet.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.pf-sheet-head{display:flex;align-items:center;gap:14px;padding:20px 22px 14px}
+.pf-sheet-title{font-size:19px;font-weight:600;letter-spacing:-.01em}
+.pf-sheet-sub{margin-top:3px;font-size:13px;line-height:1.45;color:var(--text-muted)}
+.pf-sheet-body{padding:4px 22px 8px;overflow-y:auto}
+.pf-sheet-foot{display:flex;align-items:center;gap:8px;padding:14px 22px 18px;
+               border-top:1px solid #2C3748}
+.pf-sheet-foot .btn-mini{min-height:40px}
+.pf-sheet-foot .btn{height:40px}
 .pf-grow{flex:1}
-.pf-new{background:none;color:var(--brand);border-color:var(--border)}
-.pf-new:hover{background:var(--surface-2);color:var(--brand);border-color:var(--brand)}
+.pf-f{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.pf-f[hidden],.pf-person[hidden]{display:none}
+.pf-f-lbl{width:108px;flex:none;padding-top:10px;font-size:13px;color:var(--text-muted)}
+.pf-f>input,.pf-age-wrap input{flex:1;min-width:0;height:40px;padding:0 11px;
+      font-family:inherit;font-size:14px;color:var(--text);
+      background:var(--bg);border:1px solid #334055;border-radius:9px}
+.pf-f>input:focus,.pf-age-wrap input:focus{outline:none;border-color:var(--brand)}
+.pf-age-wrap{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
+.pf-age-wrap input{flex:none;width:96px}
+.pf-hint{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted)}
+.pf-hint svg{width:13px;height:13px;flex:none}
+.pf-hint-warn{color:var(--warning)}
+.pf-seg{flex:1;display:flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:10px;
+        background:var(--bg);border:1px solid #334055}
+.pf-seg button{flex:1 1 auto;min-height:36px;padding:0 10px;border:0;border-radius:7px;
+               font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+               color:var(--text-muted);background:none;transition:color .12s,background .12s}
+.pf-seg button:hover{color:var(--text)}
+.pf-seg button[aria-checked="true"]{color:#fff;background:rgba(18,165,148,.22);
+                                    box-shadow:inset 0 0 0 1px rgba(18,165,148,.5)}
+.pf-swatches{flex:1;display:flex;flex-wrap:wrap;gap:8px;padding-top:4px}
+.pf-swatches button{width:30px;height:30px;border-radius:50%;cursor:pointer;
+                    background:var(--av);border:2px solid transparent;
+                    box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.pf-swatches button[aria-checked="true"]{border-color:#fff;
+                                         box-shadow:0 0 0 2px var(--av)}
 .pf-del{background:none;color:var(--danger);border-color:rgba(239,68,68,.45)}
 .pf-del:hover,.pf-del.armed{background:rgba(239,68,68,.16);color:var(--danger);
                             border-color:var(--danger)}
 .pf-cancel{background:none;color:var(--text-muted);border-color:var(--border)}
 .pf-cancel:hover{background:var(--surface-2);color:var(--text);border-color:var(--border)}
-.detail-actions .pf-slot{margin-left:4px;align-self:center}
-@media (prefers-reduced-motion:reduce){.pf-chip{transition:none}}
+
+/* The launch picker's tiles. */
+.pf-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.pf-tiles-none{margin-top:12px;grid-template-columns:1fr}
+.pf-tile{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;
+         padding:14px 8px 12px;border-radius:12px;cursor:pointer;font-family:inherit;
+         color:var(--text);background:var(--bg);border:1px solid #334055;
+         transition:border-color .12s,background .12s}
+.pf-tile:hover{border-color:var(--brand);background:rgba(18,165,148,.08)}
+.pf-tile .pf-nm{max-width:100%}
+.pf-tile-none{flex-direction:row;justify-content:flex-start;gap:12px;padding:10px 14px}
+.pf-tile-none .pf-av-lg{width:34px;height:34px}
+.pf-tile-add{border-style:dashed}
+.pf-skip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;
+         color:var(--text-muted);cursor:pointer}
+.pf-skip input{accent-color:var(--brand);width:16px;height:16px}
+
+@media (max-width:1100px){
+  .pf-who-text{display:none}
+  .pf-who{padding:4px 8px 4px 6px}
+}
+@media (max-width:560px){
+  .pf-f{flex-direction:column;gap:6px}
+  .pf-f-lbl{width:auto;padding-top:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .pf-who,.pf-who>svg,.pf-edit,.pf-seg button,.pf-tile,
+  .pf-backdrop,.pf-sheet{transition:none}
+}
 
 /* ── Post-run assign card ────────────────────────────────────────────
    Shown once, when a test has just written its session. Not a toast: a
@@ -902,7 +1078,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 /* Whose numbers these are: the readings strip and the Analysis page are
    both filtered by person, so both have to say so. */
 .section-head .sh-who{font-size:12px;font-weight:600;color:var(--brand)}
-.analysis-who{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+.analysis-who{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
               margin:0 0 18px}
 .analysis-who:empty{display:none}
 .who-name{font-size:15px;font-weight:600;color:var(--text)}
@@ -915,11 +1091,6 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
          background:none;color:var(--text-muted);transition:color .15s,border-color .15s}
 .who-act:hover{color:var(--brand);border-color:var(--brand)}
 .who-act:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.analysis-editor{margin:0 0 20px}
-.analysis-editor[hidden]{display:none}
-.pf-editor{max-width:420px;padding:16px;border-radius:var(--radius);
-           background:var(--surface);border:1px solid var(--border)}
-.pf-editor .pf-f>span{width:110px}
 @media (prefers-reduced-motion:reduce){.who-act{transition:none}}
 #analysis-profile[hidden]{display:none}
 
@@ -1014,6 +1185,29 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
 .val-sub{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:8px 0 10px;color:var(--text)}
 .val-sub:not(:first-child){margin-top:40px}
 .val-credit{font-size:12px;color:var(--text-disabled);line-height:1.5;margin-top:14px;max-width:70ch}
+
+/* Why This: hand-only clips replayed beside the engine's analysis (app.js renderLiveDemo) */
+.live-demo{margin:8px 0 28px}
+.ld-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:40px}
+.ld-head .val-sub{margin:0}
+.ld-stage{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:stretch}
+.ld-video{position:relative;aspect-ratio:1/1;border-radius:var(--radius);overflow:hidden;
+  background:#000;border:1px solid var(--border)}
+.ld-video video{width:100%;height:100%;object-fit:cover;display:block}
+.ld-play{position:absolute;inset:0;border:none;background:transparent;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;color:var(--text)}
+.ld-play.is-paused{background:rgba(14,21,32,.45)}
+.ld-play svg{width:44px;height:44px}
+.ld-play:focus-visible{outline:2px solid var(--interactive);outline-offset:-4px}
+.ld-panel{display:flex;flex-direction:column;gap:14px;padding:16px;border-radius:var(--radius);
+  background:var(--surface);border:1px solid var(--border);min-width:0}
+.ld-panel canvas{width:100%;flex:1;min-height:200px;display:block}
+.ld-read{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.ld-read div{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--surface-2)}
+.ld-read b{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
+.ld-read span{font-size:12.5px;color:var(--text-muted)}
+.ld-verdict{display:flex;align-items:center;gap:10px;min-height:28px;font-size:14px;color:var(--text-muted)}
+.ld-pending{color:var(--text-disabled)}
 .val-fig figcaption{font-size:12.5px;color:var(--text-muted);line-height:1.5;margin-top:8px}
 .val-steps{list-style:none;counter-reset:vs;display:grid;
            grid-template-columns:repeat(3,1fr);gap:16px;margin:0 0 20px;padding:0}
@@ -1084,6 +1278,8 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-sha
   .pillar-grid{grid-template-columns:1fr}
   .val-stats{grid-template-columns:1fr 1fr}
   .val-steps{grid-template-columns:1fr}
+  .ld-stage{grid-template-columns:1fr}
+  .ld-read b{font-size:20px}
 }
 
 /* ── Scroll reveal ─────────────────────────────────────────────────── */
@@ -1578,6 +1774,7 @@ body[data-hub="connected"] .hub-slot{display:inline-flex}
 }
 
 /* ── Remote Sessions page (docs/platform/REMOTE_SESSION_PLAN.md) ─────────────── */
+.rs-for{margin:8px 0 0;font-size:13px;color:var(--text-muted)}
 .rs-note{display:flex;gap:12px;align-items:flex-start;background:var(--surface);
   border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;
   margin-bottom:28px;font-size:13px;line-height:1.65;color:var(--text-muted)}
@@ -1900,6 +2097,10 @@ body.report-open{overflow:hidden}
          font-variant-numeric:tabular-nums;color:var(--r-ink)}
 .rep-unit{font-size:15px;font-weight:500;color:var(--r-muted);margin-left:3px}
 .rep-vtext{min-width:0}
+/* spiral: the second score (tremor) under line accuracy, with its own band */
+.rep-second{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.rep-second-val{font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.rep-second .rep-metricname{margin:0}
 .rep-metricname{font-size:13px;color:var(--r-muted);margin-top:7px}
 .rep-label{font-size:13.5px;color:var(--r-ink);margin-top:3px;line-height:1.45}
 /* a tremor check near a tapping/spiral run (report.js tremorContext) */
@@ -1966,6 +2167,18 @@ body.report-open{overflow:hidden}
                    background:var(--r-raised);border:1px solid var(--r-border);
                    border-radius:8px;padding:6px 8px}
 .rep-assign select:focus{outline:none;border-color:var(--brand)}
+/* Open the screen recording made with R during this run; last thing in the
+   report, and only there when a clip exists. */
+.rep-rec{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px;
+         padding-top:16px;border-top:1px solid var(--r-border);
+         font-size:12.5px;color:var(--r-muted)}
+.rep-recbtn{display:inline-flex;align-items:center;gap:8px;font-family:inherit;
+            font-size:13px;font-weight:600;color:var(--r-ink);cursor:pointer;
+            background:var(--r-raised);border:1px solid var(--r-border);
+            border-radius:8px;padding:8px 14px}
+.rep-recbtn svg{width:12px;height:12px;flex:none}
+.rep-recbtn:hover{border-color:var(--brand)}
+.rep-recbtn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 
 /* Messages */
 .rep-msg{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--r-muted);

@@ -756,8 +756,75 @@ def session_payload(session_id: str) -> dict | None:
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             continue
         if rec.get("session_id") == session_id:
+            # Only the file name: enough for the report to offer the button.
+            clip = recording_for(rec)
+            if clip:
+                rec["recording"] = os.path.basename(clip)
             return rec
     return None
+
+
+# ── Screen recordings ──────────────────────────────────────────────────────
+# Pressing R in a test window writes recordings/<name>_<YYYYmmdd_HHMMSS>.mp4
+# (core/screen_recorder.py). The clip and the session never name each other,
+# so they are matched here: same test, and the session was saved while the
+# clip was being written (its name is the start, its mtime the end).
+
+RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
+# session `test` -> the name ScreenRecorder was given in that entry script
+_REC_NAMES = {"finger_tapping": "finger_tapping", "spiral": "spiral",
+              "oculomotor": "eye_movement", "ddk": "speech",
+              "phonation": "speech", "tremor": "tremor", "gait": "gait"}
+_REC_SLACK_S = 5.0   # mtime granularity, and a save that lands as R is pressed
+
+
+def recording_for(rec: dict) -> str | None:
+    """Path of the screen recording that covers this session, or None."""
+    from datetime import datetime
+
+    name = _REC_NAMES.get(rec.get("test", ""))
+    if not name or rec.get("source") == "remote" or not os.path.isdir(RECORDINGS_DIR):
+        return None
+    try:
+        at = datetime.fromisoformat(rec.get("timestamp", "")).timestamp()
+    except (TypeError, ValueError):
+        return None
+    best = None
+    pat = re.compile(re.escape(name) + r"_(\d{8}_\d{6})\.mp4$")
+    for fname in os.listdir(RECORDINGS_DIR):
+        m = pat.match(fname)
+        if not m:
+            continue
+        path = os.path.join(RECORDINGS_DIR, fname)
+        try:
+            start = datetime.strptime(m.group(1), "%Y%m%d_%H%M%S").timestamp()
+            end = os.path.getmtime(path)
+        except (ValueError, OSError):
+            continue
+        if start - _REC_SLACK_S <= at <= end + _REC_SLACK_S and (
+                best is None or start > best[0]):
+            best = (start, path)
+    return best[1] if best else None
+
+
+def open_recording(session_id: str) -> tuple[bool, str]:
+    """Open a session's clip in this machine's default video player.
+
+    The clip is mp4v, which browsers do not play, and the request names a
+    session, never a file: the path is always one recording_for() found.
+    """
+    rec = session_payload(str(session_id or ""))
+    path = recording_for(rec) if rec else None
+    if not path:
+        return False, "No recording found for this session"
+    try:
+        if os.name == "nt":
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path])
+    except OSError as exc:
+        return False, f"Could not open the recording: {exc}"
+    return True, "Recording opened"
 
 
 # ── Remote sessions ────────────────────────────────────────────────────────
@@ -785,8 +852,7 @@ def remote_state_payload() -> dict:
         "invites": items,
         "relay": relay.status(),
         "base_url": base,
-        "tests": {k: {"label": spec["label"], "modes": list(spec["modes"])}
-                  for k, spec in inv_mod.TESTS.items()},
+        "tests": inv_mod.offered(),
         "defaults": {"ttl_hours": inv_mod.DEFAULT_TTL_HOURS,
                      "uses": inv_mod.DEFAULT_USES,
                      "max_ttl_hours": inv_mod.MAX_TTL_HOURS,
@@ -807,6 +873,7 @@ def _remote_create(data: dict) -> tuple[bool, str, dict]:
             ttl_hours=data.get("ttl_hours", inv_mod.DEFAULT_TTL_HOURS),
             uses=data.get("uses", inv_mod.DEFAULT_USES),
             helper=str(data.get("helper", "")),
+            profile_id=str(data.get("profile_id", "")),
         )
     except ValueError as exc:
         return False, str(exc), {}
@@ -855,19 +922,25 @@ def _remote_pull() -> tuple[bool, str, dict]:
     filed = skipped = 0
     for doc in docs:
         invite = store.get(str(doc.get("invite_token", "")))
-        if invite is None or inv_mod.refusal(invite) is not None:
-            skipped += 1
+        # Judged as of when the result reached Firestore, not now
+        # (invites.pull_decision has the case that used to be lost).
+        decision = inv_mod.pull_decision(invite, inv_mod.parse_stamp(doc.get("_created")))
+        if decision == inv_mod.UNKNOWN:
+            skipped += 1              # left in the relay: not ours to destroy
             continue
-        accepted, _msg, record = ingest.accept(doc.get("session"), invite)
-        if not accepted or not record:
+        if decision == inv_mod.REFUSE:
             skipped += 1
+            relay.delete_result(str(doc.get("_id", "")))
             continue
-        # A duplicate is still cleared from the relay — the helper already has
-        # it — but it must not cost the invite another use.
-        if record.get("filed"):
-            store.replace(inv_mod.spend(invite, record["session_id"]))
+        accepted, _msg, record = ingest.accept(
+            doc.get("session"), invite, extra_use=decision == inv_mod.EXTRA)
+        if accepted and record and record.get("filed"):
+            if decision == inv_mod.FILE:
+                store.replace(inv_mod.spend(invite, record["session_id"]))
             filed += 1
         else:
+            # A duplicate (the helper already has it) or a payload ingest
+            # refused: either way pulling it again would change nothing.
             skipped += 1
         relay.delete_result(str(doc.get("_id", "")))
 
@@ -885,7 +958,13 @@ def remote_post(route: str, data: dict) -> tuple[bool, str, dict]:
     if route == "/api/remote/invite":
         return _remote_create(data)
     if route == "/api/remote/revoke":
-        ok, msg = store.revoke(str(data.get("token", "")))
+        token = str(data.get("token", ""))
+        ok, msg = store.revoke(token)
+        # Tell the relay too, or the phone keeps honouring a cancelled link.
+        if ok and relay.status()["configured"]:
+            published, note = relay.revoke_invite(token)
+            if not published:
+                msg = f"{msg} {note}".strip()
         return ok, msg, {}
     if route == "/api/remote/submit":
         return _remote_submit(data)
@@ -912,6 +991,11 @@ def remote_post(route: str, data: dict) -> tuple[bool, str, dict]:
 def _profiles_module():
     from core import profiles
     return profiles
+
+
+def _pending_module():
+    from core import pending
+    return pending
 
 
 def profiles_payload() -> dict:
@@ -970,6 +1054,12 @@ def status_payload() -> dict:
         "speech_ml": _dep_present("torch") and _dep_present("transformers"),
         "analysis_present": os.path.exists(ANALYSIS_FILE),
         "running": {key: _running(key) for key in TOOLS},
+        # Analyses still finishing after their test closed (core/pending.py:
+        # the tremor test hands its last minute of work to a worker so the
+        # camera is free). Not "running": they hold no camera and block no
+        # launch. A job that ends turns "done" or "failed" here for a while,
+        # which is how the dashboard knows to refetch the sessions.
+        "analysing": _pending_module().summary(),
         # Rides along on the 3 s poll the dashboard already makes, so the
         # camera chip needs no endpoint of its own to stay in sync.
         "camera": camera_setting(),
@@ -998,7 +1088,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self._cors()
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # The browser went away mid-response (a reload or a closed tab
+            # during a large /api/sessions). Nothing to deliver it to, and
+            # not worth a traceback in the hub's console.
+            pass
 
     # ── Cross-origin gate ──────────────────────────────────────────────
     # Everything below serves the hosted dashboard (tools/web_static/
@@ -1203,7 +1299,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/launch":
-            ok, msg = launch_tool(key, data.get("lang"))
+            # Like `lang`, the person picked a moment before Launch rides in
+            # the launch body, so it cannot lose the race against the
+            # activate POST that persists it.
+            ok, msg = True, ""
+            if "profile_id" in data:
+                ok, msg = _profiles_module().set_active(str(data.get("profile_id") or ""))
+            if ok:
+                ok, msg = launch_tool(key, data.get("lang"))
         elif self.path == "/api/stop":
             ok, msg = stop_tool(key)
         elif route == "/api/camera":
@@ -1226,6 +1329,10 @@ class Handler(BaseHTTPRequestHandler):
             payload = {"ok": ok, "message": msg}
             payload.update(extra or {})
             self._send_json(payload)
+            return
+        elif route == "/api/session/recording":
+            ok, msg = open_recording(data.get("id"))
+            self._send_json({"ok": ok, "message": msg})
             return
         else:
             self._send_json({"ok": False, "message": "Unknown endpoint"}, code=404)

@@ -165,7 +165,8 @@
   function tremorContext(rec) {
     if (rec.test !== "finger_tapping" && rec.test !== "spiral") return "";
     const who = rec.profile && rec.profile.id;
-    if (!who) return "";
+    // A group is different people; one visitor's tremor says nothing of another's.
+    if (!who || rec.profile.kind === "group") return "";
     const list = (typeof analysisSessions !== "undefined" && analysisSessions) || [];
     const at = Date.parse(rec.timestamp);
     const gap = sn => Math.abs(Date.parse(sn.timestamp) - at);
@@ -180,6 +181,51 @@
       { date: fmtDate(near[0].timestamp), finding: tremorFinding(near[0].metrics) })}</div>`;
   }
 
+  // Eye-test parts skipped with S (oculomotor_test.py). Only what was run is
+  // drawn; this line says what is missing and why.
+  const GAZE_PARTS = { pro: "Part 1 - Look Toward", anti: "Part 2 - Look Away",
+                       fix: "Part 3 - Hold Still" };
+  function skippedNote(rec) {
+    const sk = (rec.raw || {}).parts_skipped || (rec.metrics || {}).parts_skipped;
+    if (rec.test !== "oculomotor" || !sk || !sk.length) return "";
+    return `<div class="rep-label">${t("Skipped: {parts}",
+      { parts: sk.map(k => t(GAZE_PARTS[k] || k)).join(", ") })}</div>`;
+  }
+
+  // Part 2 skipped: no error rate, so the report leads with what was measured
+  // - the pro-saccade latency, else the fixation jitter - as a reading, with no
+  // verdict colour, and says plainly which part is missing.
+  function partialEyeVerdict(m, rec) {
+    const lead = m.prosaccade_latency_ms != null
+      ? [m.prosaccade_latency_ms, "ms", "Pro-saccade latency"]
+      : m.fixation_rms_pct != null
+      ? [m.fixation_rms_pct, "%", "Fixation jitter (RMS)"] : null;
+    return `<div class="rep-verdict vs-none">
+        ${lead ? `<div class="rep-val">${fmtNum(lead[0])}<span class="rep-unit">${lead[1]}</span></div>` : ""}
+        <div class="rep-vtext">
+          <span class="badge badge-none"><span class="badge-dot"></span>${t("Partial run")}</span>
+          ${lead ? `<div class="rep-metricname">${t(lead[2])}</div>` : ""}
+          <div class="rep-label">${t("Part 2 was skipped, so there is no anti-saccade error rate. Everything below is from the parts that were done.")}</div>
+          ${m.fixation_label ? `<div class="rep-label">${t("Holding still")}: ${t(m.fixation_label)}</div>` : ""}
+          ${skippedNote(rec)}
+        </div>
+      </div>`;
+  }
+
+  /* Spiral engine 4: tremor is the second score, with its own band, and the
+     run's verdict (the worse of the two) is said in words underneath. */
+  function spiralSecond(m) {
+    const ts = VERDICT[m.tremor_status] || "none";
+    const tremor = m.tremor_score == null ? "" : `<div class="rep-second">
+        <span class="rep-second-val vs-${ts}">${fmtNum(m.tremor_score)}</span>
+        <span class="badge badge-${ts}"><span class="badge-dot"></span>${t(ST[ts].word)}</span>
+        <span class="rep-metricname">${t("Tremor (higher = more)")}${m.tremor_pct != null
+          ? ` · ${t("{pct} % of the spiral's size", { pct: fmtNum(m.tremor_pct) })}` : ""}${m.tremor_dominant_hz
+          ? ` · ${fmtNum(m.tremor_dominant_hz)} Hz` : ""}</span>
+      </div>`;
+    return tremor + (m.label ? `<div class="rep-label"><strong>${t("Verdict")}:</strong> ${t(m.label)}</div>` : "");
+  }
+
   function paint(rec) {
     const cfg = TREND[rec.test] || { label: rec.test, icon: "chart", headline: null };
     const h = cfg.headline;
@@ -188,8 +234,10 @@
     const val = h ? m[h.key] : null;
 
     const who = rec.profile && rec.profile.name;
+    const face = window.profileAvatar ? window.profileAvatar(rec.profile, "xs") : I.person;
     const chips = [
-      who ? `${I.person}${esc(who)}` : null,
+      who ? (rec.profile.kind === "group"
+        ? `${face}${t("Group: {name}", { name: esc(who) })}` : `${face}${esc(who)}`) : null,
       modeLabel(rec),
       rec.hand ? t(rec.hand) : null,
       m.duration_s != null ? `${fmtNum(m.duration_s)}s`
@@ -208,35 +256,83 @@
       <div class="rep-chips">${chips}</div>`;
 
     const scored = m.scoreable !== false && val != null && isFinite(val);
+    // spiral: the box is bordered by the run's verdict (the worse of its two
+    // scores); the big number and its badge are line accuracy's own
+    const boxSt = rec.test === "spiral" && VERDICT[m.status] ? VERDICT[m.status] : st;
+    // app-0.2 spiral runs predate SPARC: they passed their gate, but there is
+    // no smoothness index to lead with, which is not the same as unscoreable
+    const legacy = !scored && rec.test === "spiral" && m.scoreable !== false
+      && m.sparc == null;
+    const partial = !scored && rec.test === "oculomotor"
+      && ((rec.raw || {}).parts_skipped || m.parts_skipped || []).includes("anti");
     const verdict = scored
-      ? `<div class="rep-verdict vs-${st}">
+      ? `<div class="rep-verdict vs-${boxSt}">
           <div class="rep-val">${fmtNum(val)}<span class="rep-unit">${h.unit}</span></div>
           <div class="rep-vtext">
-            <span class="badge badge-${st}"><span class="badge-dot"></span>${t(ST[st].word)}</span>
+            ${rec.test === "tremor" ? tremorTag(m)
+              : `<span class="badge badge-${st}"><span class="badge-dot"></span>${t(ST[st].word)}</span>`}
             <div class="rep-metricname">${t(h.name)}</div>
             ${(rec.test === "finger_tapping" || rec.test === "ddk") && m.cv_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.cv_ci_low_pct)}-${fmtNum(m.cv_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
             ${rec.test === "tremor"
               ? `<div class="rep-label">${tremorFinding(m)} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>
                  <div class="rep-label">${t("A supporting check: it helps explain the tapping and spiral readings.")}</div>` : ""}
+            ${rec.test === "spiral" ? spiralSecond(m) : ""}
             ${rec.test === "gait" && m.label
               ? `<div class="rep-label">${t(m.label)} · ${m.weaker_leg ? t("{leg} weaker", { leg: t(m.weaker_leg === "right" ? "Right leg" : "Left leg") }) : t("No clear difference between the legs")} · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
             ${rec.test === "oculomotor" && m.error_ci_low_pct != null
               ? `<div class="rep-label">95% CI ${fmtNum(m.error_ci_low_pct)}-${fmtNum(m.error_ci_high_pct)}% · ${t("Confidence")} ${fmtNum(m.confidence_pct)}%</div>` : ""}
+            ${skippedNote(rec)}
             ${tremorContext(rec)}
+          </div>
+        </div>`
+      : partial ? partialEyeVerdict(m, rec)
+      : legacy
+      ? `<div class="rep-verdict vs-none">
+          <div class="rep-vtext">
+            <span class="badge badge-none"><span class="badge-dot"></span>${t(ST.none.word)}</span>
+            <div class="rep-label">${t("Recorded before the smoothness score existed, so this run has no verdict.")}</div>
           </div>
         </div>`
       : `<div class="rep-verdict vs-none">
           <div class="rep-vtext">
             <span class="badge badge-none"><span class="badge-dot"></span>${t("Not scoreable")}</span>
-            <div class="rep-label">${m.reason ? esc(m.reason)
+            <div class="rep-label">${m.reason ? esc(t(m.reason))
               : m.label ? t(m.label)
               : t("This recording did not meet the quality gate, so no score was computed.")}</div>
+            ${skippedNote(rec)}
           </div>
         </div>`;
 
     const trace = (TRACE[rec.test] || (() => ""))(rec);
-    box.innerHTML = shell(verdict + trace + metricGrid(rec) + footprint(rec), head);
+    box.innerHTML = shell(verdict + trace + metricGrid(rec) + footprint(rec)
+      + recordingRow(rec), head);
+  }
+
+  // Only when R was pressed during the run: the hub matches the clip in
+  // recordings/ to this session (launcher.py recording_for) and opens it in
+  // the computer's own video player, since a browser cannot play mp4v.
+  function recordingRow(rec) {
+    if (!rec.recording) return "";
+    return `<div class="rep-rec">
+        <button class="rep-recbtn" data-recording="${esc(rec.session_id)}"
+          title="${esc(rec.recording)}">${I.play}${t("Open recording")}</button>
+        <span>${t("Opens in this computer's video player")}</span>
+      </div>`;
+  }
+
+  async function openRecording(id) {
+    try {
+      const r = await fetch("/api/session/recording", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const res = await r.json();
+      if (res.ok) toast(t("Recording opened"), "ok");
+      else toast(t("The recording could not be opened"), "fail");
+    } catch (e) {
+      toast(t("The recording could not be opened"), "fail");
+    }
   }
 
   /* ── Metric grid ────────────────────────────────────────────────── */
@@ -264,6 +360,8 @@
     rate_vs_usual: ["Speed vs your usual", "×"], opening_vs_usual: ["Opening vs your usual", "×"],
     baseline_runs: ["Earlier runs compared", ""], baseline_rate_hz: ["Your usual tap rate", "Hz"],
     slower_than_usual: ["Slower than usual", ""], opening_shrink_ratio: ["Last vs first openings", "×"],
+    band_edge: ["Close to a band edge", ""], pause_count: ["Pauses, hand out of view", ""],
+    paused_s: ["Time paused", "s"],
     // spiral
     frames: ["Frames", ""], sparc: ["SPARC", ""],
     smoothness_index: ["Smoothness index", ""], norm_jerk: ["Normalized jerk", ""],
@@ -271,6 +369,8 @@
     vel_cv_pct: ["Velocity variability", "%"],
     tremor_power_frac: ["Tremor band power", ""],
     tremor_dominant_hz: ["Tremor peak", "Hz"],
+    accuracy_score: ["Line accuracy", ""], tremor_score: ["Tremor (higher = more)", ""],
+    tremor_pct: ["Tremor amplitude", "%"], tremor_px: ["Tremor amplitude", "px"],
     mean_dev_pct: ["Mean deviation", "%"], mean_dev_px: ["Mean deviation", "px"],
     completion_pct: ["Completion", "%"], active_ratio_pct: ["Active time", "%"],
     // oculomotor
@@ -336,7 +436,10 @@
   const SKIP = new Set(["status", "label", "reason", "scoreable", "latency_note",
     "duration_s", "pro_block", "anti_block", "fixation_status", "fixation_label",
     "fixation_scoreable", "fixation_reason", "confidence_level", "tremor_where",
-    "weaker_leg", "weaker_by"]);
+    "weaker_leg", "weaker_by", "smoothness_status", "verdict_from",
+    "accuracy_status", "tremor_status", "shake_pct", "shake_rms_px"]);
+  // Saved as 0/1 by the engine, read as a yes/no.
+  const FLAGS = new Set(["band_edge", "slower_than_usual"]);
 
   function metricGrid(rec) {
     const m = rec.metrics || {};
@@ -354,9 +457,12 @@
       const info = MET[k];
       const name = info ? t(info[0]) : esc(k);
       const unit = info ? info[1] : "";
-      const v = typeof m[k] === "number" ? fmtNum(m[k])
-        : (m[k] === true ? t("yes") : m[k] === false ? t("no") : esc(m[k]));
-      return `<div class="rep-metric"><div class="rep-mname">${name}</div>
+      const raw = FLAGS.has(k) && typeof m[k] === "number" ? m[k] !== 0 : m[k];
+      // A whole number (a count, a flag's 0) reads "35", not fmtNum's "35.0".
+      const v = typeof raw === "number"
+        ? (Number.isInteger(raw) ? raw.toLocaleString() : fmtNum(raw))
+        : (raw === true ? t("yes") : raw === false ? t("no") : esc(raw));
+      return `<div class="rep-metric"><div class="rep-mname" title="${name}">${name}</div>
         <div class="rep-mval">${v}${unit ? `<span class="rep-munit">${unit}</span>` : ""}</div></div>`;
     }).join("");
     const note = m.latency_note ? esc(m.latency_note) : "";
@@ -421,9 +527,11 @@
     const roster = window.profileList ? window.profileList() : [];
     const chosen = (rec.profile && rec.profile.id) || "";
     if (!roster.length && !chosen) return "";
-    const options = [`<option value="">${t("No profile")}</option>`].concat(
-      roster.map(p => `<option value="${esc(p.id)}" ${p.id === chosen ? "selected" : ""}
-        >${esc(p.name)}</option>`)).join("");
+    const opt = p => `<option value="${esc(p.id)}" ${p.id === chosen ? "selected" : ""}
+        >${esc(p.name)}</option>`;
+    const people = roster.filter(p => p.kind !== "group"), groups = roster.filter(p => p.kind === "group");
+    const options = `<option value="">${t("No profile")}</option>` + people.map(opt).join("")
+      + (groups.length ? `<optgroup label="${esc(t("Groups"))}">${groups.map(opt).join("")}</optgroup>` : "");
     return `<label class="rep-assign"><span>${t("Belongs to")}</span>
       <select class="rep-who" data-assign="${esc(rec.session_id)}">${options}</select></label>`;
   }
@@ -433,9 +541,12 @@
   const svgWrap = inner => `<div class="rep-chart">${inner}</div>`;
   const AX = "#8593A8";
 
+  // The halo (the chart well's own colour, painted under the glyphs) keeps a
+  // label legible where it lands on a trace or a bar.
   function axisLabel(x, y, text, anchor) {
     return `<text x="${x}" y="${y}" text-anchor="${anchor || "start"}" font-size="11"
-      fill="${AX}" font-family="'JetBrains Mono',monospace">${text}</text>`;
+      fill="${AX}" style="stroke:var(--r-well);stroke-width:4px;stroke-linejoin:round;paint-order:stroke"
+      font-family="'JetBrains Mono',monospace">${text}</text>`;
   }
 
   /* ── Finger tapping ─────────────────────────────────────────────── */
@@ -563,8 +674,7 @@
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
       aria-label="${aria}">`;
     s += `<line x1="${padL}" y1="${Y(mean).toFixed(1)}" x2="${padL + iw}" y2="${Y(mean).toFixed(1)}"
-      stroke="${GRID}" stroke-width="1.4" stroke-dasharray="5 5"/>`
-      + axisLabel(padL + iw, Y(mean) - 5, `${Math.round(mean)} ms ${t("mean")}`, "end");
+      stroke="${GRID}" stroke-width="1.4" stroke-dasharray="5 5"/>`;
     iti.forEach((v, i) => {
       const off = Math.abs(v - mean) / (mean || 1);
       const c = off < 0.15 ? ST.ok.dot : off < 0.30 ? ST.warn.dot : ST.bad.dot;
@@ -573,6 +683,8 @@
         height="${(padT + ih - Y(v)).toFixed(1)}" fill="${c}" opacity=".85" rx="2">
         <title>${t("interval {n}",{n:i+1})} — ${Math.round(v)} ms</title></rect>`;
     });
+    // Drawn after the bars so the tallest one cannot cover it.
+    s += axisLabel(padL + iw, Y(mean) - 5, `${Math.round(mean)} ms ${t("mean")}`, "end");
     s += `<line x1="${padL}" y1="${padT + ih}" x2="${padL + iw}" y2="${padT + ih}"
       stroke="${GRID}" stroke-width="1"/></svg>`;
     return svgWrap(s);
@@ -693,6 +805,24 @@
                          ["rest", "Rest"], ["rest_count", "Counting"],
                          ["postural", "Arms out"]];
 
+  /* The tremor finding as a plain tag, so a run with no peak (a small number
+     that is only noise) cannot be read as a smaller version of one with a
+     peak. Run level: no peak / a weak peak (status "warning") / a peak.
+     Per hold and hand: the cell's own verdict. */
+  const TREMOR_TAGS = {
+    none:     ["ok",   "No tremor detected"],
+    possible: ["warn", "Possible tremor"],
+    detected: ["bad",  "Tremor detected"],
+  };
+  function tremorTagHtml(kind) {
+    const [cls, word] = TREMOR_TAGS[kind] || TREMOR_TAGS.none;
+    return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${t(word)}</span>`;
+  }
+  function tremorTag(m) {
+    return tremorTagHtml(m.tremor_peak_hz == null ? "none"
+      : m.status === "warning" ? "possible" : "detected");
+  }
+
   function tremorSpectra(rec) {
     const raw = rec.raw || {}, phases = raw.phases || {};
     const cells = (rec.metrics || {}).cells || {};
@@ -735,10 +865,12 @@
       s += `</svg>`;
       const facts = hands.map(h => {
         const c = (cells[key] || {})[h] || {};
-        return c.peak_hz != null
-          ? `<span><i class="lg-line" style="background:${HAND_C[h] || INK_DIM}"></i>${t(h === "left" ? "Left hand" : "Right hand")}
-              · ${fmtNum(c.peak_hz)} Hz · ${fmtNum(c.amp_pct)}%${c.verdict && c.verdict !== "none"
-                ? ` · ${t(c.verdict === "detected" ? "tremor" : "possible")}` : ""}</span>` : "";
+        if (!c.verdict) return "";
+        // no peak, no frequency: the tallest noise bin's Hz means nothing
+        const nums = c.verdict !== "none" && c.peak_hz != null
+          ? ` · ${fmtNum(c.peak_hz)} Hz · ${fmtNum(c.amp_pct)}%` : "";
+        return `<span><i class="lg-line" style="background:${HAND_C[h] || INK_DIM}"></i>${t(h === "left" ? "Left hand" : "Right hand")}
+              ${tremorTagHtml(c.verdict)}${nums}</span>`;
       }).join("");
       out += `<h4 class="rep-sub">${t(name)}</h4>${svgWrap(s)}<div class="rep-legend">${facts}</div>`;
     });
@@ -1090,6 +1222,8 @@
     const stepBtn = e.target.closest("[data-step]");
     if (stepBtn) { step(+stepBtn.dataset.step); return; }
     if (e.target.closest(".rep-close")) { closeReport(); return; }
+    const recBtn = e.target.closest("[data-recording]");
+    if (recBtn) { openRecording(recBtn.dataset.recording); return; }
     const chip = e.target.closest("[data-trial]");
     if (chip) {
       selTrial = selTrial === chip.dataset.trial ? null : chip.dataset.trial;

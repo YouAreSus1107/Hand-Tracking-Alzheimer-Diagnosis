@@ -73,6 +73,8 @@ button,input{font:inherit;color:inherit}
         </div>
       </div>
     </div>
+    <!-- Who the next test records for (profiles.js) -->
+    <div class="pf-nav" data-profile-nav></div>
     <div class="lang-switch" role="group" aria-label="Language / 語言">
       <button class="lang-btn" data-lang="en" lang="en">EN</button>
       <button class="lang-btn" data-lang="zh" lang="zh-Hant">繁中</button>
@@ -87,6 +89,16 @@ button,input{font:inherit;color:inherit}
       <p class="sub" data-i18n="home.sub">made by Adam Chung.</p>
       <div class="hand-viz" id="hand-viz">
         <canvas id="hand3d"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="hub-slot" data-hub-chip></span><span class="cam-slot" data-cam></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
+      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
+        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
+        <div class="carousel-stage" id="cards"></div>
+        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool" data-i18n-aria="home.carousel.next"></button>
+        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool" data-i18n-aria="home.carousel.dots"></div>
       </div>
     </div>
 
@@ -252,16 +264,6 @@ button,input{font:inherit;color:inherit}
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-head"><h2 data-i18n="home.sec.tools">Screening Tools</h2><div class="sh-line"></div><span class="hub-slot" data-hub-chip></span><span class="cam-slot" data-cam></span><span class="pf-slot" data-profile></span><span class="badge badge-warn" title="The camera tests run heavy real-time vision on the CPU. Closing background apps frees up cores and keeps the frame rate above 30 fps." data-i18n-title="home.warn.title" data-i18n="home.warn">&#9888;&#160;Close unrelated programs to free up CPU</span></div>
-      <div class="carousel" id="carousel" role="group" aria-roledescription="carousel" aria-label="Screening tools" data-i18n-aria="home.carousel.aria">
-        <button class="carousel-nav prev" id="carousel-prev" aria-label="Previous tool" data-i18n-aria="home.carousel.prev"></button>
-        <div class="carousel-stage" id="cards"></div>
-        <button class="carousel-nav next" id="carousel-next" aria-label="Next tool" data-i18n-aria="home.carousel.next"></button>
-        <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Select tool" data-i18n-aria="home.carousel.dots"></div>
-      </div>
-    </div>
-
     <!-- Live readings strip. One tile per test, drawn from the sessions on
          this machine (/api/sessions) - the same headline metric the Analysis
          page charts. With nothing logged yet each tile states the metric it
@@ -297,10 +299,10 @@ button,input{font:inherit;color:inherit}
           </div>
         </div>
       </div>
+      <div class="an-note-bar" id="analysis-pending" role="status" hidden></div>
       <div class="analysis-summary" id="analysis-summary"></div>
       <div class="seg" id="analysis-profile" role="tablist" aria-label="Filter by person" data-i18n-aria="analysis.person.aria"></div>
       <div class="analysis-who" id="analysis-who"></div>
-      <div class="analysis-editor" id="analysis-editor" hidden></div>
       <div class="seg" id="analysis-filter" role="tablist" aria-label="Filter by test" data-i18n-aria="analysis.filter.aria"></div>
       <div class="analysis-body" id="analysis-body"></div>
       <p class="analysis-disclaimer" data-i18n="analysis.disclaimer">
@@ -387,6 +389,34 @@ button,input{font:inherit;color:inherit}
                  alt="Our CV% for every hand, grouped by UPDRS grade 0 to 3. Medians rise from about 8% to 34%.">
           </div>
         </figure>
+
+        <!-- Hand-only HUBU-FIS clips and the engine's own analysis of them,
+             replayed in step with the video. Built by tools/make_why_clips.py;
+             drawn by renderLiveDemo() in app.js. Hidden until clips.json loads. -->
+        <div class="live-demo" id="live-demo" hidden>
+          <div class="ld-head">
+            <h3 class="val-sub" data-i18n="why.live.h">3 · Watch it work</h3>
+            <div class="seg" id="ld-seg" role="tablist" aria-label="Choose a hand" data-i18n-aria="why.live.aria"></div>
+          </div>
+          <p class="val-lede" data-i18n="why.live.lede">Real hands from the same videos, each one typical of its grade.
+            The test watches the gap between thumb and index finger and counts a tap each time it closes.</p>
+          <div class="ld-stage">
+            <div class="ld-video">
+              <video id="ld-video" muted playsinline loop preload="metadata"></video>
+              <button type="button" class="ld-play" id="ld-play" aria-label="Play or pause" data-i18n-aria="why.live.play"></button>
+            </div>
+            <div class="ld-panel">
+              <canvas id="ld-chart" aria-hidden="true"></canvas>
+              <div class="ld-read" aria-live="off">
+                <div><b id="ld-taps">0</b><span data-i18n="why.live.taps">taps</span></div>
+                <div><b id="ld-rate">–</b><span data-i18n="why.live.rate">taps per second</span></div>
+                <div><b id="ld-cv">–</b><span data-i18n="why.live.cv">rhythm CV% so far</span></div>
+              </div>
+              <div class="ld-verdict" id="ld-verdict"></div>
+            </div>
+          </div>
+          <p class="val-credit" data-i18n="why.live.credit">Hands only: the rest of each frame is blurred. Video from HUBU-FIS, CC BY 4.0.</p>
+        </div>
 
         <p class="val-next" data-i18n="why.val.next">These are Parkinson's patients. The results show the test picks up
           real motor impairment, but they do not show it detects cognitive decline. That needs its own study.</p>
@@ -1246,7 +1276,7 @@ button,input{font:inherit;color:inherit}
           <div class="metric-card"><h4 data-i18n="gait.m2.h">Leg stamps</h4><p data-i18n="gait.m2.p">Stamps per second and how high the knee lifts, as a share of thigh length, for each leg. Measured with the same detector as finger tapping, and so is the fade in lift over the ten seconds.</p><div class="metric-num" data-i18n="gait.m2.num">reported, not banded</div><div class="metric-cite" data-i18n="gait.m2.cite">MDS-UPDRS 3.8</div></div>
           <div class="metric-card"><h4 data-i18n="gait.m3.h">Left vs right</h4><p data-i18n="gait.m3.p">Which leg is weaker, when the two differ by more than a fifth. Parkinson's usually starts on one side.</p><div class="metric-num" data-i18n="gait.m3.num">named only on a clear difference</div><div class="metric-cite" data-i18n="gait.m3.cite">docs/tests/GAIT_TEST_PLAN.md</div></div>
         </div>
-        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="gait.note">Frames where part of the body is out of the picture are left out. <strong>The sit-to-stand bands are provisional</strong> (<code>core/gait/metrics.py</code>) and come from published norms that still have to be checked against this setup. This is a screening aid, not a diagnosis.</p>
+        <p style="color:var(--text-disabled);font-size:12px;margin-top:14px;line-height:1.5" data-i18n="gait.note">Frames where part of the body is out of the picture are left out. <strong>The sit-to-stand bands are provisional</strong> (<code>core/gait/metrics.py</code>) and come from published norms that still have to be checked against this setup.</p>
       </div>
       <div class="papers-section"><h2 data-i18n="common.papers">Research Papers</h2>
         <div class="paper"><h4 data-i18n="gait.p1.title"><a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8975117/" target="_blank" rel="noopener">Smartphone-Based Estimation of Item 3.8 of the MDS-UPDRS-III for Assessing Leg Agility</a></h4><div class="paper-authors" data-i18n="gait.p1.authors">IEEE, 2020 &#183; PMC8975117</div><p data-i18n="gait.p1.body">Scored the leg-agility item automatically in 93 people with Parkinson's; the output correlated 0.92 with four neurologists' average rating. We cite it because it shows the item can be measured by a device.</p><div class="paper-foot"><span class="paper-tag" data-i18n="gait.p1.tag">Leg agility, automated</span><a class="paper-link" href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8975117/" target="_blank" rel="noopener"><span data-i18n="common.readPaper">Read paper</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div></div>
@@ -1370,6 +1400,18 @@ button,input{font:inherit;color:inherit}
         releases this page&#8217;s connection automatically.
       </p>
     </div>
+  </div>
+</div>
+
+<!-- Disclaimer dock. The bar sits below the viewport edge and rises only
+     while the pointer is in the strip it occupies (app.js, disclaimerDock).
+     The dock itself is pointer-transparent so a hidden bar cannot swallow a
+     click; the grabber is the only always-visible part, and it is what tells
+     anyone the bar is down there at all. -->
+<div class="disclaimer-dock" id="disclaimer-dock">
+  <span class="disclaimer-grab" aria-hidden="true"></span>
+  <div class="disclaimer-bar" data-i18n="bar.disclaimer">
+    Screening tool, <strong>not an official medical diagnosis</strong> &#8212; consult a healthcare professional.
   </div>
 </div>
 

@@ -128,6 +128,56 @@ def test_env_codec_round_trips_and_survives_junk():
         assert profiles.from_env({}) == {}
 
 
+def test_a_group_has_no_person_details_and_says_so_in_its_snapshot():
+    """A guest pool is many people: sex, age and hand are forced blank, and
+    the kind rides onto the session so the tapping test can skip the
+    personal baseline."""
+    with _Sandbox():
+        _, _, g = profiles.upsert({"name": "Screening day", "kind": "group",
+                                   "sex": "female", "age_years": 70,
+                                   "dominant_hand": "left", "note": "Hall B"})
+        assert g["kind"] == "group" and g["note"] == "Hall B"
+        assert g["sex"] == "unspecified" and g["age_years"] is None
+        assert g["dominant_hand"] == "unknown" and g["age_set"] == ""
+        snap = profiles.snapshot(g["id"])
+        assert snap["kind"] == "group" and profiles.is_group(snap)
+        profiles.set_active(g["id"])
+        assert profiles.is_group(profiles.from_env(
+            {profiles.ENV_PROFILE: profiles.env_value()}))
+        assert not profiles.is_group({}) and not profiles.is_group({"name": "x"})
+
+
+def test_unknown_kind_and_colour_fall_back():
+    p = profiles.normalise({"name": "x", "kind": "team", "color": 42})
+    assert p["kind"] == "person" and p["color"] == 0
+    assert profiles.normalise({"name": "x", "color": "3"})["color"] == 3
+
+
+def test_age_set_is_stamped_on_change_and_kept_otherwise():
+    with _Sandbox():
+        _, _, jane = profiles.upsert({"name": "Jane", "age_years": 68})
+        assert jane["age_set"] == profiles._month()
+        # An edit that leaves the age alone keeps its stamp, even an old one.
+        stored = profiles._read()
+        stored["profiles"][0]["age_set"] = "2024-01"
+        profiles._write(stored)
+        _, _, same = profiles.upsert(dict(jane, name="Jane C", age_set="2024-01"))
+        assert same["age_set"] == "2024-01"
+        _, _, older = profiles.upsert(dict(same, age_years=69))
+        assert older["age_set"] == profiles._month()
+        _, _, blank = profiles.upsert(dict(older, age_years=""))
+        assert blank["age_set"] == ""
+
+
+def test_a_profile_from_before_age_set_is_dated_by_its_last_edit():
+    with _Sandbox():
+        profiles._write({"profiles": [{"id": "a", "name": "Old", "age_years": 73,
+                                       "created": "2026-08-26T00:05:41",
+                                       "updated": "2026-08-27T12:00:00"}],
+                         "active": ""})
+        assert profiles.list_profiles()[0]["age_set"] == "2026-08"
+
+
 # ── The session a test writes ──────────────────────────────────────────────
 
 def test_a_local_session_picks_up_the_active_profile_from_the_environment():

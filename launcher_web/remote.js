@@ -22,7 +22,7 @@
   var timer = null;
   var signature = "";      // rebuild the form only when its options changed
   var linksSig = "";       // ...and the QR list only when an invite changed
-  var draft = { test: "iiv", mode: "max", lang: "en", participant: "", ttl_hours: 48, uses: 1 };
+  var draft = { test: "iiv", mode: "big_and_fast", lang: "en", participant: "", ttl_hours: 48, uses: 1 };
 
   function el(id) { return document.getElementById(id); }
 
@@ -115,7 +115,17 @@
         '<input id="rs-uses" type="number" min="1" max="' + (d.max_uses || 5) + '" ' +
         'value="' + draft.uses + '" oninput="remoteDraft(\'uses\',this.value)"></label>' +
       '<button class="btn btn-primary rs-create" onclick="remoteCreate()">' + ICON_QR +
-        "<span>" + esc(t("Create QR code")) + "</span></button>";
+        "<span>" + esc(t("Create QR code")) + "</span></button>" +
+      '<p class="rs-for">' + esc(forWhom()) + "</p>";
+  }
+
+  // The profile chip decides whose history the results join.
+  function forWhom() {
+    var id = (window.activeProfileId && window.activeProfileId()) || "";
+    var who = id && window.profileById ? window.profileById(id) : null;
+    return who && who.name
+      ? t("Results will be filed under {name}.", { name: who.name })
+      : t("No profile is chosen, so results will need assigning by hand.");
   }
 
   /* ── Sent links ─────────────────────────────────────────────────── */
@@ -265,7 +275,8 @@
     renderInbox();
     // The form holds focus and typed text; only rebuild it when the option
     // sets actually change, never on the poll.
-    var sig = JSON.stringify(state.tests) + "|" + draft.test + "|" + draft.mode + "|" + draft.lang;
+    var sig = JSON.stringify(state.tests) + "|" + draft.test + "|" + draft.mode + "|" + draft.lang +
+      "|" + ((window.activeProfileId && window.activeProfileId()) || "");
     if (sig !== signature) { signature = sig; renderForm(); }
     renderLinks();
   }
@@ -282,7 +293,11 @@
       toast(t("Add a first name so you can tell the results apart."), "fail");
       return;
     }
-    await post("invite", draft);
+    // Results join this person's history when they arrive (ingest._profile).
+    var body = Object.assign({}, draft, {
+      profile_id: (window.activeProfileId && window.activeProfileId()) || ""
+    });
+    await post("invite", body);
   };
 
   window.remoteRevoke = function (token) { post("revoke", { token: token }); };
