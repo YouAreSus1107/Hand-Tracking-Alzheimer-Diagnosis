@@ -29,6 +29,7 @@ Run:  python screening_tests/oculomotor_test.py     Quit: press 'q'
 
 from __future__ import annotations
 
+import math
 import random
 import sys
 import time
@@ -52,7 +53,8 @@ _splash.step()               # OpenCV in
 
 from core.hand_utils import preprocess_for_mediapipe
 from core.camera import (capture_info, select_camera_source, open_capture,
-                         create_display_window, window_closed, pause_before_exit)
+                         create_display_window, show, set_mouse_callback,
+                         window_closed, pause_before_exit)
 from core.screen_recorder import ScreenRecorder
 from core.session import save_session
 from core.tapping.audio import AudioWorker, build_tone
@@ -62,6 +64,7 @@ from core.gaze.detector import (SaccadeEnvelope, SaccadeTrial, SettleGate,
 from core.gaze.fixation import (FixationAnalyzer, FixationResult,
                                 HOLD_S as FIX_HOLD_S, SETTLE_S as FIX_SETTLE_S)
 from core.gaze.confidence import block_quality
+from core.gaze.headpose import HEAD_TURN_DEG, HeadWatch, summarise, turned
 from core.gaze.metrics import (compute_metrics, block_stats,
                                ERROR_TYPICAL_PCT, ERROR_MONITOR_PCT)
 from core.gaze.openness import BLINK_FRAC, VERTICAL_FRAC
@@ -69,7 +72,8 @@ from core.gaze.tasks import TASKS, BLOCK_ORDER, SaccadeTask, build_directions
 from core.gaze.tracker import GazeTracker, GazeSample
 from core.ui import theme
 from core.ui.anim import CountUp, ease_out_cubic, fade_in_out, lerp
-from core.ui.components import Canvas, get_font
+from core.ui.components import Canvas, get_font, bare_view
+from core.ui.keys import SKIP_HINT, SKIP_PART_HINT, SKIP_PRACTICE, OVERLAY_HIDDEN_HINT, TOGGLE_OVERLAY
 
 _splash.done()   # imports are in; the camera prompt follows immediately
 
@@ -114,7 +118,13 @@ FIXATION, GAP, TARGET, FEEDBACK = "fixation", "gap", "target", "feedback"
 # dot is held back until the eye reads steady, capped so a person the tracker
 # simply cannot hold still on is never stuck staring at a cross.
 SETTLE_MAX_S = 2.5        # give up waiting and run the trial anyway
-SETTLE_COACH_S = 1.5      # still waiting after this -> one coaching toast
+# The coaching toast fires only when the eye has not read steady for this
+# long without a break. It used to test the gate's *instantaneous* reading 1.5 s
+# into the dwell, so any blink or one noisy frame late in a 1.5-2.0 s dwell
+# (the gate needs 0.3 s steady again after one) told a patient already on the
+# cross to look back at it. Measured from the start of the dwell or the last
+# steady frame, it waits out the return from the target and a blink.
+SETTLE_COACH_S = 1.0
 
 # How much the video is dimmed per state. Applied once in the run loop, before
 # the status bar is drawn, so the bar stays legible instead of being painted
@@ -143,6 +153,14 @@ class Toasts:
             return
         self.msg, self.status, self.t0, self.hold = msg, status, now, hold
 
+    def dismiss(self, msg: str, now: float):
+        """Start fading `msg` out now, if it is the one on screen."""
+        if msg != self.msg:
+            return
+        visible_for = now - self.t0 - theme.DUR_BASE
+        if 0 <= visible_for < self.hold:
+            self.hold = visible_for
+
     def render(self, canvas: Canvas, now: float):
         a = fade_in_out(self.t0, now, theme.DUR_BASE, self.hold)
         canvas.toast(self.msg, self.status, a)
@@ -163,6 +181,7 @@ class App:
 
         self.mouse = (0, 0)
         self.click: tuple[int, int] | None = None
+        self.overlay_hidden = False
         self.fps = 30.0
         self._eyes_bad_since: float | None = None
         self.eyes_stalled = False       # eyes unreadable for longer than a blink
@@ -173,6 +192,9 @@ class App:
 
     # ── run-scoped state ──────────────────────────────────────────────────
     def reset_run(self):
+        self.practice_skipped = False
+        self.skipped: list[str] = []    # parts skipped with S, in run order
+        self._after_cal = COUNTDOWN     # where calibration hands over to
         self.calibrator: GazeCalibrator | None = None
         self.gaze_map: GazeMap | None = None
         self.block_i = 0
@@ -182,6 +204,12 @@ class App:
         self.fix_dur = 1.5
         self.trial: SaccadeTrial | None = None
         self.settle = SettleGate()
+        self._steady_t = self.t_state
+        self.head = HeadWatch()
+        self.last_turn: float | None = None
+        # Head pose per calibration stage: a head turned toward a side dot
+        # shrinks that side's span, and the map carries the error all run.
+        self._cal_head: dict[str, list[tuple[float, float]]] = {}
         # One envelope per block: the excursion a person produces looking away
         # is not the one they produce looking at, so the two must not pool.
         self.envelope: dict[str, SaccadeEnvelope] = {}
@@ -341,7 +369,7 @@ class App:
         # a frame the test has to throw away.
         tick = x + pad + int(bar_w * BLINK_FRAC)
         c.polyline([(tick, bar_y - 3), (tick, bar_y + 11)], "text-muted",
-                   thickness=1, alpha=0.8)
+                   thickness=1, alpha=0.8, layer="ui")
         c.text(x + pad, y + 56, msg, role="caption", color=color)
 
     # ── screens ───────────────────────────────────────────────────────────
@@ -401,9 +429,11 @@ class App:
         b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
+        self._skip_hint(c, SKIP_PART_HINT)
         if self.hit(b):
             if self.gaze_map is None:
                 self.calibrator = GazeCalibrator(now)
+                self._after_cal = COUNTDOWN
                 self.goto(CALIBRATION, now)
             else:
                 self.goto(COUNTDOWN, now)
@@ -424,6 +454,10 @@ class App:
                 self._cal_noface += 1
             else:
                 self._cal_shut += 1
+        stage = cal.stage
+        if sample is not None and sample.head is not None:
+            self._cal_head.setdefault(stage, []).append(sample.head)
+        head_shift = self._cal_head_shift(stage)
         advanced = cal.update(now, ratio)
         if advanced:
             self.audio.play(self.tick_wav)
@@ -433,11 +467,15 @@ class App:
                              now=now)
             self.calibrator = GazeCalibrator(now)   # auto-restart
             self._cal_noface = self._cal_shut = 0
+            self._cal_head = {}
             return
         if cal.done:
             self.gaze_map = cal.result()
             self.audio.play(self.good_wav)
-            self.goto(COUNTDOWN, now)
+            if self._after_cal == FIX_HOLD:
+                self._start_fix_hold(now)
+            else:
+                self.goto(COUNTDOWN, now)
             return
 
         # the calibration dot, with a gentle breathing ring
@@ -460,12 +498,16 @@ class App:
                        label=f"{int(cal.progress * 100)} %")
         self.draw_eye_markers(c, sample)
         self.eye_meter(c, theme.SAFE_MARGIN, 56, sample)
+        self._skip_hint(c, SKIP_PART_HINT)
         if sample is None:
             self.toasts.show(i18n.t("Show your face to the camera"), "warning",
                              now=now)
         elif self.eyes_stalled:
             self.toasts.show(i18n.t("Your eyes are reading as closed - open "
                                     "them wide and hold"), "warning", now=now)
+        elif head_shift is not None and head_shift >= HEAD_TURN_DEG:
+            self.toasts.show(i18n.t("Keep your head still - move only your eyes."), "warning",
+                             now=now)
         elif cal.stage_timed_out(now):
             # A stalled stage has a cause, and the two have opposite fixes:
             # name whichever one has been eating the frames.
@@ -478,6 +520,40 @@ class App:
                 self.toasts.show(
                     i18n.t("Having trouble? Sit closer and add a little light"),
                     "info", hold=3.0, now=now)
+
+    def _cal_head_median(self, stage: str) -> tuple[float, float] | None:
+        poses = self._cal_head.get(stage)
+        if not poses:
+            return None
+        ys = sorted(p[0] for p in poses)
+        ps = sorted(p[1] for p in poses)
+        return ys[len(ys) // 2], ps[len(ps) // 2]
+
+    def _cal_head_shift(self, stage: str) -> float | None:
+        """How far the head has turned from where it was on the centre dot,
+        from this stage's last few frames so the reading is current."""
+        ref = self._cal_head_median("center")
+        poses = self._cal_head.get(stage)
+        if stage == "center" or ref is None or not poses:
+            return None
+        recent = poses[-5:]
+        ys = sorted(p[0] for p in recent)
+        ps = sorted(p[1] for p in recent)
+        return math.hypot(ys[len(ys) // 2] - ref[0], ps[len(ps) // 2] - ref[1])
+
+    def _cal_head_record(self) -> dict:
+        """Head pose per calibration dot, and the largest turn away from
+        the centre one, for the saved calibration block."""
+        meds = {st: self._cal_head_median(st)
+                for st in ("center", "left", "right")}
+        out = {st: [round(m[0], 1), round(m[1], 1)]
+               for st, m in meds.items() if m is not None}
+        ref = meds["center"]
+        shifts = [math.hypot(m[0] - ref[0], m[1] - ref[1])
+                  for st, m in meds.items()
+                  if st != "center" and m is not None and ref is not None]
+        return {"head_deg": out,
+                "head_shift_deg": round(max(shifts), 1) if shifts else None}
 
     def screen_countdown(self, c: Canvas, now: float):
         w, h = c.w, c.h
@@ -505,6 +581,62 @@ class App:
         if int(elapsed) != getattr(self, "_last_tick", -1):
             self._last_tick = int(elapsed)
             self.audio.play(self.tick_wav)
+
+    def _skip_hint(self, c: Canvas, text: str):
+        c.text(theme.SAFE_MARGIN, c.h - 52, i18n.t(text),
+               role="caption", color="text-muted", anchor="ls")
+
+    def on_skip(self, now: float):
+        """S. In a part's practice trials (or the countdown into them) it
+        skips the practice, as in the other tests; anywhere else inside a
+        part it skips that whole part, so from practice, S twice skips the
+        part. A no-op on the start, summary and results screens."""
+        into_practice = (self.state == COUNTDOWN
+                         and self._countdown_next == PRACTICE)
+        if self.state == PRACTICE or into_practice:
+            self.skip_practice(now)
+        else:
+            self.skip_part(now)
+
+    def skip_practice(self, now: float):
+        """From this part's practice trials straight to its scored block.
+        _start_recording() -> _begin_fixation() drops the trial in flight and
+        resets the settle gate."""
+        self.practice_skipped = True
+        self._start_recording(now)
+
+    def _current_part(self) -> str | None:
+        """The part S would skip from the current screen, or None."""
+        if self.state in (FIX_INTRO, FIX_HOLD):
+            return "fix"
+        if self.state == CALIBRATION:
+            return "fix" if self._after_cal == FIX_HOLD else self.task.key
+        if self.state in (INSTRUCTION, COUNTDOWN, PRACTICE, RECORDING):
+            return self.task.key
+        return None
+
+    def skip_part(self, now: float):
+        """Leave the current part out of the run. Whatever it had recorded
+        is dropped, and the saved session and its report hold only the parts
+        that were done. An attempt set aside by a redo stays under
+        discarded_attempts, as it would have anyway."""
+        key = self._current_part()
+        if key is None:
+            return
+        if key == "fix":
+            self.fixation = None
+            self.fix_result = None
+        else:
+            self.block_results[key] = []
+            self.raw_trials[key] = []
+            self.trial = None
+        self.blk_face = self.blk_visible = self.blk_gaze = 0
+        self.calibrator = None      # a skipped calibration restarts next part
+        self._countdown_next = PRACTICE
+        self.skipped.append(key)
+        self.toasts.show(i18n.t("{part} skipped", part=self._part_title(key)),
+                         "info", now=now)
+        self._next_part(key, now)
 
     # ── trial machine (shared by PRACTICE and RECORDING) ──────────────────
     def _start_practice(self, now: float):
@@ -558,6 +690,8 @@ class App:
                                         self.task.fixation_max_s)
         self.trial = None
         self.settle.reset()
+        self._steady_t = now        # last frame the eye read steady (or start)
+        self.head.reset()
 
     def _block_envelope(self) -> SaccadeEnvelope:
         """The confirm-threshold envelope for the block being run, seeded from
@@ -570,6 +704,9 @@ class App:
     def _finish_trial(self, now: float, scored: bool):
         res = self.trial.finalize()
         self.last_result = res
+        # Recorded and coached, not yet scored: see core/gaze/headpose.py.
+        turn = self.head.turn_deg()
+        self.last_turn = turn
         key = self.task.key
         # Practice trials feed the envelope too: by the time the block is
         # scored it already knows roughly how far this person's eyes travel.
@@ -589,11 +726,15 @@ class App:
                 "baseline": round(res.baseline, 3),
                 "onset_thr": round(res.onset_thr, 3),
                 "confirm_thr": round(res.confirm_thr, 3),
+                "head_turn_deg": round(turn, 1) if turn is not None else None,
                 "series": [[round(t, 3), round(p, 3) if p is not None else None]
                            for t, p in self.trial.series],
             })
         self.trial = None
-        if res.outcome == "correct" and not scored:
+        if scored and turned(turn):
+            self.toasts.show(i18n.t("Keep your head still - move only your eyes."), "info",
+                             now=now)
+        if res.outcome == "correct" and not scored and not turned(turn):
             self.audio.play(self.good_wav)
 
     def _advance_trial(self, now: float):
@@ -620,6 +761,10 @@ class App:
         self._show_part_summary(self.task.key, now)
 
     def _feedback_copy(self, res: TrialResult) -> tuple[str, str]:
+        # Practice is where the habit is set, so a turned head is named even
+        # on a trial that went the right way.
+        if res.valid and turned(self.last_turn):
+            return i18n.t("Keep your head still - move only your eyes."), "warning"
         if res.outcome == "correct":
             return i18n.t("Correct"), "success"
         if res.outcome in ("error_uncorrected", "error_corrected"):
@@ -644,11 +789,17 @@ class App:
             # unpredictable foreperiod); past it the settle gate decides, so a
             # trial never starts with the eye still travelling back.
             self.settle.update(now, pos)
+            self.head.rest(now, sample.head if sample is not None else None)
+            look_back = i18n.t("Look back at the +")
+            if self.settle.settled:
+                self._steady_t = now
+                # back on the cross: the prompt has done its job
+                self.toasts.dismiss(look_back, now)
             if elapsed >= self.fix_dur and (self.settle.settled
                                             or elapsed >= SETTLE_MAX_S):
                 self.phase, self.phase_t0 = GAP, now
-            elif elapsed >= SETTLE_COACH_S and not self.settle.settled:
-                self.toasts.show(i18n.t("Look back at the +"), "info", now=now)
+            elif now - self._steady_t >= SETTLE_COACH_S:
+                self.toasts.show(look_back, "info", now=now)
         elif self.phase == GAP:
             if elapsed >= self.task.gap_s:
                 self.phase, self.phase_t0 = TARGET, now
@@ -660,9 +811,11 @@ class App:
                                           self._block_envelope().confirm_threshold(),
                                           self.task.is_anti,
                                           baseline=self.settle.baseline())
+                self.head.begin()
                 self.audio.play(self.tick_wav)
             self.draw_target(c, direction)
             self.trial.update(now, pos)
+            self.head.trial(sample.head if sample is not None else None)
             if now - self.trial.t0 >= self.task.target_hold_s:
                 self._finish_trial(now, scored=not practice)
                 if practice:
@@ -700,6 +853,7 @@ class App:
             bar_label, bar_color = i18n.t("scored"), "success"
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        self.trial_idx / total, color=bar_color, label=bar_label)
+        self._skip_hint(c, SKIP_HINT if practice else SKIP_PART_HINT)
         if sample is None:
             self.toasts.show(i18n.t("Face the camera"), "warning", now=now)
         elif self.eyes_stalled:
@@ -738,7 +892,15 @@ class App:
         rows += [(i18n.t("Valid trials"), f"{st['valid']}/{st['trials']}"),
                  (i18n.t("Eyes readable"), pct),
                  (i18n.t("Started too early"), f"{st['anticipatory']}")]
+        head = self._head_summary(key)
+        if head["head_measured"]:
+            rows.append((i18n.t("Head turned"),
+                         f"{head['head_turned']}/{head['head_measured']}"))
         return rows
+
+    def _head_summary(self, key: str) -> dict:
+        return summarise([t.get("head_turn_deg")
+                          for t in self.raw_trials[key]])
 
     def _show_part_summary(self, key: str, now: float):
         self.attempts[key] += 1
@@ -848,8 +1010,7 @@ class App:
     def _redo_part(self, key: str, now: float):
         self._discard_attempt(key)
         if key == "fix":
-            self.fixation = FixationAnalyzer(now, self.gaze_map.deadband)
-            self.goto(FIX_HOLD, now)
+            self._start_fix_hold(now)
             return
         # Straight back to the scored trials: practice and calibration are
         # already done, and re-running them is most of what made this test long.
@@ -858,6 +1019,9 @@ class App:
 
     def _keep_part(self, key: str, now: float):
         self._bank_attempt()
+        self._next_part(key, now)
+
+    def _next_part(self, key: str, now: float):
         if key == "pro":
             self.block_i += 1
             self.goto(INSTRUCTION, now)
@@ -886,9 +1050,19 @@ class App:
         b = c.button(bx, by, bw, 48, i18n.t("I'm Ready"), variant="success",
                      hovered=self.hover(bx, by, bw, 48), icon="check")
         c.disclaimer()
+        self._skip_hint(c, SKIP_PART_HINT)
         if self.hit(b):
-            self.fixation = FixationAnalyzer(now, self.gaze_map.deadband)
-            self.goto(FIX_HOLD, now)
+            if self.gaze_map is None:
+                # Parts 1 and 2 were both skipped before calibration ran.
+                self.calibrator = GazeCalibrator(now)
+                self._after_cal = FIX_HOLD
+                self.goto(CALIBRATION, now)
+            else:
+                self._start_fix_hold(now)
+
+    def _start_fix_hold(self, now: float):
+        self.fixation = FixationAnalyzer(now, self.gaze_map.deadband)
+        self.goto(FIX_HOLD, now)
 
     def screen_fixation(self, c: Canvas, now: float, pos: float | None,
                         sample: GazeSample | None):
@@ -913,6 +1087,7 @@ class App:
                role="body_l", anchor="mm")
         c.progress_bar(theme.SAFE_MARGIN, h - 44, w - 2 * theme.SAFE_MARGIN,
                        frac, color="brand", label=i18n.t("hold steady"))
+        self._skip_hint(c, SKIP_PART_HINT)
         if sample is None:
             self.toasts.show(i18n.t("Face the camera"), "warning", now=now)
         elif self.eyes_stalled:
@@ -926,6 +1101,13 @@ class App:
             self._show_part_summary("fix", now)
 
     def _finish_run(self, now: float):
+        if len(self.skipped) == len(PART_KEYS):
+            # Nothing was tested, so nothing is saved: the Analysis page
+            # never lists a report with nothing in it.
+            self.results = None
+            self.saved_path = None
+            self.goto(COMPLETE, now)
+            return
         visible_ratio = (self.visible_frames / self.face_frames
                          if self.face_frames else 0.0)
         # Distinct from face visibility: the face can be in frame the whole
@@ -937,15 +1119,19 @@ class App:
                                        face_visible_ratio=visible_ratio,
                                        gaze_valid_ratio=gaze_ratio,
                                        camera_fps=self.fps,
-                                       attempts=dict(self.attempts))
+                                       attempts=dict(self.attempts),
+                                       skipped=self.skipped)
         self.audio.play(self.done_wav)
         gm = self.gaze_map
+        run = [k for k in ("pro", "anti") if k not in self.skipped]
         raw = {
-            "trials": self.raw_trials,
+            "practice_skipped": self.practice_skipped,
+            "trials": {k: self.raw_trials[k] for k in run},
             "calibration": {"center": round(gm.center, 4),
                             "left": round(gm.left, 4),
                             "right": round(gm.right, 4),
-                            "deadband": round(gm.deadband, 3)},
+                            "deadband": round(gm.deadband, 3),
+                            **self._cal_head_record()},
             "face_visible_ratio": round(visible_ratio, 3),
             "gaze_valid_ratio": round(gaze_ratio, 3),
         }
@@ -954,10 +1140,17 @@ class App:
         discarded = {k: v for k, v in self.discarded.items() if v}
         if discarded:
             raw["discarded_attempts"] = discarded
+        if self.skipped:
+            raw["parts_skipped"] = list(self.skipped)
         metrics = {k: v for k, v in self.results.items()
                    if k not in ("pro_block", "anti_block")}
-        metrics["pro_block"] = self.results["pro_block"]
-        metrics["anti_block"] = self.results["anti_block"]
+        # Head turning is saved for a cut-off to be set from, not scored.
+        for key in run:
+            metrics[f"{key}_block"] = {**self.results[f"{key}_block"],
+                                       **self._head_summary(key)}
+        metrics["head_turned_trials"] = sum(
+            metrics[f"{k}_block"]["head_turned"] for k in run)
+        metrics["head_turn_limit_deg"] = HEAD_TURN_DEG
         self._merge_fixation(metrics, raw)
         try:
             self.saved_path = save_session(
@@ -1002,52 +1195,77 @@ class App:
                        for t, p in self.fixation.series],
         }
 
+    def _result_rows(self, r: dict) -> list[tuple[str, str]]:
+        """The results screen's small print, for the parts that were run.
+        Ordered by what a reader needs first, so the caller's cap drops the
+        least important."""
+        def fmt(v, unit="", nd=0):
+            return "-" if v is None else f"{v:.{nd}f}{unit}"
+
+        skipped = r.get("parts_skipped") or []
+        pro_ran, anti_ran = "pro" not in skipped, "anti" not in skipped
+        rows = []
+        if pro_ran and anti_ran:
+            rows.append(("Anti - Pro latency",
+                         fmt(r.get("anti_minus_pro_ms"), " ms")))
+        if anti_ran:
+            rows += [("Corrected errors", fmt(r.get("corrected_rate_pct"), " %")),
+                     ("Anti latency", fmt(r.get("antisaccade_latency_ms"), " ms"))]
+        if pro_ran:
+            rows.append(("Pro latency", fmt(r.get("prosaccade_latency_ms"), " ms")))
+        if anti_ran:
+            rows += [("Latency CV", fmt(r.get("latency_cv_pct"), " %", 1)),
+                     ("Valid anti trials",
+                      f"{r.get('valid_anti_trials', 0)}/{TASKS['anti'].n_trials}")]
+        if pro_ran:
+            rows.append(("Valid pro trials",
+                         f"{r.get('valid_pro_trials', 0)}/{TASKS['pro'].n_trials}"))
+        if pro_ran or anti_ran:
+            rows.append(("Started too early", f"{r['anticipatory_count']}"))
+        if r.get("gaze_valid_ratio", 1.0) < 0.9:
+            rows.append(("Eyes readable", fmt(r["gaze_valid_ratio"] * 100, " %")))
+        fr = self.fix_result
+        if fr is not None and fr.scoreable:
+            rows += [("Fixation jitter", fmt(fr.rms_jitter * 100, " %", 1)),
+                     ("Gaze intrusions",
+                      f"{fr.intrusion_count} ({fmt(fr.intrusion_rate_per_min, '/min')})")]
+        redone = [k for k, n in (r.get("attempts") or {}).items() if n > 1]
+        if redone:
+            rows.append(("Parts re-recorded", f"{len(redone)}"))
+        if skipped:
+            rows.append(("Parts skipped", f"{len(skipped)}"))
+        # Three columns and a hard cap, as the tapping screen does: the
+        # confidence card needs vertical room, and two columns of ten rows
+        # leave none of it on a 480p canvas.
+        return rows[:9]
+
     def screen_complete(self, c: Canvas, now: float):
         w, h = c.w, c.h
         r = self.results
         pw = min(560, w - 2 * theme.SAFE_MARGIN)
         bh = 42
+        if r is None:
+            self.screen_nothing_recorded(c, now)
+            return
 
-        def fmt(v, unit="", nd=0):
-            return "-" if v is None else f"{v:.{nd}f}{unit}"
-
+        # A skipped look-away part leaves no headline, but what was run is
+        # still shown; any other unscoreable run shows only its reason.
+        anti_skipped = "anti" in (r.get("parts_skipped") or [])
+        rows = self._result_rows(r) if r["scoreable"] or anti_skipped else []
+        nlines = (len(rows) + 2) // 3
         if r["scoreable"]:
-            rows = [("Anti - Pro latency", fmt(r["anti_minus_pro_ms"], " ms")),
-                    ("Corrected errors", fmt(r["corrected_rate_pct"], " %")),
-                    ("Anti latency", fmt(r["antisaccade_latency_ms"], " ms")),
-                    ("Pro latency", fmt(r["prosaccade_latency_ms"], " ms")),
-                    ("Latency CV", fmt(r["latency_cv_pct"], " %", 1)),
-                    ("Valid anti trials", f"{r['valid_anti_trials']}/{TASKS['anti'].n_trials}"),
-                    ("Valid pro trials", f"{r['valid_pro_trials']}/{TASKS['pro'].n_trials}"),
-                    ("Started too early", f"{r['anticipatory_count']}")]
-            if r.get("gaze_valid_ratio", 1.0) < 0.9:
-                rows.append(("Eyes readable",
-                             fmt(r["gaze_valid_ratio"] * 100, " %")))
-            fr = self.fix_result
-            if fr is not None and fr.scoreable:
-                rows += [("Fixation jitter", fmt(fr.rms_jitter * 100, " %", 1)),
-                         ("Gaze intrusions",
-                          f"{fr.intrusion_count} ({fmt(fr.intrusion_rate_per_min, '/min')})")]
-            redone = [k for k, n in (r.get("attempts") or {}).items() if n > 1]
-            if redone:
-                rows.append(("Parts re-recorded", f"{len(redone)}"))
-            # Three columns and a hard cap, as the tapping screen does: the
-            # confidence card needs vertical room, and two columns of ten rows
-            # leave none of it on a 480p canvas. Rows are ordered by what a
-            # reader needs first, so the cap drops the least important.
-            rows = rows[:9]
-            nlines = (len(rows) + 2) // 3
             metrics_off = 224
             note_off = metrics_off + nlines * 22 + 4
             y = note_off
             edge_off = (y := y + 18) if r.get("band_edge") else None
-            saved_off = (y := y + 18) if self.saved_path else None
-            btn_off = y + 26
         else:
             reason = r["reason"] or "Something went wrong - please try again."
             # i18n.wrap, not split(): Chinese has no spaces to break on.
             lines = i18n.wrap(i18n.t(reason), 48)[:3]
-            btn_off = 108 + len(lines) * 26 + 12
+            metrics_off = 108 + len(lines) * 26
+            y = metrics_off + nlines * 22 - 12
+        saved_off = (y := y + 18) if self.saved_path else None
+        btn_off = y + 26
         ph = btn_off + bh + 14
 
         px, py = (w - pw) // 2, max(56, (h - ph) // 2)
@@ -1087,13 +1305,6 @@ class App:
                              pct=f"{conf:.0f}"),
                 detail=ci_text,
                 progress=conf / 100.0, status=conf_status)
-            col_w = (pw - 4 * theme.SPACE[4]) // 3
-            for i, (label, valstr) in enumerate(rows):
-                rx = px + theme.SPACE[4] + (i % 3) * (col_w + theme.SPACE[4])
-                ry = py + metrics_off + (i // 3) * 22
-                c.text(rx, ry, i18n.t(label), role="caption",
-                       color="text-muted")
-                c.text(rx + col_w, ry, valstr, role="caption", anchor="ra", mono=True)
             c.text(w // 2, py + note_off,
                    i18n.t("Typical < {typical}% | monitor {typical}-{monitor}% "
                           "| elevated > {monitor}%",
@@ -1105,20 +1316,50 @@ class App:
                        i18n.t("Close to a band edge - repeat for a firmer "
                               "reading."),
                        role="caption", color="text-muted", anchor="mm")
-            if self.saved_path:
-                c.text(w // 2, py + saved_off,
-                       i18n.t("Saved: results/{name}",
-                              name=self.saved_path.name),
-                       role="caption", color="text-muted", anchor="mm")
         else:
-            c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
-                    "warning")
+            if anti_skipped:
+                c.badge(w // 2, py + 52, i18n.t("No error rate - Part 2 skipped"),
+                        "info")
+            else:
+                c.badge(w // 2, py + 52, i18n.t("Couldn't score this run"),
+                        "warning")
             for i, line in enumerate(lines):
                 c.text(w // 2, py + 108 + i * 26, line, role="body",
                        color="text-muted", anchor="mm")
 
+        col_w = (pw - 4 * theme.SPACE[4]) // 3
+        for i, (label, valstr) in enumerate(rows):
+            rx = px + theme.SPACE[4] + (i % 3) * (col_w + theme.SPACE[4])
+            ry = py + metrics_off + (i // 3) * 22
+            c.text(rx, ry, i18n.t(label), role="caption",
+                   color="text-muted")
+            c.text(rx + col_w, ry, valstr, role="caption", anchor="ra", mono=True)
+        if saved_off is not None:
+            c.text(w // 2, py + saved_off,
+                   i18n.t("Saved: results/{name}",
+                          name=self.saved_path.name),
+                   role="caption", color="text-muted", anchor="mm")
+
+        self._try_again_button(c, now, py + btn_off, bh)
+
+    def screen_nothing_recorded(self, c: Canvas, now: float):
+        """Every part was skipped: say so, and save nothing."""
+        w, h = c.w, c.h
+        pw = min(560, w - 2 * theme.SAFE_MARGIN)
+        bh, ph = 42, 186
+        px, py = (w - pw) // 2, max(56, (h - ph) // 2)
+        c.panel(px, py, pw, ph, alpha=CARD_PANEL_ALPHA)
+        c.text(w // 2, py + 30, i18n.t("Eye Movement Test - Results"),
+               role="h2", anchor="mm")
+        c.badge(w // 2, py + 52, i18n.t("All three parts skipped"), "info")
+        c.text(w // 2, py + 108, i18n.t("Nothing was recorded, so nothing "
+                                        "was saved."),
+               role="body", color="text-muted", anchor="mm")
+        self._try_again_button(c, now, py + 130, bh)
+
+    def _try_again_button(self, c: Canvas, now: float, by: int, bh: int):
         bw = 160
-        bx, by = w // 2 - bw // 2, py + btn_off
+        bx = c.w // 2 - bw // 2
         b = c.button(bx, by, bw, bh, i18n.t("Try Again"), variant="primary",
                      hovered=self.hover(bx, by, bw, bh))
         c.disclaimer()
@@ -1138,7 +1379,7 @@ class App:
             frame = cv2.flip(frame, 1)
             if not window_ready:
                 create_display_window(win, frame.shape[1], frame.shape[0])
-                cv2.setMouseCallback(win, self.on_mouse)
+                set_mouse_callback(win, self.on_mouse)
                 window_ready = True
             now = time.time()
             if self._last_frame_t is not None:
@@ -1150,6 +1391,10 @@ class App:
             pos = self.gaze_pos(sample)
             self._track_eye_state(sample, now)
 
+            # V hides every overlay (core/ui/keys.py): keep an undrawn copy
+            bare = frame.copy() if self.overlay_hidden else None
+            if bare is not None:
+                self.click = None      # its buttons cannot be seen
             dim = DIM_BY_STATE.get(self.state)
             if dim:
                 self.dim_frame(frame, dim)
@@ -1167,7 +1412,7 @@ class App:
                 chips.append((f"{self.fps:.0f} fps", "warning"))
             if self.state == PART_SUMMARY:
                 bar_title = self._part_title(self.summary_key)
-            elif self.state in (FIX_INTRO, FIX_HOLD):
+            elif self._current_part() == "fix":
                 bar_title = i18n.t(FIX_TITLE)
             elif self.state != IDLE:
                 bar_title = i18n.t(self.task.title)
@@ -1196,10 +1441,16 @@ class App:
 
             self.toasts.render(c, now)
 
-            cv2.imshow(win, screen_rec.frame(c.compose()))
+            out = (c.compose() if bare is None
+                   else bare_view(bare, i18n.t(OVERLAY_HIDDEN_HINT)))
+            show(win, screen_rec.frame(out))
             self.click = None
             key = cv2.waitKey(5) & 0xFF
             screen_rec.key(key)
+            if key in TOGGLE_OVERLAY:
+                self.overlay_hidden = not self.overlay_hidden
+            if key in SKIP_PRACTICE:
+                self.on_skip(now)
             if key == ord("q"):
                 break
             if window_closed(win):

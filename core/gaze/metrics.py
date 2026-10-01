@@ -97,10 +97,50 @@ def compute_metrics(pro_trials: list[TrialResult],
                     face_visible_ratio: float = 1.0,
                     gaze_valid_ratio: float = 1.0,
                     camera_fps: float | None = None,
-                    attempts: dict | None = None) -> dict:
+                    attempts: dict | None = None,
+                    skipped: tuple | list = ()) -> dict:
     """Score one run (pro block + anti block). Always returns a dict;
     `scoreable` is False with a specific human-readable `reason` when the
-    headline can't be computed (mirrors the tapping test's honest handling)."""
+    headline can't be computed (mirrors the tapping test's honest handling).
+
+    `skipped` names the parts the person skipped with S ("pro", "anti",
+    "fix"). A skipped part's metrics are left out rather than saved as zeros,
+    so the report shows only what was actually tested."""
+    out = _score(pro_trials, anti_trials, face_visible_ratio,
+                 gaze_valid_ratio, camera_fps, attempts)
+    skipped = tuple(skipped)
+    if skipped:
+        out["parts_skipped"] = list(skipped)
+    if "anti" in skipped:
+        for k in ANTI_KEYS:
+            out.pop(k, None)
+        out.update(scoreable=False, status=None, label=None,
+                   reason=("The look-away part was skipped, so there is no "
+                           "error rate to score."))
+    if "pro" in skipped:
+        for k in PRO_KEYS:
+            out.pop(k, None)
+        # its "baseline had too few trials" note would blame a part not run
+        out.pop("latency_note", None)
+    if "pro" in skipped and "anti" in skipped:
+        for k in ("anticipatory_count", "valid_trials"):
+            out.pop(k, None)
+    return out
+
+
+# Metrics that only exist because a block was run. Counts that sum both
+# blocks (valid_trials, anticipatory_count) stay: they describe what was run.
+PRO_KEYS = ("prosaccade_latency_ms", "valid_pro_trials", "anti_minus_pro_ms",
+            "pro_block")
+ANTI_KEYS = ("error_rate_pct", "corrected_rate_pct", "antisaccade_latency_ms",
+             "anti_minus_pro_ms", "latency_cv_pct", "valid_anti_trials",
+             "anticipatory_rate_pct", "confidence_pct", "confidence_level",
+             "error_ci_low_pct", "error_ci_high_pct", "band_edge",
+             "confidence_reasons", "anti_block")
+
+
+def _score(pro_trials, anti_trials, face_visible_ratio, gaze_valid_ratio,
+           camera_fps, attempts) -> dict:
     pro = block_stats(pro_trials)
     anti = block_stats(anti_trials)
     out: dict = {

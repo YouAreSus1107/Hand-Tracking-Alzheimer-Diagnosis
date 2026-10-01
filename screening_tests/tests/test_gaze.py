@@ -30,6 +30,8 @@ from core.gaze.tasks import TASKS
 from core.gaze.openness import (OpennessGate, ABS_FLOOR, BLINK_FRAC,
                                 NARROW_BASELINE, VERTICAL_FRAC)
 from core.gaze.tasks import build_directions
+from core.gaze.headpose import (HEAD_TURN_DEG, HeadWatch, angles as head_angles,
+                                summarise as head_summarise)
 
 
 FPS = 60.0
@@ -359,6 +361,34 @@ def test_metrics_unscoreable_too_few_valid():
     m = compute_metrics(pro, anti, face_visible_ratio=1.0)
     assert not m["scoreable"]
     assert "valid anti-saccade" in m["reason"]
+
+
+def test_skipped_pro_part_leaves_no_pro_metrics_but_still_scores():
+    anti = [_valid_error(True) for _ in range(3)] + \
+           [_valid_correct(True, 300) for _ in range(12)]
+    m = compute_metrics([], anti, face_visible_ratio=1.0, skipped=["pro"])
+    assert m["scoreable"] and m["error_rate_pct"] == 20.0
+    for k in ("prosaccade_latency_ms", "valid_pro_trials",
+              "anti_minus_pro_ms", "pro_block", "latency_note"):
+        assert k not in m, k
+    assert m["parts_skipped"] == ["pro"]
+
+
+def test_skipped_anti_part_is_unscoreable_with_its_own_reason():
+    pro = [_valid_correct(False, 220) for _ in range(15)]
+    m = compute_metrics(pro, [], face_visible_ratio=1.0, skipped=["anti"])
+    assert not m["scoreable"] and m["status"] is None
+    assert "skipped" in m["reason"]
+    assert m["prosaccade_latency_ms"] is not None
+    for k in ("error_rate_pct", "valid_anti_trials", "confidence_pct",
+              "anti_block"):
+        assert k not in m, k
+
+
+def test_no_skip_output_is_unchanged():
+    pro = [_valid_correct(False, 220) for _ in range(15)]
+    anti = [_valid_correct(True, 300) for _ in range(15)]
+    assert compute_metrics(pro, anti) == compute_metrics(pro, anti, skipped=())
 
 
 def test_metrics_unscoreable_face_lost():
@@ -696,6 +726,66 @@ def test_build_directions_balanced_no_long_runs():
             run = run + 1 if dirs[i] == dirs[i - 1] else 1
             longest = max(longest, run)
         assert longest <= 3, f"seed {seed} had a run of {longest}"
+
+
+# ── head-turn check (core/gaze/headpose.py) ──────────────────────────────────
+
+def _rot(yaw_deg: float, pitch_deg: float = 0.0, scale: float = 1.0):
+    """4x4 transform: pitch about x, then yaw about y (optionally scaled)."""
+    import math
+    y, p = math.radians(yaw_deg), math.radians(pitch_deg)
+    ry = [[math.cos(y), 0, math.sin(y)], [0, 1, 0], [-math.sin(y), 0, math.cos(y)]]
+    rx = [[1, 0, 0], [0, math.cos(p), -math.sin(p)], [0, math.sin(p), math.cos(p)]]
+    r = [[sum(ry[i][k] * rx[k][j] for k in range(3)) * scale for j in range(3)]
+         for i in range(3)]
+    return [r[0] + [0.0], r[1] + [0.0], r[2] + [0.0], [0.0, 0.0, 0.0, 1.0]]
+
+
+def test_head_angles_recover_yaw_and_pitch_and_ignore_scale():
+    yaw, pitch = head_angles(_rot(12.0, -5.0, scale=3.7))
+    assert abs(yaw - 12.0) < 0.3, yaw
+    assert abs(pitch + 5.0) < 0.3, pitch
+    assert head_angles([[0, 0, 0]] * 3) is None
+    assert head_angles(None) is None
+
+
+def _watch(rest, trial):
+    w = HeadWatch()
+    for i, pose in enumerate(rest):
+        w.rest(i / 30.0, pose)
+    w.begin()
+    for pose in trial:
+        w.trial(pose)
+    return w.turn_deg()
+
+
+def test_still_head_reads_no_turn():
+    rest = [(2.0 + 0.3 * (i % 2), -1.0) for i in range(20)]
+    turn = _watch(rest, [(2.0 + 0.3 * (i % 2), -1.0) for i in range(30)])
+    assert turn is not None and turn < 1.0, turn
+
+
+def test_turn_measured_from_the_rest_pose_not_from_zero():
+    # Sitting turned 15 degrees is not a head movement; turning 6 more is.
+    rest = [(15.0, 0.0)] * 20
+    assert _watch(rest, [(15.0, 0.0)] * 30) < 0.5
+    turn = _watch(rest, [(15.0, 0.0)] * 10 + [(21.0, 0.0)] * 20)
+    assert abs(turn - 6.0) < 0.2, turn
+    assert turn >= HEAD_TURN_DEG
+
+
+def test_single_frame_pose_glitch_is_not_a_turn():
+    rest = [(0.0, 0.0)] * 20
+    trial = [(0.0, 0.0)] * 15 + [(25.0, 10.0)] + [(0.0, 0.0)] * 14
+    assert _watch(rest, trial) < 0.5
+
+
+def test_head_turn_without_pose_is_unknown_and_not_counted():
+    assert _watch([], []) is None
+    assert _watch([None] * 10, [None] * 30) is None
+    s = head_summarise([None, 1.0, 5.0, None, 2.0])
+    assert s == {"head_turned": 1, "head_measured": 3,
+                 "head_turn_median_deg": 2.0}, s
 
 
 if __name__ == "__main__":

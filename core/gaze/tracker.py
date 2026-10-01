@@ -25,6 +25,11 @@ distinguishes "no face" from "eyes not readable"). The gate is proportional to
 each eye's own learned open aperture rather than a fixed number, so a narrow
 palpebral fissure is not mistaken for a permanent blink; the sample carries
 `open_frac` so the UI can show the person the same margin the gate is using.
+
+Head pose (`head`, yaw/pitch in degrees) comes from the model's facial
+transformation matrix and is carried even through a blink, since the head
+does not stop turning when the lids close. It feeds the head-turn check
+(headpose.py); it never touches the gaze ratio.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ from core import quiet          # keep above mediapipe: silences its startup log
 import mediapipe as mp
 
 from core.hand_utils import OneEuroFilter
+from core.gaze.headpose import angles as head_angles
 from core.gaze.openness import OpennessGate
 
 # MediaPipe Face Landmarker (refined) landmark indices.
@@ -58,6 +64,7 @@ class GazeSample:
     openness: float | None = None       # lid gap ÷ eye width, better eye
     open_frac: float | None = None      # openness ÷ that eye's open baseline
     narrow: bool = False                # their open aperture is a narrow one
+    head: tuple[float, float] | None = None   # head (yaw, pitch), degrees
 
 
 def _eye_ratios(lms, iris_i: int, corners: tuple[int, int],
@@ -94,6 +101,7 @@ class GazeTracker:
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
+            output_facial_transformation_matrixes=True,
         )
         with quiet.muted_native_stderr():
             self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
@@ -115,6 +123,8 @@ class GazeTracker:
             return None
         self._had_face = True
         lms = result.face_landmarks[0]
+        mats = getattr(result, "facial_transformation_matrixes", None)
+        head = head_angles(mats[0]) if mats else None
 
         eyes = {
             "right": _eye_ratios(lms, _RIGHT_IRIS_CENTER,
@@ -156,7 +166,7 @@ class GazeTracker:
             self._filter.reset()           # don't smooth across a lid closure
             self._filter_y.reset()
             return GazeSample(None, None, None, None, blink, iris_px,
-                              corners_px, openness, open_frac, narrow)
+                              corners_px, openness, open_frac, narrow, head)
         raw_x = sum(xs) / len(xs)
         raw_y = sum(ys) / len(ys)
         if not vertical_ok:
@@ -165,7 +175,8 @@ class GazeTracker:
                           self._filter_y.filter(raw_y, now) if vertical_ok
                           else None,
                           raw_y if vertical_ok else None, False,
-                          iris_px, corners_px, openness, open_frac, narrow)
+                          iris_px, corners_px, openness, open_frac, narrow,
+                          head)
 
     def close(self) -> None:
         self.landmarker.close()
